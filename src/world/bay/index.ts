@@ -77,7 +77,7 @@ export class Bay {
     let kind: StepSurface = "grass";
     if (onRoadZ && Math.abs(u) < ROAD_HALF) kind = "asphalt";
     else if (onRoadZ && u >= WALL_IN && u < RIBBON_HALF + 0.4) kind = "dirt";
-    else if (h < 0.1 && u < WALL_IN) kind = "dirt"; // beach (sand surfaces arrive with the sound system)
+    else if (h < 0.1 && u < WALL_IN) kind = h < SEA_Y + 0.35 ? "wetsand" : "sand";
     return { h: Math.max(h, SEA_Y - WADE), kind };
   }
 

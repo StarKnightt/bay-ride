@@ -17,6 +17,7 @@ import { ChaseCam, type CamMode } from "./rider/camera";
 import { Explore } from "./rider/onfoot";
 import { Input } from "./core/input";
 import { RideAudio } from "./audio";
+import { coastCues } from "./sound/listener";
 import { Loader, fatal } from "./loader";
 import { Hud } from "./ui/hud";
 import { captureParams, poseCamera } from "./capture/shots";
@@ -140,7 +141,7 @@ const input = new Input(
     if (!explore.onFoot) chase.toggle();
   },
 );
-// B = bicycle bell, M = mute (both also count as the first gesture that starts audio).
+// B = bicycle bell, M = music on/off, Shift+M = mute all (each also counts as the first gesture that starts audio).
 audio.bindKeys();
 addEventListener("keydown", (e) => {
   if (e.code === "KeyB" && !e.repeat) rider.bike.ringBell();
@@ -271,14 +272,17 @@ function frame(now: number) {
   rider.bike.setLamp(tod.night);
 
   if (audio.state === "running") {
+    chase.cam.getWorldDirection(_dir);
+    const cue = coastCues(px, pz, _dir.x, _dir.z);
+    audio.setShore(cue.shore, cue.shorePan);
+    audio.setOpenWater(cue.sea);
+    audio.setTimeOfDay(tod.preset);
     audio.update(simDt, Math.abs(ctl.speed), Math.abs(ctl.cadence), Math.abs(ctl.wheelRate), ctl.pedaling, ctl.brakePressure, {
       steer: Math.max(-1, Math.min(1, ctl.steer / 0.3)),
       bump: ctl.bumpImpulse,
       roughness: 0.25,
-      water: bay.seaNear(px, pz),
-      trees: 0.2,
-      houses: 0.1,
       evening: tod.evening,
+      night: tod.night,
     });
   }
 
@@ -348,6 +352,7 @@ window.__ready = false;
 window.__ride = {
   scene,
   bay,
+  audio,
   post,
   prof,
   tod,

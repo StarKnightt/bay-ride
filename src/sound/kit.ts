@@ -10,10 +10,19 @@ export interface RideState {
   steer: number; // -1 left … 1 right
   bump: number; // impulse strength this frame (0 = none)
   roughness: number; // 0 smooth asphalt … 1 rough
-  water: number; // proximity to paddies / irrigation water 0…1
-  trees: number; // proximity to trees / foliage 0…1
-  houses: number; // proximity to houses 0…1
+  /** Overall travel speed of the listener (bike, feet or boat), m/s — drives the wind. */
+  move: number;
+  shore: number; // distance to the breaking shoreline, m
+  shorePan: number; // -1 shore to the left … 1 to the right
+  sea: number; // 0 inland … 1 out on the open water
+  pier: number; // 0…1 closeness to pier posts / moored hulls (lapping)
+  pierPan: number;
+  boat: number; // 0 ashore … 1 aboard the boat
+  throttle: number; // 0 idle … 1 full
+  boatSpeed: number; // m/s
+  slap: number; // hull slap impulse this frame (0 = none)
   evening: number; // 0 midday … 1 dusk
+  night: number; // 0 day … 1 night
 }
 
 /** Shared environment signals computed once per tick by the engine. */
@@ -32,7 +41,7 @@ export interface PlayOpts {
   wetDest?: AudioNode;
 }
 
-/** Sample rate for pre-rendered voices (content stays below ~12 kHz). */
+/** Sample rate for pre-rendered voices (content stays well below 8 kHz). */
 export const GEN_SR = 32000;
 
 export class Kit {

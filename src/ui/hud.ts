@@ -30,7 +30,7 @@ export class Hud {
     this.hint.className = "keys";
     this.hint.innerHTML =
       "<b>W A S D</b> ride / walk &nbsp; <b>Shift</b> sprint &nbsp; <b>F</b> get off / on<br>" +
-      "<b>V</b> first person &nbsp; <b>C</b> cinematic &nbsp; <b>T</b> time of day &nbsp; <b>B</b> bell &nbsp; <b>M</b> mute &nbsp; <b>H</b> hint";
+      "<b>V</b> first person &nbsp; <b>C</b> cinematic &nbsp; <b>T</b> time of day &nbsp; <b>B</b> bell &nbsp; <b>M</b> music &nbsp; <b>H</b> hint";
     document.body.append(this.bar, this.hint);
     this.mark(tod.preset);
     tod.onChange((p) => this.mark(p));

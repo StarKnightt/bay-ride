@@ -1,65 +1,71 @@
 /**
- * Ride soundscape — everything is synthesised at runtime with Web Audio (no audio files).
- * The engine lives in ./sound/: bicycle, wind + leaf rustle, cicadas (higurashi / minmin / far chorus),
- * birds (songbirds, uguisu, kite, crow), irrigation water + frogs, and a warm ambience bed with rare
- * furin, temple-bell and level-crossing details, all through an open-air convolution reverb and a
- * compressor → limiter → soft-clip master bus.
+ * Bay soundscape and score — everything is synthesised at runtime with Web Audio (no audio files).
+ * The engine lives in ./sound/: waves on the sand, lapping at the pier and hull, the outboard and hull
+ * slaps, distant gulls, wind, the bicycle, footsteps on wood / sand / wet sand, and a quiet generative
+ * score that follows the time of day — all through warm open-air and hall reverbs and a gentle
+ * compressor → limiter → soft-ceiling master (peaks held under −3.5 dBFS).
  *
  * ── Wiring guide ────────────────────────────────────────────────────────────────────────────────
  *   const audio = new RideAudio();
  *   new Input(() => audio.start());            // start() must run inside a user gesture (autoplay policy)
- *   audio.bindKeys();                          // optional: B = bell, M = mute (returns an unbind function)
+ *   audio.bindKeys();                          // B = bell, M = music on/off, Shift+M = mute all
  *
- *   // every frame (unchanged signature; the 7th argument is optional):
- *   audio.update(dt, ctl.speed, ctl.cadence, ctl.wheelRate, ctl.pedaling, ctl.braking, {
- *     steer: ctl.steer / 0.3,     // -1…1, wind shifts slightly toward the turn
- *     bump: 0,                    // 0…1 impulse on the frame the wheel hits a seam/pothole (basket rattle)
- *     roughness: 0.25,            // 0 smooth asphalt … 1 rough/gravel (more tyre noise, more random bumps)
- *     water: 0…1,                 // closeness to paddies / irrigation channels (trickling water, frogs)
- *     trees: 0…1,                 // closeness to trees (leaf rustle)
- *     houses: 0…1,                // closeness to houses (furin wind chimes ring more often)
- *     evening: 0.65,              // 0 midday … 1 dusk (more higurashi, fewer minmin)
- *   });
- *   Any omitted extra gets a default; water/trees/houses then drift slowly with distance ridden.
- *   `braking` may be a boolean or a 0…1 brake pressure.
+ *   // every frame, the bike (unchanged signature; the 7th argument is optional):
+ *   audio.update(dt, speed, cadence, wheelRate, pedaling, braking, { steer, bump, roughness, evening, night });
  *
- *   audio.ringBell();  audio.bump(0.8);  audio.toggleMute();  audio.setMasterVolume(0…1);
- *   audio.footstep("asphalt" | "grass" | "dirt", 0…1.5);   // on foot (optional)
- *   audio.trigger("furin" | "temple" | "crossing" | "uguisu" | "kite" | "crow" | "frog" | "higurashi" | "minmin" | "bell" | "bump");
+ *   // every frame (or whenever they change), the world around the listener:
+ *   audio.setTimeOfDay("morning" | "noon" | "golden" | "sunset" | "dusk" | "night");  // music mood + gulls
+ *   audio.setShore(distanceToWaterline_m, pan);   // pan −1 shore on the left … 1 on the right
+ *   audio.setOpenWater(0…1);                      // 0 on land … 1 out on the bay (open-sea hush)
+ *   audio.setNearPier(0…1, pan);                  // closeness to pier posts / moored hulls (lapping)
+ *   audio.setMotion(m/s);                         // listener travel speed for the wind (bike, feet or boat)
+ *
+ *   // the boat (once it exists):
+ *   audio.setInBoat(true | false);                // aboard: the outboard idles, our hull laps when still
+ *   audio.setBoatThrottle(0…1);  audio.setBoatSpeed(m/s);
+ *   audio.boatSlap(0…1);                          // optional: a swell meets the bow (auto-generated otherwise)
+ *
+ *   audio.footstep("wood" | "sand" | "wetsand" | "asphalt" | "grass" | "dirt", 0…1.5);
+ *   audio.ringBell();  audio.toggleMusic();  audio.toggleMute();  audio.setMasterVolume(0…1);
  * ────────────────────────────────────────────────────────────────────────────────────────────────
  */
-import { SoundEngine, type SoundEvent } from "./sound/engine";
+import { SoundEngine, type EngineInput, type MoodName, type SoundEvent } from "./sound/engine";
 import type { StepSurface } from "./sound/steps";
 
-export type { SoundEvent } from "./sound/engine";
+export type { SoundEvent, MoodName } from "./sound/engine";
 export type { StepSurface } from "./sound/steps";
 
 export interface RideAudioExtras {
   steer?: number;
   bump?: number;
   roughness?: number;
-  water?: number;
-  trees?: number;
-  houses?: number;
   evening?: number;
+  night?: number;
 }
 
 const PREFS_KEY = "bay-ride:audio";
 const FADE_IN = 2.5;
+/** Seconds after the player starts before the score begins to fade in. */
+const MUSIC_DELAY = 5;
 
 export class RideAudio {
   private ctx: AudioContext | null = null;
   private engine: SoundEngine | null = null;
   private vol = 0.8;
   private mute = false;
+  private musicOn = true;
   private hideTimer = 0;
   private onVis = () => this.visibility();
+  private mood: MoodName = "golden";
+  private world: EngineInput = { speed: 0, crank: 0, wheel: 0, pedal: 0, brake: 0, shore: 30, shorePan: -0.5, sea: 0, pier: 0, pierPan: 0, boat: 0, throttle: 0, boatSpeed: 0 };
+  private slapQ = 0;
 
   constructor() {
     try {
-      const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as { volume?: number; muted?: boolean };
+      const p = JSON.parse(localStorage.getItem(PREFS_KEY) ?? "{}") as { volume?: number; muted?: boolean; music?: boolean };
       if (typeof p.volume === "number" && Number.isFinite(p.volume)) this.vol = Math.min(1, Math.max(0, p.volume));
       if (typeof p.muted === "boolean") this.mute = p.muted;
+      if (typeof p.music === "boolean") this.musicOn = p.music;
     } catch {
       /* private mode / no storage */
     }
@@ -74,6 +80,10 @@ export class RideAudio {
     return this.mute;
   }
 
+  get music(): boolean {
+    return this.musicOn;
+  }
+
   get volume(): number {
     return this.vol;
   }
@@ -86,11 +96,14 @@ export class RideAudio {
     }
     const AC: typeof AudioContext | undefined = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AC) return;
-    const ctx = new AC({ latencyHint: "interactive" });
+    const ctx = new AC({ latencyHint: "playback" });
     this.ctx = ctx;
-    this.engine = new SoundEngine(ctx, ctx.destination, { lazy: true });
-    this.engine.setVolume(0, ctx.currentTime, 0.01);
+    const engine = (this.engine = new SoundEngine(ctx, ctx.destination, { lazy: true }));
+    engine.setVolume(0, ctx.currentTime, 0.01);
     this.applyVolume(FADE_IN / 3);
+    engine.setMood(this.mood, ctx.currentTime);
+    engine.setMusic(this.musicOn, ctx.currentTime);
+    engine.startMusic(ctx.currentTime, MUSIC_DELAY);
     document.addEventListener("visibilitychange", this.onVis);
     if (ctx.state === "suspended") void ctx.resume();
   }
@@ -98,33 +111,91 @@ export class RideAudio {
   update(dt: number, speed: number, crankRate: number, wheelRate: number, pedaling: number, braking: boolean | number, extras?: RideAudioExtras): void {
     const ctx = this.ctx;
     if (!ctx || !this.engine || ctx.state !== "running") return;
-    this.engine.tick(ctx.currentTime, dt, {
-      speed,
-      crank: crankRate,
-      wheel: wheelRate,
-      pedal: pedaling,
-      brake: typeof braking === "number" ? braking : braking ? 1 : 0,
-      ...extras,
-    });
+    const w = this.world;
+    w.speed = speed;
+    w.crank = crankRate;
+    w.wheel = wheelRate;
+    w.pedal = pedaling;
+    w.brake = typeof braking === "number" ? braking : braking ? 1 : 0;
+    w.steer = extras?.steer;
+    w.bump = extras?.bump;
+    w.roughness = extras?.roughness;
+    if (extras?.evening !== undefined) w.evening = extras.evening;
+    if (extras?.night !== undefined) w.night = extras.night;
+    w.slap = this.slapQ;
+    this.slapQ = 0;
+    this.engine.tick(ctx.currentTime, dt, w);
   }
 
-  /** Mamachari bell "chirin-chirin". Starts audio if needed. */
+  // ── world hooks (cheap setters; read on the next update) ──
+
+  /** Music mood (and gull activity via evening/night if those aren't passed to update). */
+  setTimeOfDay(preset: string): void {
+    if (!isMood(preset) || preset === this.mood) return;
+    this.mood = preset;
+    if (this.ctx && this.engine) this.engine.setMood(preset, this.ctx.currentTime);
+  }
+
+  /** Distance (m) to the breaking shoreline and its direction (−1 left … 1 right of where we face). */
+  setShore(distance: number, pan = 0): void {
+    this.world.shore = distance;
+    this.world.shorePan = pan;
+  }
+
+  /** 0 on land … 1 out on open water. */
+  setOpenWater(amount: number): void {
+    this.world.sea = amount;
+  }
+
+  /** 0…1 closeness to pier posts / moored hulls, and their direction. */
+  setNearPier(amount: number, pan = 0): void {
+    this.world.pier = amount;
+    this.world.pierPan = pan;
+  }
+
+  /** Listener travel speed (m/s) for the wind; defaults to the bike speed (or boat speed when aboard). */
+  setMotion(speed: number | undefined): void {
+    this.world.move = speed;
+  }
+
+  setInBoat(aboard: boolean): void {
+    this.world.boat = aboard ? 1 : 0;
+    if (!aboard) {
+      this.world.throttle = 0;
+      this.world.boatSpeed = 0;
+    }
+  }
+
+  setBoatThrottle(t: number): void {
+    this.world.throttle = t;
+  }
+
+  setBoatSpeed(speed: number): void {
+    this.world.boatSpeed = speed;
+  }
+
+  /** A swell meets the hull, strength 0…1 (optional — slaps are generated from boat speed otherwise). */
+  boatSlap(strength = 0.6): void {
+    this.slapQ = Math.max(this.slapQ, strength);
+  }
+
+  /** Thumb bell. Starts audio if needed. */
   ringBell(): void {
     this.start();
     if (this.ctx && this.engine) this.engine.ringBell(this.ctx.currentTime + 0.01);
   }
 
-  /** Basket/mudguard rattle, strength 0…1. */
+  /** Tyre over a seam, strength 0…1. */
   bump(strength = 0.6): void {
     if (this.ctx && this.engine) this.engine.bump(this.ctx.currentTime + 0.01, strength);
   }
 
-  /** A footstep while walking: "asphalt" | "grass" | "dirt", strength 0…1.5 (jogging ≈ 1.2). */
+  /** A footstep while walking, strength 0…1.5 (jogging ≈ 1.2). */
   footstep(surface: StepSurface, strength = 0.8): void {
     if (this.ctx && this.engine) this.engine.footstep(this.ctx.currentTime + 0.005, surface, strength);
   }
 
-  /** Fire a specific sound now (handy for cutscenes and testing). */
+  /** Fire a specific sound now (handy for testing). */
   trigger(ev: SoundEvent): void {
     if (this.ctx && this.engine) this.engine.trigger(ev, this.ctx.currentTime + 0.02);
   }
@@ -142,18 +213,30 @@ export class RideAudio {
     this.save();
   }
 
-  /** Pause menu: duck to near-silence over ~0.4 s, and back. */
-  setPaused(p: boolean): void {
-    this.ducked = p;
-    this.applyVolume(0.13);
-  }
-
   toggleMute(): boolean {
     this.setMuted(!this.mute);
     return this.mute;
   }
 
-  /** B = bell, M = mute. Returns a function that removes the listener. */
+  /** Background music on / off (persisted); the soundscape keeps playing. */
+  setMusic(on: boolean): void {
+    this.musicOn = on;
+    if (this.ctx && this.engine) this.engine.setMusic(on, this.ctx.currentTime);
+    this.save();
+  }
+
+  toggleMusic(): boolean {
+    this.setMusic(!this.musicOn);
+    return this.musicOn;
+  }
+
+  /** Pause: duck to near-silence over ~0.4 s, and back. */
+  setPaused(p: boolean): void {
+    this.ducked = p;
+    this.applyVolume(0.13);
+  }
+
+  /** B = bell, M = music on/off, Shift+M = mute everything. Returns a function that removes the listener. */
   bindKeys(target: Window = window): () => void {
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -162,7 +245,11 @@ export class RideAudio {
       if (e.code === "KeyB") this.ringBell();
       else if (e.code === "KeyM") {
         this.start();
-        this.toggleMute();
+        if (e.shiftKey) this.toggleMute();
+        else {
+          if (this.mute) this.setMuted(false);
+          this.toggleMusic();
+        }
       }
     };
     target.addEventListener("keydown", onKey);
@@ -185,7 +272,7 @@ export class RideAudio {
 
   private save(): void {
     try {
-      localStorage.setItem(PREFS_KEY, JSON.stringify({ volume: this.vol, muted: this.mute }));
+      localStorage.setItem(PREFS_KEY, JSON.stringify({ volume: this.vol, muted: this.mute, music: this.musicOn }));
     } catch {
       /* ignore */
     }
@@ -204,3 +291,6 @@ export class RideAudio {
     }
   }
 }
+
+const MOODS: readonly string[] = ["morning", "noon", "golden", "sunset", "dusk", "night"];
+const isMood = (p: string): p is MoodName => MOODS.includes(p);
