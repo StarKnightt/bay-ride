@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { COMMON, G, REFL } from "../render/materials";
 import { ID } from "../world/geo";
-import { SEA_Y, roadX } from "../world/bay/road";
-import { waterlineU } from "../world/bay/terrain";
+import { SEA_Y, roadX, smooth } from "../world/bay/road";
+import { ISLAND, waterlineU } from "../world/bay/terrain";
 import { DEPTH, DEPTH_GLSL } from "./depthMap";
 import { WAVES_GLSL } from "./waves";
 import { SKIRT_MAX, rockSkirts } from "./rocks";
@@ -23,6 +23,18 @@ export const COAST_GLSL = /* glsl */ `
 float coastRoadX(float z){ return 45.0 * cos(clamp((z + 30.0) / 200.0, -1.0, 1.0) * 1.5707963); }
 float coastWaterU(float z){ return -28.0 - 4.0 * sin(z * 0.021 + 0.6) - 2.0 * sin(z * 0.057); }
 `;
+
+/** Island waterline radius (before its outline wobble): where terrain.ts islandH's dome and shoulder cross sea level. */
+const ISLAND_R0 = (() => {
+  const f = (r: number) => 18 * Math.pow(1 - smooth(4, ISLAND.r, r), 0.6) - 10 * smooth(ISLAND.r - 4, ISLAND.r + 26, r);
+  let lo = 4, hi = 80;
+  for (let i = 0; i < 40; i++) {
+    const m = 0.5 * (lo + hi);
+    if (f(m) > 0) lo = m;
+    else hi = m;
+  }
+  return lo;
+})();
 
 /** Open-sea grid: follows the camera in steps of this many metres. */
 const GRID_SNAP = 8;
@@ -114,7 +126,7 @@ const FS = /* glsl */ `
   // trailing downwind.
   // Also returns rings: light ripple rings spreading as the buoy bobs, and contact: the darker
   // water right at the waterline.
-  float buoyFoam(vec2 q, float t, out float rings, out float contact){
+  float buoyFoam(vec2 q, float t, vec2 dqx, vec2 dqy, float px, out float rings, out float contact){
     float f = 0.0;
     rings = 0.0; contact = 0.0;
     vec2 side = vec2(-O_WIND.y, O_WIND.x);
@@ -126,6 +138,13 @@ const FS = /* glsl */ `
       float an = atan(d.y, d.x);
       float ring = exp(-max(L - B.z, 0.0) / (0.3 + 0.45 * abs(B.w))) * smoothstep(B.z - 0.12, B.z + 0.02, L);
       ring *= 0.55 + 0.6 * vnoise(vec2(an * 2.2 + float(i) * 5.0, t * 0.7));
+      // Far off the collar is held to a few pixels round the hull, so it still reads as a ring.
+      if (px > 0.06) {
+        vec2 dp = vec2(dot(d, dqx) / dot(dqx, dqx), dot(d, dqy) / dot(dqy, dqy));
+        vec2 bp = B.z / vec2(length(dqx), length(dqy));
+        float e = length(dp / (bp + vec2(4.0, 2.4)));
+        ring = max(ring, (1.0 - smoothstep(0.7, 1.0, e)) * smoothstep(0.06, 0.2, px) * (0.75 + 0.35 * vnoise(vec2(an * 2.0 + float(i), t * 0.9))));
+      }
       contact = max(contact, 1.0 - smoothstep(B.z, B.z + 0.6, L));
       // Two or three rings travelling out from the hull, fading as they spread.
       float r = L - B.z;
@@ -144,13 +163,17 @@ const FS = /* glsl */ `
   // a whole number of columns round the viewer in each row, so the ring closes with no seam.
   // Painted marks drawn in them keep a steady on-screen shape and stay put when the camera turns.
   // Returns the continuous cell coordinates (fract = position in the cell) and the cell id.
-  vec2 oFan(vec3 V, float rowH, float colW, float scroll, out vec2 id){
+  // fd: depression^0.75 and the azimuth turn fraction 0..1 (shared by every layer).
+  vec2 oFanD(vec3 V){
     float dep = max(-V.y, 1e-4) / max(length(V.xz), 1e-4);
-    float v = pow(dep, 0.75) / rowH + scroll;
+    return vec2(pow(dep, 0.75), atan(V.z, V.x) / 6.2831853 + 0.5);
+  }
+  vec2 oFan(vec2 fd, float rowH, float colW, float scroll, out vec2 id){
+    float v = fd.x / rowH + scroll;
     float row = floor(v);
     float rc = pow(max((row - scroll + 0.5) * rowH, rowH * 0.5), 1.0 / 3.0);
     float N = max(floor(6.2831853 / (colW * rc)), 3.0);
-    float a = (atan(V.z, V.x) / 6.2831853 + 0.5) * N;
+    float a = fd.y * N;
     float col = floor(a);
     if (col >= N) col -= N;
     id = vec2(col, row);
@@ -166,12 +189,12 @@ const FS = /* glsl */ `
   // Painted ripple marks on water whose chop is too fine to draw: sparse lens dabs that open and
   // close over a few seconds, mostly darker (facets turned to the viewer show the higher sky and
   // the water body), a few lighter. Signed: + dark, - light.
-  float oFanDabs(vec3 V, float t, float gust){
+  float oFanDabs(vec2 fd, float t, float gust){
     float s = 0.0;
     for (int k = 0; k < 2; k++) {
       float fk = float(k);
       vec2 id;
-      vec2 F = oFan(V, k == 0 ? 0.034 : 0.021, k == 0 ? 0.5 : 0.32, 0.0, id);
+      vec2 F = oFan(fd, k == 0 ? 0.034 : 0.021, k == 0 ? 0.5 : 0.32, 0.0, id);
       vec2 aa = vec2(fwidth(F.x), fwidth(F.y));
       vec2 f = fract(F);
       float per = 4.5 + 3.5 * hash12(id + 1.7 + fk * 9.0);
@@ -190,18 +213,18 @@ const FS = /* glsl */ `
   // Stochastic glitter where the chop is too fine to draw: each cell is one wave facet with a
   // random slope (spread sig round the mean slope g0) that turns slowly; it flashes as a flat dab
   // when it mirrors the light (needed slope sH) into the eye.
-  float oFanGlint(vec3 V, float t, vec2 g0, vec2 sH, float sig, float rad){
+  float oFanGlint(vec2 fd, float t, vec2 g0, vec2 sH, float sig, float rad){
     float best = 0.0;
     for (int k = 0; k < 3; k++) {
       vec2 id;
-      vec2 F = oFan(V, k == 0 ? 0.016 : k == 1 ? 0.0105 : 0.0072, k == 0 ? 0.17 : k == 1 ? 0.115 : 0.08, -t * (0.3 + 0.12 * float(k)), id);
+      vec2 F = oFan(fd, k == 0 ? 0.016 : k == 1 ? 0.0105 : 0.0072, k == 0 ? 0.17 : k == 1 ? 0.115 : 0.08, -t * (0.3 + 0.12 * float(k)), id);
       vec2 aa = vec2(fwidth(F.x), fwidth(F.y));
       vec2 f = fract(F);
       vec2 hid = id + float(k) * 31.0;
       float h1 = hash12(hid + 0.5), h2 = hash12(hid + 3.3), h3 = hash12(hid + 6.1), h4 = hash12(hid + 9.7);
-      vec2 gs = sqrt(-2.0 * log(max(h1, 1e-4))) * vec2(cos(6.2831853 * h2), sin(6.2831853 * h2));
-      float ph = t * (0.2 + 0.4 * h4) + h3 * 6.2831853;
-      gs = mat2(cos(ph), sin(ph), -sin(ph), cos(ph)) * gs;
+      // A random facet slope (Box-Muller) turning slowly: one angle for both.
+      float ph = 6.2831853 * (h2 - h3) - t * (0.2 + 0.4 * h4);
+      vec2 gs = sqrt(-2.0 * log(max(h1, 1e-4))) * vec2(cos(ph), sin(ph));
       float e = length(g0 + gs * sig - sH);
       float m = 1.0 - smoothstep(rad * 0.45, rad, e);
       if (m <= 0.0) continue;
@@ -210,6 +233,57 @@ const FS = /* glsl */ `
       best = max(best, m * oLens(f, c, r, aa));
     }
     return best;
+  }
+  // Painted near chop: short horizontal tonal dashes, a few pixels tall and several times as wide,
+  // in view-anchored rows of equal log depression (so they shrink and crowd toward the horizon),
+  // drifting toward the eye and opening and closing over a few seconds. Signed: + dark, - light.
+  float oStrokes(vec3 V, float t, float gust){
+    float dep = max(-V.y, 1e-4) / max(length(V.xz), 1e-4);
+    const float rowH = 0.072;
+    float sc = t * 0.12;
+    float v = log(dep) / rowH + sc;
+    float row = floor(v);
+    // Column width a few times the row height at that depression, in azimuth.
+    float dr = exp((row - sc + 0.5) * rowH);
+    float N = max(floor(6.2831853 / (5.0 * rowH * dr)), 3.0);
+    vec2 cf = normalize(-vec2(viewMatrix[0][2], viewMatrix[2][2]) + 1e-5);
+    float a = (atan(dot(V.xz, vec2(-cf.y, cf.x)), dot(V.xz, cf)) / 6.2831853 + 0.5) * N + hash12(vec2(row, 0.7)) * 7.0;
+    vec2 F = vec2(a, v);
+    vec2 aa = vec2(fwidth(F.x), fwidth(F.y));
+    vec2 id = vec2(mod(floor(a), N), row);
+    vec2 f = fract(F);
+    float per = 2.5 + 3.0 * hash12(id + 2.7);
+    float cyc = t / per + hash12(id + 8.3) * 7.0;
+    float n = floor(cyc), life = fract(cyc);
+    vec2 hid = id + n * vec2(2.13, 3.71);
+    if (hash12(hid) > 0.55 + 0.25 * (gust - 0.9)) return 0.0;
+    float g = sin(3.14159 * life);
+    vec2 c = vec2(0.3 + 0.4 * hash12(hid + 1.3), 0.4 + 0.2 * hash12(hid + 4.9));
+    vec2 r = vec2(0.2 + 0.24 * hash12(hid + 6.1), 0.13 + 0.1 * hash12(hid + 3.4)) * (0.55 + 0.45 * g);
+    float m = oLens(f, c, r, aa) * smoothstep(0.0, 0.3, g);
+    return m * (hash12(hid + 9.2) < 0.45 ? -0.8 : 1.0);
+  }
+  // Wave break bands across the mirror: irregular horizontal bands spaced by log distance (so
+  // they crowd toward the horizon), of uneven width and spacing, drifting toward the eye with
+  // the swell; their ends wander. x: broad bands 0..1, y: thin ripple lines 0..1, z: sideways
+  // offset -1..1.
+  // Azimuth measured from the camera's heading, so the noise seam sits behind the viewer.
+  float oAz(vec3 V){
+    vec2 cf = normalize(-vec2(viewMatrix[0][2], viewMatrix[2][2]) + 1e-5);
+    return atan(dot(V.xz, vec2(-cf.y, cf.x)), dot(V.xz, cf));
+  }
+  vec3 oBreak(vec2 rq, vec3 V, float t, float flr){
+    float lr = log(max(length(rq), 1.0));
+    float az = oAz(V);
+    float bw = vnoise(vec2(az * 1.0 + 5.0, lr * 0.8 - t * 0.03));
+    float bA = vnoise(vec2(az * 1.3 + bw * 1.2, lr * 2.3 + t * 0.07));
+    float bB = vnoise(vec2(az * 1.6 + 2.0, lr * 6.5 + t * 0.16 + bw * 1.5));
+    float wide = smoothstep(0.56, 0.68, bA) * (1.0 - smoothstep(0.8, 0.92, bA) * 0.5);
+    float lw = max(0.035 + 0.03 * bw, flr * 6.5 * 1.8);
+    float line = (1.0 - smoothstep(0.0, lw, abs(bB - 0.62))) * smoothstep(0.3, 0.5, bw + 0.2) * min(1.0, 0.05 / lw);
+    // The thin lines belong to the mirrored scene further out; near the eye the strokes take over.
+    line *= smoothstep(4.0, 5.0, lr);
+    return vec3(wide, line, (vnoise(vec2(az * 3.0, lr * 9.0 - t * 0.3) + 9.0) - 0.5) * 2.0);
   }
 
   void main(){
@@ -248,7 +322,6 @@ const FS = /* glsl */ `
     resV *= chopK * chopK; lostV *= chopK * chopK;
     float sigR = sqrt(resV);
     float lostF = lostV / max(lostV + resV, 1e-6);
-
     // Painted ripples on top of the swell in the shallows, calmed with distance so they never
     // alias, and smoothed out inside the foam.
     float near = 1.0 - smoothstep(40.0, 500.0, dist);
@@ -265,7 +338,8 @@ const FS = /* glsl */ `
     vec2 gU = mix(gC, fwd * tone * sigR * 1.3 + side * dot(gC, side) * 0.6, 0.7) * (1.0 - farK);
     // Near the eye, short horizontal ripple bands break the mirrored sky into strokes.
     float band = 0.0;
-    float bandK = (1.0 - smoothstep(60.0, 420.0, dist)) * (1.0 - smoothstep(0.35, 1.1, pxM)) * chopK;
+    // Faded before its rows (~0.6 m) get thinner than a pixel, or they alias into hairlines.
+    float bandK = (1.0 - smoothstep(60.0, 420.0, dist)) * (1.0 - smoothstep(0.08, 0.2, pxM)) * chopK;
     if (bandK > 0.0) {
       vec2 rq = q - cameraPosition.xz;
       float bn = vnoise(vec2(dot(rq, side) * 0.22, dot(rq, fwd) * 1.7) + vec2(uTime * 0.15, -uTime * 0.5));
@@ -276,8 +350,21 @@ const FS = /* glsl */ `
     // it; they are gone before the far band, which stays one smooth gradient.
     float dabs = 0.0;
     float dabK = chopK * mix(0.6, 1.0, lostF) * smoothstep(0.012, 0.03, -V.y) * (1.0 - smoothstep(320.0, 900.0, dist));
-    if (dabK > 0.01) dabs = oFanDabs(V, uTime, gust) * dabK;
+    vec2 fanD = oFanD(V);
+    if (dabK > 0.01) dabs = oFanDabs(fanD, uTime, gust) * dabK;
     gU += fwd * dabs * 0.06;
+    // Near the eye the chop is painted as readable strokes, so the water never reads as glass.
+    float strokes = 0.0;
+    // The bay in front of the beach is chopped too once it is past the surf.
+    float stC = max(chopK, smoothstep(1.5, 4.0, s.h) * (1.0 - smoothstep(0.05, 0.3, s.brk + s.foam)) * 0.85);
+    float stK = stC * (1.0 - smoothstep(90.0, 260.0, dist)) * smoothstep(0.02, 0.05, -V.y) * (1.0 - 0.4 * uNight);
+    if (stK > 0.01) strokes = oStrokes(V, uTime, gust) * stK;
+    gU += fwd * strokes * 0.05;
+    // Break bands across the mirror (open water only), animated with the swell.
+    // Only where the mirror shows at a grazing angle; looking steeply down it is not seen.
+    vec3 brkB = vec3(0.0);
+    float brkK = chopK * (1.0 - 0.6 * farK) * (1.0 - smoothstep(0.08, 0.14, -V.y)) * (1.0 - smoothstep(1000.0, 1600.0, dist));
+    if (brkK > 0.01) brkB = oBreak(q - cameraPosition.xz, V, uTime, pxM / max(length(q - cameraPosition.xz), 1.0)) * brkK;
     vec3 Nw = normalize(vec3(-(sl.x + gU.x) + rip.x, 1.0, -(sl.y + gU.y) + rip.y));
 
     float surfY = W_SEA + s.eta;
@@ -290,7 +377,8 @@ const FS = /* glsl */ `
     float hd = max(surfY - Fb.r, 0.0);
     float seeBed = 1.0 - smoothstep(4.0, 9.0, hd);
     vec3 bed = vec3(0.0);
-    if (seeBed > 0.0) {
+    // Past ~7.5 m the bed adds under 1% (clarity), so it is skipped.
+    if (seeBed > 0.0 && hd < 7.5) {
       float rkeep = 1.0 - smoothstep(0.03, 0.12, px);
       vec3 alb = mix(vec3(0.43, 0.365, 0.23), vec3(0.62, 0.55, 0.33), smoothstep(0.15, 1.2, hd));
       // Sand ripples along the shore (lit crests, shaded troughs), scattered stones and pebbles,
@@ -299,6 +387,7 @@ const FS = /* glsl */ `
       alb *= 1.0 + (0.1 * rp + 0.12 * (smoothstep(0.4, 0.9, rp) - 0.3)) * rkeep * smoothstep(0.08, 0.5, hd);
       alb *= 0.88 + 0.24 * vnoise(pb * 0.11);
       float stoneK = smoothstep(0.05, 0.3, hd) * (1.0 - smoothstep(0.06, 0.2, px));
+      if (stoneK > 0.0) {
       vec2 sc = floor(pb * 0.7);
       vec2 so = fract(pb * 0.7) - 0.5 - (vec2(hash12(sc + 2.3), hash12(sc + 9.1)) - 0.5) * 0.6;
       float stone = step(0.86, hash12(sc + 5.5)) * (1.0 - smoothstep(0.12, 0.2 + 0.06 * vnoise(pb * 6.0), length(so * vec2(1.0, 1.4))));
@@ -307,42 +396,50 @@ const FS = /* glsl */ `
       vec2 so2 = fract(pb * 2.3) - 0.5 - (vec2(hash12(sc2 + 1.7), hash12(sc2 + 6.2)) - 0.5) * 0.5;
       float peb = step(0.8, hash12(sc2 + 3.3)) * (1.0 - smoothstep(0.1, 0.18, length(so2 * vec2(1.0, 1.3))));
       alb = mix(alb, vec3(0.3, 0.27, 0.21) * (0.7 + 0.5 * hash12(sc2)), peb * stoneK * (1.0 - smoothstep(0.03, 0.08, px)));
+      }
       // The thin water at the edge matches the beach's clear film over wet sand; the bed brightens
       // steadily as the water deepens.
       alb *= mix(vec3(0.52, 0.5, 0.47), vec3(1.0), smoothstep(0.03, 0.6, hd + 0.2 * (vnoise(pb * 0.12) - 0.5)));
-      float weed = smoothstep(0.6, 0.7, fbm2(pb * 0.05 + 4.0)) * smoothstep(1.2, 3.0, hd);
-      alb = mix(alb, vec3(0.13, 0.17, 0.08), weed * 0.55);
+      if (hd > 1.2) alb = mix(alb, vec3(0.13, 0.17, 0.08), smoothstep(0.6, 0.7, fbm2(pb * 0.05 + 4.0)) * smoothstep(1.2, 3.0, hd) * 0.55);
       float rk = smoothstep(0.9, 0.99, Fb.a);
       alb = mix(alb, vec3(0.16, 0.17, 0.13) * (0.75 + 0.5 * vnoise(pb * 1.7)), rk);
       vec3 lit = toonT(alb, vec3(0.0, 1.0, 0.0), vec3(pb.x, Fb.r, pb.y), 0.0, 0.25, 0.0, 0.05, uShadowTint);
       float sunUp = clamp(uSunDir.y * 3.0, 0.0, 1.0) * (1.0 - uNight);
       // Caustics as flat painted filaments of warm light.
-      float ca = smoothstep(0.1, 0.24, caustic(pb, uTime)) * smoothstep(0.05, 0.3, hd) * exp(-hd * 0.35) * sunUp * (1.0 - rk * 0.6) * (1.0 - smoothstep(0.08, 0.3, px));
-      lit += mix(alb, vec3(1.0, 0.95, 0.75), 0.5) * uSunColor * ca * 0.5;
+      float caK = smoothstep(0.05, 0.3, hd) * exp(-hd * 0.35) * sunUp * (1.0 - rk * 0.6) * (1.0 - smoothstep(0.08, 0.3, px));
+      if (caK > 0.0) lit += mix(alb, vec3(1.0, 0.95, 0.75), 0.5) * uSunColor * smoothstep(0.1, 0.24, caustic(pb, uTime)) * caK * 0.5;
       bed = lit;
     }
     // Depth colour, in painted stages: the clear shallows, turquoise over a few metres of sand,
     // then the preset's deep blue offshore.
     // The depth used for colour wanders by a quarter either way in broad patches, so the stage
     // edges are soft and irregular rather than following one contour.
-    float hdc = hd * (0.75 + 0.5 * vnoise(q * 0.018 + 11.0)) + 1.5 * (vnoise(q * 0.07 + 4.0) - 0.5);
-    float depthK = 1.0 - exp(-max(hdc, 0.0) * 0.12);
+    // Broad patches and a ragged edge, so no stage follows one contour round the island.
+    float nq9 = vnoise(q * 0.09);
+    float hdc = hd * (0.6 + 0.8 * vnoise(q * 0.012 + 11.0)) + 2.5 * (vnoise(q * 0.035 + 4.0) - 0.5) + 1.2 * (nq9 - 0.5);
+    float depthK = 1.0 - exp(-max(hdc, 0.0) * 0.16);
     float kb = depthK * 5.0 + vnoise(q * 0.04);
     depthK = mix(depthK, (floor(kb) + smoothstep(0.2, 0.8, fract(kb))) / 5.0, 0.12);
-    vec3 turq = mix(cW, uWaterDeep, 0.25);
-    turq = max(mix(vec3(dot(turq, vec3(0.2126, 0.7152, 0.0722))), turq, 1.05), 0.0) * vec3(0.94, 1.02, 1.02);
-    vec3 teal = mix(turq, uWaterDeep, 0.5) * vec3(0.95, 1.03, 1.0);
-    vec3 bodyCol = mix(mix(mix(cW, turq, smoothstep(0.02, 0.35, depthK)), teal, smoothstep(0.3, 0.65, depthK)), uWaterDeep, smoothstep(0.6, 0.97, depthK));
+    vec3 turq = mix(cW, uWaterDeep, 0.32);
+    turq = max(mix(vec3(dot(turq, vec3(0.2126, 0.7152, 0.0722))), turq, 0.84), 0.0) * vec3(0.94, 1.02, 1.0);
+    // Open water: the preset's deep blue at full saturation.
+    vec3 deepS = max(mix(vec3(dot(uWaterDeep, vec3(0.2126, 0.7152, 0.0722))), uWaterDeep, 1.2), 0.0);
+    vec3 teal = mix(turq, deepS, 0.55) * vec3(0.95, 1.03, 1.0);
+    float tealE = depthK + 0.08 * (nq9 - 0.5);
+    vec3 bodyCol = mix(mix(mix(cW, turq, smoothstep(0.02, 0.3, depthK)), teal, smoothstep(0.3, 0.48, tealE)), deepS, smoothstep(0.5, 0.82, tealE));
+    // The shallow cyan calms toward teal with distance.
+    bodyCol = mix(bodyCol, teal, smoothstep(40.0, 300.0, dist) * 0.35 * (1.0 - smoothstep(0.4, 0.8, depthK)));
+    vec3 coolBody = bodyCol;
     // The low sun and the warm sky tint the whole body, whichever way the view looks.
     float warmSky = smoothstep(0.08, 0.35, uSunColor.r - uSunColor.b) * (1.0 - uNight);
     vec3 sunHue = uSunColor / max(max(uSunColor.r, max(uSunColor.g, uSunColor.b)), 0.05);
-    bodyCol = mix(bodyCol, bodyCol * mix(vec3(1.0), sunHue * 1.2, 0.75), warmSky);
+    bodyCol = mix(bodyCol, bodyCol * mix(vec3(1.0), sunHue * 1.1, 0.35), warmSky);
     vec3 tint = cW / max(max(cW.r, max(cW.g, cW.b)), 0.05);
     // Painted stages over the bed, as flat bands with wobbly edges: nearly clear at the edge, a
     // yellow-green stage, then green, then the shallow-water colour. Low sun keeps them cool so
     // the warm light never turns the shallows khaki.
     float warmK = smoothstep(0.08, 0.35, uSunColor.r - uSunColor.b);
-    float hw = hd + 0.12 * (vnoise(q * 0.09) - 0.5);
+    float hw = hd + 0.12 * (nq9 - 0.5);
     // Clear over the darkened sand at the very edge (as the beach's film), yellow-green once deeper.
     float f1 = smoothstep(0.12, 0.32, hw + 0.2 * (vnoise(q * 0.04 + 3.0) - 0.5)), f2 = smoothstep(0.55, 0.7, hw), f3 = smoothstep(1.5, 1.8, hw);
     vec3 st1 = mix(vec3(0.86, 1.0, 0.56), tint * vec3(0.8, 1.0, 0.86), 0.65 * warmK);
@@ -350,6 +447,7 @@ const FS = /* glsl */ `
     vec3 wt = mix(mix(mix(vec3(0.97, 1.0, 0.95), st1, f1), st2, f2), tint * 0.88, f3);
     vec3 seen = bed * wt;
     seen = mix(seen, wCool(seen), 0.45 * warmK);
+    seen = mix(vec3(dot(seen, vec3(0.2126, 0.7152, 0.0722))), seen, 0.85);
     float clarity = exp(-hd * 0.38) * seeBed;
     vec3 col = mix(bodyCol, seen, clarity);
     // Wave faces turned to the light read a shade lighter, backs a shade darker.
@@ -364,7 +462,7 @@ const FS = /* glsl */ `
     col = mix(col, cW * 1.3 * mix(vec3(1.0), uSunColor, 0.5) + 0.02, s.crest * 0.55);
     // Ripple marks and the chop's painted tones also shade the body a touch (facets turned to the
     // viewer deeper, the backs paler).
-    col *= 1.0 - 0.12 * dabs - 0.07 * tone * deepK * (1.0 - lostF);
+    col *= 1.0 - 0.12 * dabs - 0.07 * tone * deepK * (1.0 - lostF) - 0.1 * max(strokes, 0.0);
 
     // Mirror: the real scene above the water (sky, clouds, hills, island, buoys), broken up by
     // the waves.
@@ -389,20 +487,24 @@ const FS = /* glsl */ `
       // is eased there or it would stretch tall objects apart (a gap under the lantern).
       vec2 dB = vec2(vFoc.x * dot(tB, side) * 0.25, vFoc.y * dot(tB, fwd) * mix(0.2, 1.0, smoothstep(5.0, 60.0, dist))) * 0.3;
       ruv += mix(dS, mix(dO, dB, 1.0 - smoothstep(60.0, 400.0, dist)), chopK);
-      // Brushed softness: taps down the screen, longer where the water is rougher and at
-      // grazing angles. At night a light's brightest tap wins, so lit windows, lamps and the
-      // lighthouse smear into wobbly vertical streaks.
-      float span = (0.002 + 0.018 * clamp(rough * 5.0, 0.0, 1.0)) * (0.35 + 0.65 * grazing) * chopK;
+      // Inside a break band the facets look further up the scene (sky shows through a dark
+      // reflection), the band's ends shifted sideways; the strokes jog the image up and down.
+      ruv += vec2(brkB.z * brkB.x * 0.006, -brkB.x * (0.01 + 0.02 * grazing) - strokes * 0.006);
+      // Brushed softness: taps down the screen, longer where the water is rougher, at grazing
+      // angles and inside the break bands.
+      float span = (0.004 + 0.018 * clamp(rough * 5.0, 0.0, 1.0) + 0.012 * brkB.x) * (0.35 + 0.65 * grazing) * chopK;
       vec3 acc = vec3(0.0), mx = vec3(0.0);
       float ws = 0.0;
-      float wph = vnoise(vec2(ruv.y * 160.0, uTime * 1.1)) * 6.2831853;
+      float wph = vnoise(vec2(ruv.y * 70.0 + brkB.z, uTime * 0.8)) * 6.2831853;
       float wam = 0.0015 * chopK;
       vec3 skyFill = skyH * uWorldTint;
       // Beyond the mirrored horizon the texture holds only the underside of the sky dome (dark):
       // no tap may cross it, so the far water never picks up dark patches.
       vec4 rh = uReflMat * vec4(cameraPosition.x + V.x * 2e4, uReflY, cameraPosition.z + V.z * 2e4, 1.0);
       float hy = rh.y / rh.w - 0.002;
-      for (int i = -2; i <= 2; i++) {
+      // Under about a texel of spread (steep views) one tap is the same image.
+      int nT = span > 0.0025 ? 2 : 0;
+      for (int i = -nT; i <= nT; i++) {
         float fi = float(i) * 0.5;
         float wob = sin(wph + fi * 2.7) * wam;
         vec2 tu = ruv + vec2(wob, fi * span);
@@ -414,31 +516,41 @@ const FS = /* glsl */ `
         mx = max(mx, c);
       }
       refl = acc / ws;
-      // Night: each light is smeared into a long streak toward the eye (several times its own
-      // height), broken into horizontal dashes by the chop and wobbling sideways.
-      if (uNight > 0.3) {
-        float sl2 = (0.07 + 0.14 * grazing) * chopK;
+      float lift = dot(mx - refl, vec3(0.2126, 0.7152, 0.0722));
+      // Only at night: at sunset the brightest tap would drag the sun's halo into needles.
+      streak = max(mx - refl, 0.0) * smoothstep(0.35, 0.7, uNight) * smoothstep(0.012, 0.1, lift);
+      // Night: only the lights (windows, lamps, the lantern) smear into long streaks toward the
+      // eye, three to six times their own height, tapering away from the light; the dark
+      // reflections of the hills and the island stay whole. The streaks break into dashes of
+      // uneven length and gap from noise in log distance and azimuth, and wobble sideways.
+      if (uNight > 0.35) {
+        // Taps about one small light's height apart, so a window smears into one continuous
+        // streak (no copies, no ladder) several times its own height.
+        float sl2 = (0.06 + 0.07 * grazing) * max(chopK, 0.75);
         vec2 rq = q - cameraPosition.xz;
-        float dn2 = vnoise(vec2(dot(rq, side) * 0.9, dot(rq, fwd) * 2.6 - uTime * 1.2));
-        // The taps start at a different point on each ripple row, so a small light smears into
-        // one streak instead of separate copies.
-        float jit = fract(dn2 * 3.7 + dot(rq, fwd) * 0.9);
-        for (int i = 0; i < 6; i++) {
-          float fi = (float(i) + jit) / 6.0;
-          float wob = (vnoise(vec2(ruv.y * 28.0 + fi * 2.0, uTime * 0.7)) - 0.5) * 0.007 * chopK;
+        float lr = log(max(length(rq), 1.0));
+        float az = oAz(V);
+        float dn2 = vnoise(vec2(az * 30.0, lr * 6.0 - uTime * 0.5)) * 0.6 + vnoise(vec2(az * 70.0 + 3.0, lr * 14.0 + uTime * 0.8)) * 0.4;
+        float jit = vnoise(vec2(az * 55.0 + 7.0, lr * 37.0 - uTime * 0.9)) * 0.8;
+        vec3 lm = vec3(0.0);
+        float wph2 = vnoise(vec2(ruv.y * 22.0, uTime * 0.6 + az * 9.0)) * 6.2831853;
+        for (int i = 0; i < 8; i++) {
+          float fi = (float(i) + jit) / 8.0;
+          float wob = sin(wph2 + fi * 4.3) * 0.002 * chopK * (0.5 + fi);
           vec2 tu = ruv + vec2(wob, fi * sl2);
           tu.y = min(tu.y, hy);
           vec3 c = textureLod(uRefl, clamp(tu, 0.001, 0.999), 0.0).rgb;
-          mx = max(mx, c * (1.0 - 0.55 * fi));
+          float lc = dot(c, vec3(0.2126, 0.7152, 0.0722));
+          // Lamps and windows are warm; the pale tower, the sky and the moon are not.
+          lm = max(lm, c * smoothstep(0.1, 0.3, lc) * smoothstep(0.03, 0.12, c.r - c.b) * (1.0 - 0.6 * fi * fi));
         }
-        float dash = smoothstep(0.38, 0.62, dn2 + 0.6 * tone * (1.0 - lostF) + 0.3 * dabs);
-        mx = mix(refl, mx, 0.25 + 0.75 * dash);
+        float dash = smoothstep(0.44, 0.54, dn2 + 0.25 * brkB.x - 0.2 * brkB.y + 0.15 * strokes);
+        streak = max(streak, max(lm - refl, 0.0) * (0.08 + 0.92 * dash) * smoothstep(0.35, 0.7, uNight));
       }
-      float lift = dot(mx - refl, vec3(0.2126, 0.7152, 0.0722));
-      streak = max(mx - refl, 0.0) * clamp(uNight, 0.0, 1.0) * smoothstep(0.012, 0.1, lift);
       // In the surf zone the breaking crests stand between the water and distant land, so the
       // shallows mirror only the sky.
-      float surfK = 1.0 - smoothstep(2.0, 5.0, s.h);
+      // At night the dark hills and roofs still show across the top of the water.
+      float surfK = (1.0 - smoothstep(2.0, 5.0, s.h)) * (1.0 - 0.55 * uNight);
       if (surfK > 0.0) {
         vec3 R = reflect(V, normalize(vec3(tilt.x * 0.4, 1.0, tilt.y * 0.4)));
         R.y = max(R.y, 0.02);
@@ -450,7 +562,8 @@ const FS = /* glsl */ `
       refl = skyColor(normalize(R)) * uWorldTint;
     }
     float rl = dot(refl, vec3(0.2126, 0.7152, 0.0722));
-    refl = mix(vec3(rl), refl, 1.15) * uWaterRefl * mix(0.9, 0.68, uNight);
+    // In low sun the warmth comes from the bright sky in the mirror, not from the body.
+    refl = mix(vec3(rl), refl, 1.15) * uWaterRefl * mix(0.9, 0.68, uNight) * (1.0 + 0.12 * warmSky);
     refl /= max(uWorldTint, vec3(0.05));
     refl = mix(refl, wCool(refl), 0.55 * (1.0 - smoothstep(0.3, 1.5, s.h)));
     float cosT = max(dot(-V, Nw), 0.0);
@@ -459,13 +572,17 @@ const FS = /* glsl */ `
     // At night and in low sun the mirror carries more of the scene (sky gradient, hill and roof
     // silhouettes), so the water is never one flat field.
     float fres = mix(0.04 + 0.96 * pow(1.0 - cosT, 5.0), 0.06 + 0.9 * pow(1.0 - cosT, 3.0), chopK);
-    fres = max(fres, (0.32 * uNight + 0.32 * warmSky) * chopK);
+    fres = max(fres, 0.32 * uNight * max(chopK, 0.5 * offs) + 0.42 * warmSky * chopK);
     // Wave faces and the churned surf zone show their own body; the clear shallows let the bed through.
     float rk = (1.0 - s.foam) * (1.0 - mix(0.85, 0.25, deepK) * clamp(length(sl) * 3.0, 0.0, 1.0)) * (1.0 - 0.75 * s.brk) * mix(0.6, 1.0, smoothstep(0.8, 4.0, s.h));
     // Water a few centimetres deep shows the sand rather than the sky, so the sea fades into the
     // beach's swash sheet with no seam.
     rk *= mix(0.04, 1.0, smoothstep(0.5, 1.4, hd + 0.3 * (vnoise(q * 0.12) - 0.5)));
     col = mix(col, refl, fres * 0.92 * rk);
+    // The troughs and darker strokes keep the cool body, so warm water never reads as sand.
+    col = mix(col, coolBody * 0.9, 0.35 * warmSky * clamp(max(strokes, 0.0) + max(dabs, 0.0) + smoothstep(0.1, 0.7, -s.swell) * offs + 0.3 * brkB.x, 0.0, 1.0) * rk);
+    // Thin ripple lines of the break bands catch the sky.
+    col = mix(col, max(col, skyH * uWaterRefl * mix(1.0, 0.7, uNight)), brkB.y * 0.3 * rk);
     // Night: broad moonlit and sky-lit swells of tone over the water body.
     col *= 1.0 + uNight * chopK * (0.35 * (vnoise(q * 0.006 + uTime * 0.01) - 0.5) + 0.12 * s.swell * offs - 0.1 * tone);
     // Far off the sea is one smooth band brightening toward the horizon, taken from the sky.
@@ -476,6 +593,9 @@ const FS = /* glsl */ `
     // Painted ripple marks: dark ones show more of the water body, light ones catch more sky.
     col = mix(col, bodyCol * 0.85 + refl * 0.25, 0.16 * max(dabs, 0.0) * (1.0 - s.foam));
     col += refl * 0.16 * max(-dabs, 0.0);
+    // Painted near strokes: dark ones show the body, light ones catch the sky.
+    col = mix(col, bodyCol * 0.75 + refl * 0.15, 0.34 * max(strokes, 0.0) * (1.0 - s.foam));
+    col += refl * 0.28 * max(-strokes, 0.0) * (1.0 - s.foam);
 
     // Glitter path under the sun or moon: a broken column of flat painted dabs. Each wave facet
     // flashes when it mirrors the light into the eye, so the column is as wide as the water is
@@ -483,10 +603,15 @@ const FS = /* glsl */ `
     vec3 Ld = normalize(uGlintDir);
     vec3 H = normalize(Ld - V);
     vec2 sH = -H.xz / max(H.y, 0.05);
+    // Under a low sun the facets that send it to the eye near the viewer would have to be
+    // steeper than the chop; the path is painted on down to the foreground instead.
+    float lowL = 1.0 - smoothstep(0.1, 0.45, Ld.y);
+    vec2 sH0 = sH;
+    sH -= fwd * dot(sH, fwd) * 0.8 * lowL;
     float lightUp = smoothstep(-0.02, 0.04, Ld.y);
     float spread = uGlintShape.x / 0.15;
     // The column narrows toward the horizon and widens toward the eye.
-    float colW = 0.55 + 0.45 * smoothstep(0.0, 0.14, -V.y);
+    float colW = 0.55 + 0.45 * smoothstep(0.0, 0.14, -V.y) + 0.35 * lowL * smoothstep(0.05, 0.4, -V.y);
     float sigT = mix(uGlintShape.x, sqrt(resV * 0.5 + lostV) * spread * 2.6 + 0.02, deepK) * colW;
     vec2 dH = sH - sl * 0.6;
     float path = exp(-dot(dH, dH) / (2.0 * sigT * sigT)) * lightUp;
@@ -496,8 +621,11 @@ const FS = /* glsl */ `
     vec3 gCol = mix(uGlintCol, uGlintCol * mix(vec3(1.0), sunHue, 0.6), warmSky);
     // Shallows: the old soft dashes.
     float dn = 0.0;
-    {
-      vec2 sq = vec2(dot(q, side), dot(q, fwd)) / (1.5 + dist * 0.012);
+    if (path > 0.04) {
+      // A frame fixed for the whole frame (the camera heading): one turning with each pixel's view
+      // sweeps the world position across the noise and draws radial needles.
+      vec2 cf = normalize(-vec2(viewMatrix[0][2], viewMatrix[2][2]) + 1e-5);
+      vec2 sq = vec2(dot(q, vec2(-cf.y, cf.x)), dot(q, cf)) / (1.5 + dist * 0.012);
       dn = vnoise(sq * vec2(0.7, 1.8) + vec2(uTime * 0.4, -uTime * 0.8)) * 0.65
          + vnoise(sq * vec2(1.5, 3.2) + vec2(-uTime * 0.5, uTime * 0.45) + 5.0) * 0.35;
       float th = 1.0 - path * 0.32;
@@ -505,15 +633,19 @@ const FS = /* glsl */ `
     }
     // Open water: resolved facets near, stochastic facets in view-anchored cells further out.
     float glit = 0.0;
-    if (deepK > 0.0 && path > 0.015) {
-      vec2 e2 = sl * 0.6 + gC * spread - sH;
-      float rN = sigR * spread * 0.22 + 0.003;
-      float aN = fwidth(length(e2)) + 1e-4;
-      // Broken into dabs so the resolved facets never draw continuous slope contours.
-      float gN = (1.0 - smoothstep(rN - aN, rN + aN, length(e2))) * smoothstep(0.45, 0.7, vnoise(q * 0.45 + O_WIND * uTime * 1.5));
+    if (deepK > 0.0 && path > 0.04) {
+      // Where the chop is all too fine to draw there are no resolved facets.
+      float gN = 0.0;
+      if (lostF < 0.97) {
+        vec2 e2 = sl * 0.6 + gC * spread - sH0;
+        float rN = sigR * spread * 0.22 + 0.003;
+        float aN = fwidth(length(e2)) + 1e-4;
+        // Broken into dabs so the resolved facets never draw continuous slope contours.
+        gN = (1.0 - smoothstep(rN - aN, rN + aN, length(e2))) * smoothstep(0.45, 0.7, vnoise(q * 0.45 + O_WIND * uTime * 1.5));
+      }
       // Every facet is a mix of the drawn chop and finer ripples, so the cells sit on the chop.
       float sigF = sqrt(resV * 0.5 + lostV) * spread * 2.6 + 0.02;
-      float gF = oFanGlint(V, uTime, sl * 0.6 + gC * spread * 0.6, sH, sigF, sigF);
+      float gF = oFanGlint(fanD, uTime, sl * 0.6 + gC * spread * 0.6, sH, sigF, sigF);
       glit = max(gN * 0.6 * (1.0 - lostF), gF);
     }
     float glitter = mix(dn, glit * 1.6 + dn * 0.6, deepK) + path * uGlintShape.y;
@@ -523,17 +655,45 @@ const FS = /* glsl */ `
 
     // Foam: white water of the breaking waves, surf on the rocks, and a skirt of surf where the
     // swell meets the island and headland shores (the beach has its own bores and swash).
-    float rf = rockFoam(q, s.dir, s.pulse, uTime, px);
+    // The rocks stand in shallow water: the deep sea skips the loop over them.
+    float rf = s.h < 12.0 ? rockFoam(q, s.dir, s.pulse, uTime, px) : 0.0;
     float skirt = (1.0 - smoothstep(0.15, 3.2, s.h)) * smoothstep(-0.3, 0.05, s.h) * (0.45 + 0.75 * s.pulse) * offBeach;
     skirt *= 0.6 + 0.8 * vnoise(q * 0.12 + vec2(0.0, uTime * 0.05));
     // Thick on shores facing the swell, a thin trickle in the lee.
     skirt *= mix(0.2, 1.5, smoothstep(-0.5, 0.6, dot(wDir(0), s.up))) * mix(0.5, 1.0, s.expose);
     // Every island and headland waterline keeps a thin broken wash, even in the lee.
     skirt = max(skirt, (1.0 - smoothstep(0.05, 0.9, s.h)) * smoothstep(-0.3, 0.02, s.h) * offBeach * (0.35 + 0.5 * vnoise(q * 0.3 + vec2(uTime * 0.2, 0.0))) * (0.6 + 0.5 * s.pulse));
+    // Far off a waterline a metre wide is less than a pixel: the island and headland skirts are
+    // held to a few pixels of broken foam, measured in screen space from the depth's slope.
+    float pxd = s.h / max(fwidth(s.h), 1e-4);
+    float skPx = 0.0;
+    if (px > 0.06 && pxd < 6.0 && s.h < 3.0) {
+      skPx = (1.0 - smoothstep(2.0, 5.5, pxd)) * smoothstep(-0.2, 0.02, s.h) * offBeach * smoothstep(0.06, 0.25, px);
+      skPx *= smoothstep(0.3, 0.6, vnoise(q * 0.07 + vec2(uTime * 0.12, 0.0)) + 0.25 * s.pulse) * 0.6 + 0.4 * vnoise(q * 0.3 + 5.0);
+      skirt = max(skirt, skPx);
+    }
+    // The island's own shore is too steep for the smoothed depth field, so its skirt is measured
+    // from the island's outline: a few pixels of broken surf wherever it meets the water.
+    {
+      vec2 di = q - vec2(${ISLAND.x.toFixed(1)}, ${ISLAND.z.toFixed(1)});
+      float lI = length(di);
+      float fI = max(fwidth(lI), 1e-3);
+      // At a grazing view one pixel row spans metres, so the band is held in pixels, not metres.
+      if (lI - ${(ISLAND_R0 * 1.21).toFixed(1)} < min(45.0, 8.0 * fI + 0.6)) {
+        float an = atan(di.y, di.x);
+        float dI = lI - ${ISLAND_R0.toFixed(2)} * (1.0 + 0.14 * sin(3.0 * an + 1.0) + 0.07 * sin(7.0 * an + 2.2));
+        float pI = (dI - 0.6) / fI;
+        float sI = (1.0 - smoothstep(3.5, 7.5, pI)) * smoothstep(-7.0, -3.0, dI);
+        sI *= 0.45 + 0.55 * smoothstep(0.25, 0.6, vnoise(vec2(an * 40.0, uTime * 0.3)) + 0.3 * s.pulse);
+        skPx = max(skPx, sI);
+        skirt = max(skirt, sI);
+      }
+    }
     vec2 fq = q - s.dir * uTime * 0.5;
     float fskirt = wLace(fq * 0.9, skirt, 9.0, px);
     float frock = wLace(vec2(dot(q, s.dir) - uTime * 0.6, dot(q, vec2(-s.dir.y, s.dir.x))) * 1.2, clamp(rf * 1.6, 0.0, 1.0), 5.0, px);
-    float foam = max(s.foam, max(frock, fskirt));
+    // Lace a few pixels wide is mostly holes: the far skirt keeps its broken body.
+    float foam = max(max(s.foam, max(frock, fskirt)), skPx * 0.8);
     // Sparse whitecaps offshore, as fits a light breeze: a short crest spills in a gust, then
     // thins into a streak drifting downwind and fades. One per cell at most, so a few in view.
     // Irregular sizes and lifetimes, a broken crest of two or three ragged dabs, a short trail
@@ -559,24 +719,27 @@ const FS = /* glsl */ `
         float rag = vnoise(vec2(d.y * 1.6 / sz, d.x * 2.2) + n * 3.1) - 0.5;
         float along = d.y / L;
         float seg = 0.5 + 0.5 * sin(along * (3.0 + 3.0 * hash12(hid + 9.9)) + hash12(hid + 1.1) * 6.28);
-        float crest = length(vec2(along, (d.x + 0.1) / (0.35 * sz))) + rag * 0.55 - seg * 0.35;
-        float dens = (1.0 - smoothstep(0.45, 0.85, crest)) * grow * die;
+        // Two or three uneven dabs with soft ragged rims and patchy tone inside, never a solid
+        // white oval.
+        float crest = length(vec2(along, (d.x + 0.1) / (0.35 * sz))) + rag * 0.7 - seg * 0.6;
+        float inner = 0.5 + 0.5 * vnoise(vec2(d.y * 1.3 / sz, d.x * 2.0) + n * 1.7 + 3.0);
+        float dens = (1.0 - smoothstep(0.2, 0.9, crest)) * grow * die * inner;
         // The trail: thin broken streaks behind the crest, dissolving as they age.
         float back = -d.x;
         float tl = (1.0 + 4.0 * hash12(hid + 3.7)) * sz * smoothstep(0.0, 0.4, life);
         float trail = smoothstep(-0.2, 0.3, back) * (1.0 - smoothstep(tl * 0.5, tl, back))
                     * (1.0 - smoothstep(0.4, 1.0, abs(along) + rag * 0.4))
-                    * smoothstep(0.45, 0.75, vnoise(vec2(d.y * 2.4 / sz, back * 0.7) + n))
+                    * mix(smoothstep(0.45, 0.75, vnoise(vec2(d.y * 2.4 / sz, back * 0.7) + n)), 0.55, smoothstep(0.15, 0.5, px))
                     * (1.0 - smoothstep(0.3, 1.0, life)) * 0.75;
         dens = max(dens, trail) * wcK;
         vec2 lp = vec2(f.y * 1.1, (f.x - run) * 1.4) + cid * 7.3;
-        foam = max(foam, wLace(lp, dens, 3.0 + mod(n, 17.0), px) * (1.0 - smoothstep(0.25, 0.8, px)));
+        foam = max(foam, wLace(lp, dens, 3.0 + mod(n, 17.0), px) * 0.8 * (1.0 - smoothstep(0.35, 1.0, px)));
       }
     }
     // Foam round the buoys.
     float bRing, bDark;
-    float bf = buoyFoam(q, uTime, bRing, bDark);
-    if (bf > 0.02) foam = max(foam, wLace((q - O_WIND * uTime * 0.25) * 1.7, clamp(bf, 0.0, 1.0), 21.0, px));
+    float bf = buoyFoam(q, uTime, dqx, dqy, px, bRing, bDark);
+    if (bf > 0.02) foam = max(foam, max(wLace((q - O_WIND * uTime * 0.25) * 1.7, clamp(bf, 0.0, 1.0), 21.0, px), clamp(bf, 0.0, 1.0) * 0.7 * smoothstep(0.04, 0.15, px)));
     col *= 1.0 - 0.3 * bDark;
     col = mix(col, refl * 1.1 + 0.04, bRing * 0.45 * (1.0 - smoothstep(0.05, 0.25, px)));
     // The last half metre of depth hands over to the beach's swash foam, so the lace carries on
@@ -612,9 +775,11 @@ const FS = /* glsl */ `
         vec3 Hb = normalize(Lb - V);
         vec2 sHb = -Hb.xz / max(Hb.y, 0.05);
         float sb = sqrt(resV + lostV) * 1.4 + 0.03;
-        float gb = oFanGlint(V, uTime * 1.3 + 7.0, sl * 0.6, sHb, sb, sb * 1.1);
+        float gb = oFanGlint(fanD, uTime * 1.3 + 7.0, sl * 0.6, sHb, sb, sb * 1.1);
         // Broken up by the chop like the moon path: the facets turned to the lamp catch more.
-        float br = 0.7 + 0.3 * tone * (1.0 - lostF) - 0.25 * dabs + 0.25 * (vnoise(q * 0.08 + uTime * 0.1) - 0.5);
+        // Feathered patches of light, not lines: no term here follows the chop's tone contours.
+        float bnz = vnoise(q * 0.03 + uTime * 0.05) * 0.6 + vnoise(q * 0.11 - uTime * 0.08 + 3.0) * 0.4;
+        float br = 0.5 + 0.6 * smoothstep(0.25, 0.75, bnz) - 0.15 * dabs;
         col += vec3(1.0, 0.86, 0.6) * uBeam * bk * (0.55 * br + 1.2 * gb + 0.3 * foam);
       }
     }

@@ -78,10 +78,12 @@ vec2 oChopGrad(vec2 q, float t, float px, float gust, out float resVar, out floa
     vec4 T = O_T[i]; vec3 P = O_P[i];
     float L = 6.2831853 / T.z;
     float lod = 1.0 - smoothstep(0.07 * L, 0.22 * L, px);
-    float amp = mix(1.0, gust, smoothstep(2.0, 6.0, float(i))) * oEnv(q, i);
-    float v = P.z * amp;
+    float gk = mix(1.0, gust, smoothstep(2.0, 6.0, float(i)));
+    // A train faded out entirely counts with its envelope's mean square (0.594 rms), so the far
+    // water skips the envelope.
+    if (lod <= 0.0) { float vl = P.z * gk * 0.594; lostVar += 0.5 * vl * vl; continue; }
+    float v = P.z * gk * oEnv(q, i);
     lostVar += (1.0 - lod * lod) * 0.5 * v * v;
-    if (lod <= 0.0) continue;
     resVar += lod * lod * 0.5 * v * v;
     gr += T.xy * (v * lod * cos(dot(w, T.xy) * T.z - P.x * t + P.y));
   }

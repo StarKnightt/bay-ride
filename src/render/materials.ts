@@ -866,13 +866,15 @@ export function skyMaterial(): THREE.ShaderMaterial {
           vec2 q = discQ(dir, uSkySun, 0.011, ok);
           float r = length(q);
           float fw = max(fwidth(r), 0.02);
-          float disk = (1.0 - smoothstep(1.0 - fw, 1.0 + fw, r)) * ok;
+          // The disc, its halo and its rays stay out of the water's mirror: stretched by the waves
+          // they turn into needles of light (the glitter path draws the sun on the water instead).
+          float disk = (1.0 - smoothstep(1.0 - fw, 1.0 + fw, r)) * ok * (1.0 - uNoFringe);
           float ang = atan(q.y, q.x);
           float rays = pow(abs(sin(ang * 4.0 + 0.4)), 40.0) + pow(abs(sin(ang * 7.0 + 1.3)), 60.0) * 0.6;
-          rays *= exp(-max(r - 1.0, 0.0) * 0.16) * smoothstep(1.0, 2.0, r) * ok;
+          rays *= exp(-max(r - 1.0, 0.0) * 0.16) * smoothstep(1.0, 2.0, r) * ok * (1.0 - uNoFringe);
           float halo = exp(-max(r - 1.0, 0.0) * 0.55) * 0.35 + exp(-max(r - 1.0, 0.0) * 0.09) * 0.12;
           // A bright sky already glows round the sun: the halo only adds what is missing.
-          halo *= mix(1.0, 0.3, smoothstep(0.35, 0.85, skyLum));
+          halo *= mix(1.0, 0.3, smoothstep(0.35, 0.85, skyLum)) * (1.0 - uNoFringe);
           vec3 hot = uSunDisk;
           col = mix(col, hot, disk);
           col += normalize(hot + 1e-4) * (halo * ok * (1.0 - disk) + rays * 0.22) * min(length(hot), 1.4);
