@@ -137,8 +137,12 @@ function surface(u: number, z: number, x: number, y: number, slope: number, out:
   return M.plain;
 }
 
-/** Sheared (road-aligned) grid, fine near the coast and coarse far out. */
-export function buildTerrain(): THREE.Mesh {
+/**
+ * Sheared (road-aligned) grid, fine near the coast and coarse far out. The swash zone of the beach
+ * (from under the shallows up to the foot of the sea wall) is split off into its own mesh with
+ * `beachMat`, sharing the grid's vertices so the two meet without cracks.
+ */
+export function buildTerrain(beachMat: THREE.Material): { terrain: THREE.Mesh; beach: THREE.Mesh } {
   const us = [
     ...steps(-700, -260, 20),
     ...steps(-260, -120, 4),
@@ -170,24 +174,41 @@ export function buildTerrain(): THREE.Mesh {
       pos[k + 2] = z;
     }
   }
-  const idx = new Uint32Array((nu - 1) * (nz - 1) * 6);
-  let q = 0;
+  // Beach vertices: sand of the open beach (not under a headland), from 16 m out under the
+  // shallows up to the sea wall foot.
+  const isBeach = new Uint8Array(nu * nz);
+  for (let j = 0; j < nz; j++) {
+    const z = zs[j], rx = roadX(z), uw = waterlineU(z);
+    for (let i = 0; i < nu; i++) {
+      const u = uu[i];
+      isBeach[j * nu + i] = u < WALL_OUT - 0.3 && u > uw - 16 && coastH(u, z) >= headlandsH(rx + u, z) ? 1 : 0;
+    }
+  }
+  const idx: number[] = [];
+  const bidx: number[] = [];
   for (let j = 0; j < nz - 1; j++)
     for (let i = 0; i < nu - 1; i++) {
       const a = j * nu + i, b = a + 1, c = a + nu, d = c + 1;
+      const dst = isBeach[a] && isBeach[b] && isBeach[c] && isBeach[d] ? bidx : idx;
       // Winding so normals face up (+y) with u along +x and rows along +z.
-      idx[q++] = a; idx[q++] = c; idx[q++] = b;
-      idx[q++] = b; idx[q++] = c; idx[q++] = d;
+      dst.push(a, c, b, b, c, d);
     }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  g.setIndex(new THREE.BufferAttribute(new Uint32Array([...idx, ...bidx]), 1));
   g.computeVertexNormals();
+  g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
   paint(g, (x, z) => x - roadX(z));
   const mesh = new THREE.Mesh(g, uber(ID.ground, 0.6));
   mesh.frustumCulled = false;
   onLayers(mesh, LAYER_SHADOW, LAYER_REFLECT);
-  return mesh;
+  const bg = new THREE.BufferGeometry();
+  bg.setAttribute("position", g.attributes.position);
+  bg.setAttribute("normal", g.attributes.normal);
+  bg.setIndex(new THREE.BufferAttribute(new Uint32Array(bidx), 1));
+  const beach = new THREE.Mesh(bg, beachMat);
+  beach.frustumCulled = false;
+  return { terrain: mesh, beach };
 }
 
 /** Radial mesh for the island (its own resolution, independent of the coastal grid). */

@@ -11,6 +11,8 @@ import { Sky } from "./world/sky";
 import { TimeOfDay, parsePreset, type Preset } from "./world/timeofday";
 import { bakeDepth } from "./water/depthMap";
 import { buildSea } from "./water/sea";
+import { ShoreEvents, waterAt, waveEta, type WaterAt } from "./water/waves";
+import { terrainH, waterlineU } from "./world/bay/terrain";
 import { Rider } from "./rider/rider";
 import { Controller, START_Z } from "./rider/controller";
 import { ChaseCam, type CamMode } from "./rider/camera";
@@ -183,6 +185,7 @@ const fpsLog: number[] = [];
 let last = performance.now();
 let t = CAP.time ?? 0;
 let shotFrames = 0;
+const shoreEvents = new ShoreEvents();
 const shadowCenter = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 /** The bike as three circles: body at the saddle, front wheel + basket ahead, rear wheel behind. */
@@ -271,6 +274,7 @@ function frame(now: number) {
   else chase.update(simDt, ctl, t, rider);
   sky.follow(chase.cam.position);
   tod.update(dt);
+  shoreEvents.update(t, roadX(pz) + waterlineU(pz), pz);
   rider.bike.setLamp(tod.night);
 
   if (audio.state === "running") {
@@ -382,6 +386,16 @@ window.__ride = {
   },
   get water() {
     return tod.water;
+  },
+  /**
+   * Shoreline water for later systems: wave elevation above mean sea level at (x, z), and the
+   * water there now (surface height, depth over the ground, sand wetness). Optional t = seconds.
+   * Wave breaks and run-ups near the player fire window "shorewave" events.
+   */
+  shore: {
+    seaLevel: SEA_Y,
+    eta: (x: number, z: number, at?: number) => waveEta(x, z, at ?? t),
+    waterAt: (x: number, z: number, at?: number, out?: WaterAt) => waterAt(x, z, at ?? t, terrainH(x, z), out),
   },
   setCam(mode: CamMode | "fpp" | "tpp") {
     chase.fpp = mode === "fpp" ? 1 : 0;

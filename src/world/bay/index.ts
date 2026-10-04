@@ -7,6 +7,8 @@ import { ISLAND, LIGHTHOUSE, WALL_IN, buildIsland, buildRoadRibbon, buildTerrain
 import type { StepSurface } from "../../sound/steps";
 import { LighthouseBeam } from "./beam";
 import { buildHouses } from "./houses";
+import { beachMaterial } from "../../water/beach";
+import { ROCKS, buildRocks } from "../../water/rocks";
 
 /** Collision answer for a circle at (x, z): penetration depth and push-out normal. */
 export interface Contact {
@@ -33,8 +35,8 @@ const WADE = 0.45;
 
 /**
  * The whole bay as one static scene (no streaming): landform, coast road, island, placeholder
- * lighthouse with its night beam, and a few placeholder harbour houses. Later systems add the
- * shoreline waves, harbour, pier, town and props to `root`.
+ * lighthouse with its night beam, a few placeholder harbour houses, the swash beach and shore
+ * rocks. Later systems add the harbour, pier, town and props to `root`.
  */
 export class Bay {
   readonly root = new THREE.Group();
@@ -45,7 +47,9 @@ export class Bay {
   readonly beam: LighthouseBeam;
 
   constructor() {
-    this.root.add(buildTerrain());
+    const { terrain, beach } = buildTerrain(beachMaterial());
+    this.root.add(terrain, beach, buildRocks());
+    for (const r of ROCKS) if (r.top > SEA_Y - 0.2) this.colliders.push({ x: r.x, z: r.z, r: r.r * 0.85 });
     this.root.add(buildIsland());
     this.root.add(buildRoadRibbon(ROAD_Z0 + 30, ROAD_Z1 - 30, roadMaterial()));
     this.root.add(this.lighthouse());

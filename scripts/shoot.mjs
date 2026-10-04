@@ -3,6 +3,8 @@
  * Capture the fixed comparison shots at 1920x1080 on the real GPU (headless ANGLE/D3D11), one page
  * per shot x time of day, and log console errors. Needs a running dev or preview server.
  *   node scripts/shoot.mjs --url=http://localhost:5430/ --out=shots/sky-r1 [--tods=golden,night] [--shots=1,2] [--t=12]
+ * --t takes a comma list for a motion sequence (frozen at each time, files suffixed _t<seconds>):
+ *   node scripts/shoot.mjs --out=shots/seq --tods=noon --shots=1 --t=10,10.5,11,11.5,12
  *   add --fps to also sample frame rate in a normal (unfrozen) autoplay ride.
  */
 import { chromium } from "playwright";
@@ -20,7 +22,7 @@ const URL = arg("url", "http://localhost:5430/");
 const OUT = path.join(ROOT, arg("out", "shots/latest"));
 const TODS = arg("tods", "morning,noon,golden,sunset,dusk,night").split(",").filter(Boolean);
 const SHOTS = arg("shots", "1,2,3,4,5").split(",").filter(Boolean);
-const T = arg("t", "12");
+const TS = arg("t", "12").split(",").filter(Boolean);
 const FPS = argv.includes("--fps");
 const W = 1920, H = 1080;
 const SOFTWARE = /swiftshader|llvmpipe|softpipe|software|basic render/i;
@@ -44,8 +46,8 @@ try {
   const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
   let gpuChecked = false;
   for (const tod of TODS) {
-    for (const s of SHOTS) {
-      const tag = `shot${s}_${tod}`;
+    for (const s of SHOTS) for (const T of TS) {
+      const tag = `shot${s}_${tod}` + (TS.length > 1 ? `_t${T}` : "");
       const page = await ctx.newPage();
       watch(page, tag);
       const t0 = Date.now();
