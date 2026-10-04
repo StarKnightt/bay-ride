@@ -48,6 +48,11 @@ renderer.domElement.addEventListener("webglcontextlost", (e) => {
   fatal("The graphics took a break", "The GPU reset or the browser reclaimed the 3D context. Reload to keep going.");
 });
 renderer.domElement.addEventListener("webglcontextrestored", () => location.reload());
+if (params.has("gpu")) {
+  const gl = renderer.getContext();
+  const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+  console.info("[gpu]", dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "unknown");
+}
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setSize(innerWidth, innerHeight);
 renderer.autoClear = true;

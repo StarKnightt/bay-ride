@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * Contact sheet of captures (headless, no GPU needed):
+ * Contact sheet of captures (headless Chromium on the GPU like every other browser script; prints
+ * the renderer and tears the browser down on every exit path):
  *   node scripts/sheet.mjs --out=shots/x/sheet.jpg --cols=4 [--w=480] [--crop=x,y,w,h] a.png b.png ...
  * --crop takes a region of each source image in source pixels (default: whole image).
  */
-import { chromium } from "playwright";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { assertGpu, bye, launchBrowser } from "./lib/harness.mjs";
 
 const argv = process.argv.slice(2);
 const arg = (n, d) => {
@@ -32,12 +33,10 @@ const cells = await Promise.all(
 );
 const html = `<body style="margin:0;background:#222;display:grid;grid-template-columns:repeat(${cols},${w}px);gap:2px">${cells.join("")}</body>`;
 const rows = Math.ceil(files.length / cols);
-const browser = await chromium.launch({ headless: true });
-try {
-  const page = await browser.newPage({ viewport: { width: cols * (w + 2), height: rows * (h + 2) } });
-  await page.setContent(html, { waitUntil: "load" });
-  await page.screenshot({ path: out, type: "jpeg", quality: 85, fullPage: true });
-} finally {
-  await browser.close();
-}
+const browser = await launchBrowser();
+const page = await browser.newPage({ viewport: { width: cols * (w + 2), height: rows * (h + 2) } });
+await assertGpu(page);
+await page.setContent(html, { waitUntil: "load" });
+await page.screenshot({ path: out, type: "jpeg", quality: 85, fullPage: true });
 console.log(out);
+await bye(0);
