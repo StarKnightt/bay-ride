@@ -29,6 +29,8 @@ interface Look {
   az: number; // key light azimuth (the sun; the moon at night), degrees
   el: number; // true elevation of that light (sky glow, disk, clouds, shadows)
   shadeMin: number; // shading light never goes lower than this (keeps flat ground readable)
+  /** 0…1: lit faces take the light's own hue and shade goes cool (low sun, moonlight). */
+  keyHue: number;
   sun: RGB; shadow: RGB; rim: RGB;
   zenith: RGB; mid: RGB; horizon: RGB; fog: RGB; fogD: number;
   glow: RGB; glowA: number; glowB: number;
@@ -76,7 +78,7 @@ const DEG = Math.PI / 180;
 const LOOKS: Record<Preset, Look> = {
   // Low sun over the hill: pale peach key, long cool shadows, a softer paler blue than noon.
   morning: {
-    az: 140, el: 13, shadeMin: 15,
+    az: 140, el: 13, shadeMin: 15, keyHue: 0.15,
     sun: hx("#ffd9b4", 0.98), shadow: hx("#7b8ac4"), rim: hx("#ffd2a8", 1.35),
     zenith: hx("#5a8cc4"), mid: hx("#a6c8e2"), horizon: hx("#f2dccc"), fog: hx("#dedfe2"), fogD: 0.001,
     glow: [1.0, 0.82, 0.62], glowA: 0.24, glowB: 0.36,
@@ -96,7 +98,7 @@ const LOOKS: Record<Preset, Look> = {
     birds: 1,
   },
   noon: {
-    az: -150, el: 62, shadeMin: 62,
+    az: -150, el: 62, shadeMin: 62, keyHue: 0,
     sun: hx("#fff5e6"), shadow: hx("#8290bc"), rim: hx("#fff1d6"),
     zenith: hx("#1f62b4"), mid: hx("#4fa2e0"), horizon: hx("#cfe4ee"), fog: hx("#cfe0e8"), fogD: 0.00075,
     glow: [1.0, 0.92, 0.75], glowA: 0.12, glowB: 0.25,
@@ -117,15 +119,15 @@ const LOOKS: Record<Preset, Look> = {
   },
   // Amber hour: warm grey-blue zenith over a gold sky, cream-gold clouds, warm water.
   golden: {
-    az: -100, el: 12, shadeMin: 9,
-    sun: hx("#ffc887", 1.02), shadow: hx("#6c86a2"), rim: hx("#ffbe74", 1.7),
+    az: -100, el: 12, shadeMin: 9, keyHue: 0.45,
+    sun: hx("#ffc887", 1.02), shadow: hx("#5b7f90"), rim: hx("#ffbe74", 1.7),
     zenith: hx("#56708c"), mid: hx("#d4b37c"), horizon: hx("#f6cf90"), fog: hx("#dfcaa4"), fogD: 0.001,
     glow: [1.0, 0.72, 0.36], glowA: 0.24, glowB: 0.45,
     haze: [0.98, 0.82, 0.55], hazeA: 0.45,
     hgl: hx("#ffc480"), hglA: 0.45, hglF: 7,
-    cTop: [1.0, 0.86, 0.58], cMid: [0.78, 0.67, 0.54], cLow: [0.52, 0.46, 0.44], cRim: [1.0, 0.82, 0.48], cRimK: 0.8, cBack: 0.6,
-    cUnder: [1.0, 0.72, 0.42], cUnderA: 0.45,
-    wisp: [1.0, 0.86, 0.66], wispA: 0.45, disk: [1.7, 1.45, 1.0], stars: 0, night: 0,
+    cTop: [1.0, 0.84, 0.55], cMid: [0.68, 0.54, 0.38], cLow: [0.44, 0.35, 0.3], cRim: [1.0, 0.8, 0.42], cRimK: 0.9, cBack: 0.7,
+    cUnder: [1.0, 0.74, 0.38], cUnderA: 0.6,
+    wisp: [1.0, 0.86, 0.66], wispA: 0.45, disk: [1.6, 1.3, 0.82], stars: 0, night: 0,
     world: [1.04, 0.96, 0.86], far: [1.0, 0.9, 0.82], farHaze: 0.14,
     grade: [1.02, 1.0, 0.96], sat: 1.0,
     bloomS: 0.26, bloomR: 0.5, bloomT: 1.05,
@@ -138,14 +140,14 @@ const LOOKS: Record<Preset, Look> = {
   },
   // Sun on the horizon: cool grey-violet cloud bodies with orange-gold undersides and rims.
   sunset: {
-    az: -112, el: 4.5, shadeMin: 6,
+    az: -112, el: 4.5, shadeMin: 6, keyHue: 0.45,
     sun: hx("#ffa676", 0.92), shadow: hx("#5f5596"), rim: hx("#ff9448", 2.1),
     zenith: hx("#34497a"), mid: hx("#c08ca4"), horizon: hx("#ffab68"), fog: hx("#8a76a2"), fogD: 0.0008,
     glow: [1.0, 0.6, 0.28], glowA: 0.4, glowB: 0.55,
     haze: [1.0, 0.66, 0.42], hazeA: 0.38,
     hgl: hx("#ff8a5c"), hglA: 0.6, hglF: 5,
-    cTop: [0.7, 0.55, 0.62], cMid: [0.5, 0.42, 0.58], cLow: [0.3, 0.26, 0.44], cRim: [1.0, 0.66, 0.3], cRimK: 1.0, cBack: 0.8,
-    cUnder: [1.0, 0.56, 0.28], cUnderA: 0.9,
+    cTop: [0.46, 0.33, 0.38], cMid: [0.3, 0.22, 0.3], cLow: [0.18, 0.14, 0.23], cRim: [1.0, 0.62, 0.28], cRimK: 0.9, cBack: 0.7,
+    cUnder: [1.0, 0.5, 0.2], cUnderA: 0.95,
     wisp: [1.0, 0.62, 0.48], wispA: 0.45, disk: [2.0, 1.55, 1.05], stars: 0, night: 0.3,
     world: [0.94, 0.84, 0.8], far: [0.5, 0.4, 0.62], farHaze: 0.2,
     grade: [1.02, 0.98, 0.96], sat: 1.05,
@@ -159,15 +161,15 @@ const LOOKS: Record<Preset, Look> = {
   },
   // After the sun: dark slate clouds with thin pink rims, the first stars high up.
   dusk: {
-    az: -116, el: -3, shadeMin: 18,
+    az: -116, el: -3, shadeMin: 18, keyHue: 0.4,
     sun: hx("#535d96"), shadow: hx("#40497a"), rim: hx("#ff9a6a", 0.7),
     zenith: hx("#141a46"), mid: hx("#3a4c7c"), horizon: hx("#dd8e6c"), fog: hx("#343c66"), fogD: 0.0009,
     glow: [1.0, 0.55, 0.35], glowA: 0.18, glowB: 0.12,
     haze: [0.56, 0.45, 0.56], hazeA: 0.3,
     hgl: hx("#ff9a60"), hglA: 0.55, hglF: 14,
-    cTop: [0.3, 0.27, 0.4], cMid: [0.2, 0.2, 0.33], cLow: [0.11, 0.12, 0.23], cRim: [1.0, 0.56, 0.56], cRimK: 0.55, cBack: 0.5,
-    cUnder: [0.85, 0.45, 0.45], cUnderA: 0.35,
-    wisp: [0.42, 0.36, 0.52], wispA: 0.25, disk: [0, 0, 0], stars: 0.45, night: 1,
+    cTop: [0.3, 0.27, 0.4], cMid: [0.2, 0.2, 0.33], cLow: [0.11, 0.12, 0.23], cRim: [1.0, 0.5, 0.6], cRimK: 0.95, cBack: 0.6,
+    cUnder: [0.9, 0.42, 0.5], cUnderA: 0.55,
+    wisp: [0.16, 0.13, 0.22], wispA: 0.25, disk: [0, 0, 0], stars: 0.45, night: 1,
     world: [0.4, 0.44, 0.64], far: [0.32, 0.34, 0.56], farHaze: 0.3,
     grade: [0.97, 0.98, 1.04], sat: 1.05,
     bloomS: 0.6, bloomR: 0.55, bloomT: 0.85,
@@ -180,15 +182,15 @@ const LOOKS: Record<Preset, Look> = {
   },
   // Moonlight: cool weak clouds lit only on the moon side, haze and far land darker than the sky.
   night: {
-    az: -84, el: 19, shadeMin: 15,
+    az: -84, el: 19, shadeMin: 15, keyHue: 0.55,
     sun: hx("#7d90c8", 0.66), shadow: hx("#26305e"), rim: hx("#a8bce8", 0.8),
     zenith: hx("#071131"), mid: hx("#172a5a"), horizon: hx("#33497e"), fog: hx("#141d3e"), fogD: 0.0007,
     glow: [0.62, 0.72, 0.98], glowA: 0.1, glowB: 0.22,
     haze: [0.2, 0.25, 0.44], hazeA: 0.3,
     hgl: hx("#3a4e86"), hglA: 0.22, hglF: 10,
-    cTop: [0.2, 0.235, 0.38], cMid: [0.11, 0.14, 0.27], cLow: [0.06, 0.075, 0.16], cRim: [0.8, 0.84, 0.95], cRimK: 0.6, cBack: 0.55,
+    cTop: [0.13, 0.155, 0.27], cMid: [0.07, 0.09, 0.18], cLow: [0.04, 0.05, 0.11], cRim: [0.8, 0.84, 0.95], cRimK: 0.6, cBack: 0.55,
     cUnder: [0.2, 0.22, 0.38], cUnderA: 0.05,
-    wisp: [0.16, 0.22, 0.42], wispA: 0.3, disk: [0, 0, 0], stars: 1, night: 1,
+    wisp: [0.035, 0.05, 0.11], wispA: 0.3, disk: [0, 0, 0], stars: 1, night: 1,
     world: [0.3, 0.35, 0.58], far: [0.17, 0.21, 0.4], farHaze: 0.22,
     grade: [0.96, 0.98, 1.06], sat: 1.05,
     bloomS: 0.6, bloomR: 0.55, bloomT: 0.85,
@@ -366,6 +368,7 @@ export class TimeOfDay {
     G.uCloudRim.value.setRGB(...l.cRim);
     G.uCloudK.value.set(l.cRimK, l.cBack, l.cUnderA);
     G.uCloudUnder.value.setRGB(...l.cUnder);
+    G.uKeyHue.value = l.keyHue;
     G.uWisp.value.setRGB(...l.wisp);
     G.uWispAmt.value = l.wispA;
     G.uSunDisk.value.setRGB(...l.disk);

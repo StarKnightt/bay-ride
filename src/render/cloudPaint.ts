@@ -1,16 +1,17 @@
 import * as THREE from "three";
 import { COMMON, G } from "./materials";
 
-/** Lobes per cloud (texels per row of the lobe table). */
-export const CLOUD_LOBES = 12;
+/** Lobes per cloud (texels per row of the lobe table; the last texel holds the cloud's top). */
+export const CLOUD_LOBES = 16;
 
 /**
- * Painted cumulus on camera-facing cards (turning about the vertical only). Each card evaluates a
- * smooth union of uneven round lobes (x, y, radius per texel of `uLobes`, one row per cloud) cut
- * by a flat base, then shades it as ONE volume: a broad envelope normal blended with the lobes,
- * lit by the sun or moon in two or three painted tones, a darker flat base, a warm underside at a
- * low sun, a thin lit rim on the light-facing edge and a silver lining when backlit. The body is
- * opaque; only the outer edge is soft. Distant clouds fade toward the sky behind them.
+ * Painted cumulus on cards parallel to the screen (turned to the camera's horizontal right axis,
+ * so a level base stays level anywhere in the frame). Each card evaluates a smooth union of
+ * uneven round lobes (x, y, radius per texel of `uLobes`, one row per cloud) over a soft, broken
+ * base, then shades it as ONE volume: a broad envelope normal blended with the lobes, lit by the
+ * sun or moon in painted tones whose boundary follows the lobes, a shaded lower body, a warm
+ * underside at a low sun, and a rim on the edge that faces the light on screen. The body is
+ * opaque; the outer edge is brushed soft. Distant clouds fade toward the sky behind them.
  *
  * Vertex attributes: position = cloud base centre, aCorner = card corner in cloud units (half
  * width = 1), aSize = (half width, vertical scale) in metres, aInfo = (row, seed, haze).
@@ -34,10 +35,10 @@ export function paintedCloudMaterial(lobes: THREE.DataTexture): THREE.ShaderMate
       out float vHaze;
       void main(){
         vec3 c = (modelMatrix * vec4(position, 1.0)).xyz;
-        vec3 toCam = cameraPosition - c;
-        toCam.y = 0.0;
-        toCam = normalize(toCam + vec3(1e-4, 0.0, 0.0));
-        vec3 right = vec3(toCam.z, 0.0, -toCam.x);
+        // Camera right, kept horizontal: the card is parallel to the image plane's horizontal.
+        vec3 right = vec3(viewMatrix[0][0], 0.0, viewMatrix[2][0]);
+        right = normalize(right + vec3(1e-5, 0.0, 0.0));
+        vec3 toCam = vec3(-right.z, 0.0, right.x);
         vec3 wp = c + right * aCorner.x * aSize.x + vec3(0.0, 1.0, 0.0) * aCorner.y * aSize.x * aSize.y;
         vP = aCorner;
         vWPos = wp;
@@ -65,75 +66,87 @@ export function paintedCloudMaterial(lobes: THREE.DataTexture): THREE.ShaderMate
         float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
         return mix(b, a, h) - k * h * (1.0 - h);
       }
-      // Signed distance to the cloud outline (negative inside), in cloud units.
-      float cloudSd(vec2 p){
+      // Signed distance to the lobes (negative inside), in cloud units; the base is separate.
+      float lobeSd(vec2 p){
         float d = 10.0;
-        for (int i = 0; i < ${CLOUD_LOBES}; i++) {
+        for (int i = 0; i < ${CLOUD_LOBES - 1}; i++) {
           vec4 L = texelFetch(uLobes, ivec2(i, vRow), 0);
           if (L.z <= 0.0) break;
-          d = smin(d, length(p - L.xy) - L.z, 0.07);
+          d = smin(d, length(p - L.xy) - L.z, 0.06);
         }
-        // Flat base with a slight painted waver.
-        float base = 0.015 * sin(p.x * 4.0 + vSeed * 6.0) - p.y;
-        return max(d, base);
+        return d;
+      }
+      // Soft, slightly wavy base a little above the lowest lobe edges (never a ruler line).
+      float baseSd(vec2 p){
+        float wav = 0.018 * sin(p.x * 5.0 + vSeed * 6.0) + 0.022 * (vnoise(vec2(p.x * 6.0, vSeed * 17.0)) - 0.5);
+        return wav - p.y;
       }
       void main(){
         // Cauliflower edge: warp the lookup a little, coarse and fine.
         vec2 w = vec2(vnoise(vP * 2.6 + vSeed * 13.0), vnoise(vP * 2.6 + vSeed * 13.0 + 7.3)) - 0.5;
-        vec2 p = vP + w * vec2(0.09, 0.06) * smoothstep(-0.02, 0.12, vP.y);
-        float sd = cloudSd(p) + (vnoise(p * 10.0 + vSeed * 31.0) - 0.5) * 0.03 * smoothstep(0.02, 0.15, p.y);
+        vec2 p = vP + w * vec2(0.08, 0.05) * smoothstep(-0.02, 0.12, vP.y);
+        float top = texelFetch(uLobes, ivec2(${CLOUD_LOBES - 1}, vRow), 0).x;
+        float ls = lobeSd(p);
+        float bs = baseSd(p);
+        float sd = max(ls, bs);
+        // Brushed rim: a short soft ramp broken up by stroke noise, no cut edge.
+        float brushN = vnoise(vec2(p.x * 14.0 + p.y * 3.0, p.y * 30.0) + vSeed * 29.0) - 0.5;
         float aa = max(fwidth(sd), 0.002);
-        float alpha = 1.0 - smoothstep(-aa * 1.2, aa * 0.8, sd);
+        float alpha = 1.0 - smoothstep(-0.018 - aa, aa, sd + brushN * 0.016);
+        // The base thins out softly over the last few metres.
+        alpha *= smoothstep(-0.015, 0.05, p.y + brushN * 0.03 - 0.012 * sin(p.x * 9.0 + vSeed * 3.0));
         if (alpha < 0.004) discard;
 
         const float E = 0.035;
-        vec2 grad = vec2(cloudSd(p + vec2(E, 0.0)) - cloudSd(p - vec2(E, 0.0)), cloudSd(p + vec2(0.0, E)) - cloudSd(p - vec2(0.0, E)));
+        vec2 grad = vec2(lobeSd(p + vec2(E, 0.0)) - lobeSd(p - vec2(E, 0.0)), lobeSd(p + vec2(0.0, E)) - lobeSd(p - vec2(0.0, E)));
         vec2 n2 = normalize(grad + 1e-5);
-        float ins = clamp(-sd / 0.32, 0.0, 1.0);
+        float ins = clamp(-ls / 0.3, 0.0, 1.0);
         float z = sqrt(ins * (2.0 - ins));
-        vec3 nLobe = normalize(vec3(n2 * (1.0 - z * 0.85), z));
-        // Whole-cloud envelope: one big rounded mass, so light falls on two or three large planes.
-        float top = texelFetch(uLobes, ivec2(${CLOUD_LOBES - 1}, vRow), 0).x;
-        vec2 e = (p - vec2(0.0, top * 0.55)) / vec2(1.05, top * 0.7);
+        vec3 nLobe = normalize(vec3(n2 * (1.0 - z * 0.8), z));
+        // Whole-cloud envelope: one big rounded mass, so light falls on a few large planes.
+        vec2 e = (p - vec2(0.0, top * 0.5)) / vec2(1.05, top * 0.68);
         vec3 nEnv = normalize(vec3(e, sqrt(max(1.0 - dot(e, e), 0.08))));
-        vec3 N = normalize(mix(nEnv, nLobe, 0.42));
+        vec3 N = normalize(mix(nEnv, nLobe, 0.58));
         vec3 up = vec3(0.0, 1.0, 0.0);
         vec3 Nw = normalize(vRight * N.x + up * N.y + vFwd * N.z);
         vec3 L = uCloudLight;
 
         float br = vnoise(p * vec2(3.0, 5.0) + vSeed * 3.0) * 0.6 + vnoise(p * 9.0 + vSeed) * 0.4;
-        float baseK = 1.0 - smoothstep(0.0, 0.2, p.y);
-        // The lower body sits in its own shade: one big shadow mass under the lit cauliflower.
-        float selfSh = 1.0 - smoothstep(0.1, top * 0.75, p.y);
-        float t = dot(Nw, L) * 0.5 + 0.5 + (br - 0.5) * 0.22 - baseK * 0.3 - selfSh * 0.22;
-        float lit = smoothstep(0.56, 0.62, t);
-        float mid = smoothstep(0.34, 0.4, t);
+        float ph = p.y / max(top, 0.1);
+        // The lower body sits in its own shade; the boundary rides the lobes, not a straight line.
+        float selfSh = 1.0 - smoothstep(0.05, 0.62, ph + nLobe.y * 0.16 + (br - 0.5) * 0.2);
+        float t = dot(Nw, L) * 0.5 + 0.5 + (br - 0.5) * 0.2 - selfSh * 0.24;
+        float lit = smoothstep(0.5, 0.6, t);
+        float mid = smoothstep(0.3, 0.4, t);
         vec3 col = mix(uCloudLow, uCloudMid, mid);
         col = mix(col, uCloudTop, lit);
-        // Flat, darker base.
-        col = mix(col, uCloudLow * 0.92, baseK * 0.55);
+        // Darker, soft-edged base.
+        float baseK = 1.0 - smoothstep(0.0, 0.16, ph + (br - 0.5) * 0.08);
+        col = mix(col, uCloudLow * 0.9, baseK * 0.45);
 
         vec3 dir = normalize(vWPos - cameraPosition);
         vec2 Lh = normalize(L.xz + 1e-5);
         // How close the cloud sits to the sun or moon on the sky (1 = right beside it).
         float near = smoothstep(0.55, 0.98, dot(normalize(dir.xz + 1e-5), Lh)) * smoothstep(-0.25, 0.1, L.y);
-        // Low sun: undersides catch warm light, strongest on clouds toward the sun.
+        // Low sun: a broad band of the underside and low flanks takes the warm light.
         float lowSun = 1.0 - smoothstep(0.08, 0.5, L.y);
-        float lowPart = 1.0 - smoothstep(-0.02, 0.32, p.y + Nw.y * 0.12);
+        float lowPart = 1.0 - smoothstep(0.0, 0.5, ph + nLobe.y * 0.12 + (br - 0.5) * 0.12);
         float sunSide = smoothstep(-0.3, 0.7, dot(normalize(Nw.xz + 1e-5), Lh));
-        col = mix(col, uCloudUnder, clamp(uCloudK.z * lowPart * (0.25 + 0.4 * near + 0.35 * sunSide) * mix(0.5, 1.0, lowSun), 0.0, 1.0));
+        float under = uCloudK.z * lowPart * (0.45 + 0.3 * near + 0.25 * sunSide) * mix(0.45, 1.0, lowSun);
+        col = mix(col, uCloudUnder, clamp(under, 0.0, 1.0));
 
-        // Thin lit rim on the light-facing part of the silhouette only.
-        float edge = 1.0 - smoothstep(0.0, 0.035, -sd);
-        vec3 n2w = normalize(vRight * n2.x + up * n2.y);
-        float facing = smoothstep(0.25, 0.8, dot(n2w, L));
+        // Rim on the part of the outline that faces the light as seen on screen.
+        vec2 Lc = vec2(dot(L, vRight), L.y);
+        float lcLen = length(Lc);
+        vec2 Ls = Lc / max(lcLen, 1e-4);
+        float edge = 1.0 - smoothstep(0.0, 0.055, -sd);
+        float facing = smoothstep(0.15, 0.85, dot(n2, Ls)) * smoothstep(0.02, 0.15, lcLen);
         col = mix(col, uCloudRim, clamp(edge * facing * uCloudK.x, 0.0, 1.0));
-        // Silver lining: only clouds close to the light, and only on their light side.
-        float lining = near * near * smoothstep(-0.2, 0.5, dot(n2w, L));
-        col += uCloudRim * edge * lining * uCloudK.y * 0.8;
+        // Silver lining: only clouds close to the light.
+        col += uCloudRim * edge * near * near * smoothstep(-0.2, 0.5, dot(n2, Ls)) * uCloudK.y * 0.7;
 
         // Aerial perspective toward the sky behind (more for distant and low clouds).
-        float haze = clamp(vHaze + (1.0 - smoothstep(0.0, 0.12, dir.y)) * 0.35, 0.0, 0.85);
+        float haze = clamp(vHaze + (1.0 - smoothstep(0.0, 0.1, dir.y)) * 0.22, 0.0, 0.8);
         col = mix(col, skyColor(dir), haze);
         gColor = vec4(col, alpha);
         gNormal = vec4(0.5, 0.5, 0.0, 0.0);

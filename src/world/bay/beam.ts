@@ -4,7 +4,7 @@ import { LAYER_REFLECT, onLayers } from "../../render/lightpasses";
 
 /** Seconds per turn of the lighthouse lens. */
 const PERIOD = 10;
-const LEN = 280;
+const LEN = 220;
 
 const OUT = /* glsl */ `
 layout(location = 0) out vec4 gColor;
@@ -28,7 +28,7 @@ export class LighthouseBeam {
     G.uLampPos.value.copy(lamp);
     const beamMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      uniforms: { uBeam: G.uBeam },
+      uniforms: { uBeam: G.uBeam, uFogDensity: G.uFogDensity },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -49,17 +49,21 @@ export class LighthouseBeam {
         in float vS;
         in vec3 vN;
         in vec3 vWPos;
+        uniform float uFogDensity;
         void main(){
           vec3 V = normalize(cameraPosition - vWPos);
           // Seen across the cone the core is the longest path through the beam: brightest.
-          float core = pow(abs(dot(normalize(vN), V)), 1.6);
-          float fall = smoothstep(0.0, 0.03, vS) * exp(-vS * 2.6);
-          gColor = vec4(vec3(1.0, 0.9, 0.7) * core * fall * 0.3 * uBeam, 1.0);
+          // Soft across the width (the core is the longest path through the beam), and most of
+          // the light is gone within a few island widths; denser haze shows more of the beam.
+          float core = pow(abs(dot(normalize(vN), V)), 3.0);
+          float fall = smoothstep(0.0, 0.03, vS) * exp(-vS * 5.5);
+          float haze = clamp(uFogDensity / 0.0008, 0.5, 1.5);
+          gColor = vec4(vec3(1.0, 0.9, 0.7) * core * fall * 0.2 * haze * uBeam, 1.0);
           gNormal = vec4(0.5, 0.5, 0.0, 0.0);
         }`,
     });
     for (const side of [0, Math.PI]) {
-      const g = new THREE.CylinderGeometry(0.7, 15, LEN, 24, 1, true);
+      const g = new THREE.CylinderGeometry(0.6, 8, LEN, 24, 1, true);
       g.translate(0, -LEN / 2, 0);
       g.rotateZ(Math.PI / 2 - 0.02);
       g.rotateY(side);

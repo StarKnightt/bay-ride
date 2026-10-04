@@ -52,6 +52,7 @@ export const TOD = {
   uBeamDir: { value: new THREE.Vector2(1, 0) },
   /** Cirrus wisp opacity (calm and dim at night). */
   uWispAmt: { value: 0.5 },
+  uKeyHue: { value: 0 },
   /** Light the clouds are shaded by (the sun by day, the moon at night) and how much of it reaches them. */
   uCloudLight: { value: new THREE.Vector3(-0.55, 0.42, 0.72).normalize() },
   /** Sun glitter path: x = water slope spread (path width), y = broad sheen amount. */
@@ -90,7 +91,7 @@ uniform vec3 uWaterRefl;
 uniform float uBeam;
 uniform vec3 uLampPos;
 uniform vec2 uBeamDir;
-uniform float uWispAmt;
+uniform float uWispAmt; uniform float uKeyHue;
 uniform vec3 uCloudLight;
 uniform vec2 uGlintShape;
 // Emission added after lighting (not tinted by uWorldTint), set by lamp/window/lantern surfaces.

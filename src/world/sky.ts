@@ -24,7 +24,7 @@ export class Sky {
   readonly far = new THREE.Group();
 
   constructor() {
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(2600, 48, 24), skyMaterial());
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(4100, 48, 24), skyMaterial());
     dome.frustumCulled = false;
     dome.renderOrder = -10;
     this.group.add(dome);
@@ -77,80 +77,127 @@ export class Sky {
 }
 
 type Lobe = [number, number, number];
-type CloudKind = "tower" | "heap" | "flat";
+type CloudKind = "cumulus" | "heap" | "strata";
+
+const clampX = (x: number, rad: number) => Math.max(-0.97 + rad, Math.min(0.97 - rad, x));
 
 /**
- * Lobe layout of one cloud in cloud units (half width = 1, base at y = 0): a row of uneven base
- * lobes cut flat by the base, then cauliflower lobes heaped on the upper edges of earlier ones.
+ * Lobe layout of one cloud in cloud units (half width = 1, base at y = 0). Towering cumulus: a
+ * broad base under a tall body heaped off-centre, its crown broken into small cauliflower bumps.
+ * Heaps: one to three lopsided masses with a few bumps. Strata: a long, thin, wavy strip of
+ * small lobes that swells and breaks along its length.
  */
 function cloudLobes(r: () => number, kind: CloudKind): { lobes: Lobe[]; top: number } {
   const lobes: Lobe[] = [];
-  const nBase = kind === "flat" ? 3 + Math.floor(r() * 2) : 3 + Math.floor(r() * 3);
-  const big = Math.floor(r() * nBase);
-  for (let i = 0; i < nBase; i++) {
-    const t = nBase === 1 ? 0.5 : i / (nBase - 1);
-    const rad = (kind === "flat" ? range(r, 0.2, 0.32) : range(r, 0.24, 0.38)) * (i === big ? 1.3 : 1);
-    const x = (t * 2 - 1) * (0.92 - rad) + range(r, -0.06, 0.06);
-    lobes.push([x, rad * range(r, 0.2, 0.55), rad]);
-  }
-  const extra = kind === "tower" ? 6 + Math.floor(r() * 3) : kind === "heap" ? 3 + Math.floor(r() * 3) : 1 + Math.floor(r() * 2);
-  // Tall clouds heap into a broad crown, never a thin column.
-  const cap = kind === "tower" ? 1.05 : kind === "heap" ? 0.8 : 0.5;
-  for (let k = 0, added = 0; added < extra && k < extra * 4 && lobes.length < CLOUD_LOBES - 1; k++) {
-    // Prefer growing from the higher, more central lobes: the tower heaps up, not out.
-    let p = lobes[Math.floor(r() * lobes.length)];
-    for (let tries = 0; tries < 2; tries++) {
-      const o = lobes[Math.floor(r() * lobes.length)];
-      if (o[1] + o[2] - Math.abs(o[0]) * 0.5 > p[1] + p[2] - Math.abs(p[0]) * 0.5) p = o;
+  const max = CLOUD_LOBES - 1;
+  const add = (x: number, y: number, rad: number) => {
+    if (lobes.length < max) lobes.push([clampX(x, rad), y, rad]);
+  };
+  // Small cauliflower bumps on the upper edges of the big masses.
+  const bumps = (n: number, r0: number, r1: number) => {
+    const body = lobes.slice();
+    for (let k = 0; k < n && lobes.length < max; k++) {
+      const b = body[Math.floor(r() * body.length)];
+      const ang = range(r, 0.25, Math.PI - 0.25);
+      const s = range(r, r0, r1);
+      const d = b[2] - s * range(r, 0.15, 0.55);
+      add(b[0] + Math.cos(ang) * d, b[1] + Math.sin(ang) * d, s);
     }
-    const ang = range(r, 0.35, Math.PI - 0.35);
-    const rad = Math.max(0.12, p[2] * range(r, 0.55, kind === "tower" ? 1.0 : 0.85));
-    const d = p[2] * range(r, 0.5, 0.85);
-    let x = p[0] + Math.cos(ang) * d;
-    x = Math.max(-0.98 + rad, Math.min(0.98 - rad, x * (kind === "tower" ? 0.8 : 1)));
-    const y = p[1] + Math.sin(ang) * d;
-    if (y + rad > cap) continue;
-    lobes.push([x, y, rad]);
-    added++;
+  };
+  if (kind === "strata") {
+    // Overlapping lobes so the strip reads as one band that swells, thins and sometimes breaks.
+    const n = 6 + Math.floor(r() * 6);
+    const phase = r() * 6.28;
+    const step = 1.7 / n;
+    const gap = r() < 0.4 ? Math.floor(r() * n) : -1;
+    for (let i = 0, x = -0.85 + range(r, 0, 0.06); i < n && x < 0.9; i++, x += step * range(r, 0.8, 1.15)) {
+      if (i === gap) continue;
+      const swell = 0.6 + 0.7 * Math.max(0, Math.sin(x * 2.1 + phase));
+      const rad = step * swell * range(r, 0.85, 1.2);
+      add(x, rad * range(r, 0.7, 0.95) + 0.02 * Math.sin(x * 4 + phase), rad);
+    }
+  } else if (kind === "cumulus") {
+    // Broad base, a tall body heaped off-centre, then cauliflower bumps round the crown.
+    const nb = 3 + Math.floor(r() * 2);
+    for (let i = 0; i < nb; i++) {
+      const rad = range(r, 0.26, 0.36);
+      add(((i / (nb - 1)) * 2 - 1) * (0.8 - rad) + range(r, -0.05, 0.05), rad * range(r, 0.45, 0.65), rad);
+    }
+    const cx = range(r, -0.25, 0.25);
+    const tiers = 2 + Math.floor(r() * 2);
+    let y = 0.3;
+    for (let k = 0; k < tiers; k++) {
+      y += range(r, 0.2, 0.26);
+      const rad = range(r, 0.3, 0.38) * (1 - k * 0.1);
+      add(cx + range(r, -0.18, 0.18), y, rad);
+      if (r() < 0.6) add(cx + range(r, -0.35, 0.35), y - range(r, 0.05, 0.15), rad * range(r, 0.65, 0.85));
+    }
+    bumps(max - lobes.length, 0.09, 0.16);
+  } else {
+    // Lopsided heap: one to three big masses, maybe a raised shoulder, a few bumps.
+    const nb = 1 + Math.floor(r() * 3);
+    for (let i = 0; i < nb; i++) {
+      const rad = range(r, 0.26, 0.42) * (nb === 1 ? 1.25 : 1);
+      add(nb === 1 ? range(r, -0.15, 0.15) : ((i / (nb - 1)) * 2 - 1) * (0.78 - rad) + range(r, -0.08, 0.08), rad * range(r, 0.35, 0.6), rad);
+    }
+    if (r() < 0.6) {
+      const b = lobes[Math.floor(r() * lobes.length)];
+      add(b[0] + range(r, -0.2, 0.2), b[1] + b[2] * range(r, 0.5, 0.8), b[2] * range(r, 0.6, 0.8));
+    }
+    if (r() < 0.5) add(range(r, -0.75, 0.75), range(r, 0.06, 0.12), range(r, 0.12, 0.2));
+    bumps(3 + Math.floor(r() * 5), 0.08, 0.15);
   }
   const top = Math.max(...lobes.map((l) => l[1] + l[2]));
   return { lobes, top };
 }
 
 /**
- * The painted cumulus field: big towers fairly near, smaller heaps further out and small
- * flattened clouds along the horizon, at natural (jittered) spacing all round the bay. The sky
- * stays clear around the low golden and setting sun so the disc and its path are never hidden.
+ * The painted cloud field around the bay: a few big towering cumulus, medium heaps of every
+ * size in depth, a nearer high layer, and long flat strata low on the horizon. Clouds at similar
+ * depths never overlap on the sky (so their cards can't cut through each other), and the sky
+ * stays clear around the low golden and setting sun.
  */
 function cloudField(r: () => number): THREE.Mesh {
-  // [count, dist min, dist max, base height min, max, half width min, max, kind, vertical squash, haze]
-  const bands: [number, number, number, number, number, number, number, CloudKind, number, number][] = [
-    [9, 700, 1050, 210, 300, 95, 170, "tower", 1, 0.0],
-    [15, 1050, 1600, 150, 230, 65, 125, "heap", 0.9, 0.1],
-    [22, 1600, 2150, 45, 120, 60, 140, "flat", 0.55, 0.3],
-  ];
+  const DEG = Math.PI / 180;
   const suns = [
     [-112, 4.5],
     [-100, 12],
-  ].map(([az, el]) => [(az * Math.PI) / 180, (el * Math.PI) / 180]);
+  ].map(([az, el]) => [az * DEG, el * DEG]);
   const angDiff = (a: number, b: number) => Math.abs(((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-  interface C { x: number; y: number; z: number; hw: number; sy: number; haze: number; lobes: Lobe[]; top: number; d: number }
+  interface C { x: number; y: number; z: number; hw: number; sy: number; haze: number; lobes: Lobe[]; top: number; d: number; az: number; halfA: number; elLo: number; elHi: number }
   const clouds: C[] = [];
-  for (const [count, d0, d1, y0, y1, w0, w1, kind, sy, haze] of bands) {
-    const phase = r() * Math.PI * 2;
+  const tryAdd = (kind: CloudKind, az: number, d: number, y: number, hw: number, sy: number, haze: number): boolean => {
+    const { lobes, top } = cloudLobes(r, kind);
+    const halfA = Math.atan((hw * 1.05) / d);
+    const elLo = Math.atan(y / d), elHi = Math.atan((y + top * hw * sy) / d);
+    if (suns.some(([sa, se]) => angDiff(az, sa) < halfA + 0.12 && se > elLo - 0.06 && se < elHi + 0.08)) return false;
+    for (const c of clouds) {
+      if (angDiff(az, c.az) > halfA + c.halfA + 0.015) continue;
+      if (elHi < c.elLo - 0.01 || elLo > c.elHi + 0.01) continue;
+      if (Math.abs(d - c.d) < 0.35 * Math.max(d, c.d)) return false;
+    }
+    clouds.push({ x: Math.sin(az) * d, y, z: Math.cos(az) * d, hw, sy, haze, lobes, top, d, az, halfA, elLo, elHi });
+    return true;
+  };
+
+  // Big towering cumulus: toward the harbour, either side of the island view, over the hill.
+  for (const az0 of [-160, -66, 74, 158]) {
+    for (let k = 0; k < 10; k++) {
+      if (tryAdd("cumulus", (az0 + range(r, -8, 8)) * DEG, range(r, 950, 1250), range(r, 120, 180), range(r, 250, 360), range(r, 0.95, 1.1), 0.02)) break;
+    }
+  }
+  // [count, dist min, max, base height min, max, half width min, max, kind, squash min, max, haze]
+  const bands: [number, number, number, number, number, number, number, CloudKind, number, number, number][] = [
+    [8, 450, 800, 150, 230, 40, 110, "heap", 0.75, 1.0, 0.0],
+    [20, 800, 1750, 130, 260, 55, 200, "heap", 0.7, 1.0, 0.06],
+    [16, 1800, 2700, 115, 190, 140, 380, "strata", 0.45, 0.7, 0.14],
+  ];
+  for (const [count, d0, d1, y0, y1, w0, w1, kind, s0, s1, haze] of bands) {
     for (let i = 0; i < count; i++) {
-      for (let attempt = 0; attempt < 6; attempt++) {
-        const az = phase + ((i + range(r, -0.42, 0.42)) / count) * Math.PI * 2;
-        const d = range(r, d0, d1);
-        const y = range(r, y0, y1);
-        const hw = range(r, w0, w1);
-        const { lobes, top } = cloudLobes(r, kind);
-        const halfA = Math.atan(hw / d);
-        const elLo = Math.atan(y / d), elHi = Math.atan((y + top * hw * sy) / d);
-        const hidesSun = suns.some(([sa, se]) => angDiff(az, sa) < halfA + 0.12 && se > elLo - 0.06 && se < elHi + 0.08);
-        if (hidesSun) continue;
-        clouds.push({ x: Math.sin(az) * d, y, z: Math.cos(az) * d, hw, sy, haze, lobes, top, d });
-        break;
+      for (let k = 0; k < 12; k++) {
+        // Skewed toward the small end: many medium and small clouds, a few large ones.
+        const hw = w0 + (w1 - w0) * Math.pow(r(), 1.6);
+        if (tryAdd(kind, r() * Math.PI * 2, range(r, d0, d1), range(r, y0, y1), hw, range(r, s0, s1), haze)) break;
       }
     }
   }
@@ -165,7 +212,7 @@ function cloudField(r: () => number): THREE.Mesh {
     table.set([c.top, 0, 0, 0], (row * CLOUD_LOBES + CLOUD_LOBES - 1) * 4);
     const seed = r();
     const v0 = pos.length / 3;
-    for (const [cx, cy] of [[-1.2, -0.08], [1.2, -0.08], [1.2, c.top + 0.15], [-1.2, c.top + 0.15]]) {
+    for (const [cx, cy] of [[-1.15, -0.1], [1.15, -0.1], [1.15, c.top + 0.15], [-1.15, c.top + 0.15]]) {
       pos.push(c.x, c.y, c.z);
       corner.push(cx, cy);
       size.push(c.hw, c.sy);

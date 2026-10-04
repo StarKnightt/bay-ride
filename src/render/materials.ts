@@ -99,7 +99,7 @@ vec3 skyColor(vec3 dir){
   }
   // Aerial haze: a tight band on the horizon plus a broad lightening that still reaches above
   // the hills, the same in every direction.
-  col = mix(col, uHaze, (exp(-h * 26.0) * 0.75 + exp(-h * 7.0) * 0.35) * uHazeAmt);
+  col = mix(col, uHaze, (exp(-h * 26.0) * 0.7 + exp(-h * 5.0) * 0.45) * uHazeAmt);
   return col;
 }
 
@@ -200,6 +200,13 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   float chroma = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
   float whiteK = smoothstep(0.35, 0.75, al) * (1.0 - smoothstep(0.12, 0.3, chroma));
   vec3 cSh = base * mix(shTint, vec3(0.37, 0.4, 0.52), whiteK);
+  // Painted key at a low sun or under the moon: lit faces take the light's own hue with a raking
+  // gradient, shade goes toward the cool shadow colour, so land changes colour, not just level.
+  // Faces barely turned to the light go violet, faces turned to it take its warm hue.
+  float kh = uKeyHue * (1.0 - gSoftCast) * (1.0 - bright * 0.8);
+  vec3 keyCol = mix(shTint * (al * 1.8 + 0.07), uSunColor * (al * 1.9 + 0.05), smoothstep(0.04, 0.42, t));
+  cLit = mix(cLit, keyCol, kh);
+  cSh = mix(cSh, shTint * (al * 1.6 + 0.07), kh * 0.5);
   vec3 cDk = cSh * vec3(0.7, 0.72, 0.84);
   vec3 col = mix(cDk, cSh, max(mid, 1.0 - sv));
   col = mix(col, cLit, lit);
@@ -611,6 +618,8 @@ void main(){
     vec3 c = base * (0.9 + 0.18 * h) * (0.94 + 0.12 * brush(vWPos * 0.05, N));
     vec3 V = normalize(vWPos - cameraPosition);
     c = mix(c * uFarTint, skyColor(normalize(vec3(V.x, 0.02, V.z))), 0.25 * (1.0 - h) + uFarHaze * (1.0 - 0.5 * h));
+    // At night far land stays a silhouette darker than the sky behind it.
+    c = mix(c, min(c, skyColor(normalize(vec3(V.x, 0.08, V.z))) * 0.72), uNight);
     gColor = vec4(c, 1.0);
     gNormal = vec4(0.5, 0.5, uId / 32.0, uMask);
     return;
@@ -867,6 +876,8 @@ export function skyMaterial(): THREE.ShaderMaterial {
           vec3 hot = uSunDisk;
           col = mix(col, hot, disk);
           col += normalize(hot + 1e-4) * (halo * ok * (1.0 - disk) + rays * 0.22) * min(length(hot), 1.4);
+          // Broad warm glow over the sky round a low sun (golden hour, sunset).
+          col += uSunGlow * exp(-max(r - 1.0, 0.0) * 0.06) * uSunGlowAmt.y * 0.35 * ok * (1.0 - disk);
         }
         if (dot(uMoonCol, vec3(1.0)) > 0.0 && md > 0.6) {
           // Painted moon: crisp round cream disc with soft grey maria, a tight soft halo and a
@@ -876,10 +887,9 @@ export function skyMaterial(): THREE.ShaderMaterial {
           float fw = max(fwidth(r), 0.02);
           float disk = (1.0 - smoothstep(1.0 - fw, 1.0 + fw, r)) * ok;
           vec2 mq = q * 1.6;
-          float maria = smoothstep(0.48, 0.66, vnoise(mq * 1.3 + 3.0) * 0.6 + vnoise(mq * 3.1 + 9.0) * 0.4);
-          float crater = smoothstep(0.7, 0.8, vnoise(mq * 6.0 + 1.0)) * 0.5;
-          vec3 mc = uMoonCol * mix(vec3(1.0), vec3(0.72, 0.68, 0.62), clamp(maria * 0.75 + crater * 0.4, 0.0, 1.0));
-          mc *= 1.0 - 0.12 * r * r;
+          // Flat, evenly lit disc with softly painted maria (no sphere shading, no hard blotches).
+          float maria = smoothstep(0.38, 0.78, vnoise(mq * 1.2 + 3.0) * 0.65 + vnoise(mq * 2.6 + 9.0) * 0.35);
+          vec3 mc = uMoonCol * mix(vec3(1.0), vec3(0.8, 0.77, 0.72), maria * 0.8);
           col = mix(col, mc, disk * (1.0 - wisp * 0.4 * uWispAmt));
           float halo = exp(-max(r - 1.0, 0.0) * 2.2) * 0.32 + exp(-max(r - 1.0, 0.0) * 0.18) * 0.06;
           col += uMoonCol * halo * (1.0 - disk) * ok;
