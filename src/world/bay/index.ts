@@ -5,6 +5,8 @@ import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../../render/lightpasses"
 import { ROAD_HALF, ROAD_Z0, ROAD_Z1, RIBBON_HALF, SEA_Y, roadX } from "./road";
 import { ISLAND, LIGHTHOUSE, WALL_IN, buildIsland, buildRoadRibbon, buildTerrain, islandH, terrainH } from "./terrain";
 import type { StepSurface } from "../../sound/steps";
+import { LighthouseBeam } from "./beam";
+import { buildHouses } from "./houses";
 
 /** Collision answer for a circle at (x, z): penetration depth and push-out normal. */
 export interface Contact {
@@ -30,20 +32,26 @@ export interface Ground {
 const WADE = 0.45;
 
 /**
- * The whole bay as one static scene (no streaming): landform, coast road, island and placeholder
- * lighthouse. Later systems add the shoreline waves, harbour, pier, town and props to `root`.
+ * The whole bay as one static scene (no streaming): landform, coast road, island, placeholder
+ * lighthouse with its night beam, and a few placeholder harbour houses. Later systems add the
+ * shoreline waves, harbour, pier, town and props to `root`.
  */
 export class Bay {
   readonly root = new THREE.Group();
   readonly colliders: Collider[] = [];
-  /** Lighthouse lamp centre (for the night beam, added with the town system). */
+  /** Lighthouse lamp centre. */
   readonly lamp = new THREE.Vector3();
+  /** Turning lighthouse beams and lamp halo (dusk and night). */
+  readonly beam: LighthouseBeam;
 
   constructor() {
     this.root.add(buildTerrain());
     this.root.add(buildIsland());
     this.root.add(buildRoadRibbon(ROAD_Z0 + 30, ROAD_Z1 - 30, roadMaterial()));
     this.root.add(this.lighthouse());
+    this.root.add(buildHouses(this.colliders));
+    this.beam = new LighthouseBeam(this.lamp);
+    this.root.add(this.beam.group);
   }
 
   /** Placeholder lighthouse: white tapered tower, red band, gallery, lamp room and cap. */

@@ -1,12 +1,12 @@
 import * as THREE from "three";
 import { G, specializeUber } from "./render/materials";
 import { Post } from "./render/post";
-import { LAYER_REFLECT, LAYER_SHADOW, SunShadow, onLayers } from "./render/lightpasses";
+import { LAYER_REFLECT, LAYER_SHADOW, PlanarReflection, SunShadow, onLayers } from "./render/lightpasses";
 import { precompile, warmDraws } from "./render/precompile";
 import { leafAtlas } from "./render/leafAtlas";
 import { Profiler } from "./render/profiler";
 import { Bay, type Contact } from "./world/bay";
-import { ROAD_Z1, roadX, roadYaw } from "./world/bay/road";
+import { ROAD_Z1, SEA_Y, roadX, roadYaw } from "./world/bay/road";
 import { Sky } from "./world/sky";
 import { TimeOfDay, parsePreset, type Preset } from "./world/timeofday";
 import { bakeDepth } from "./water/depthMap";
@@ -95,6 +95,7 @@ scene.add(rider.root, rider.walker);
 if (!params.has("nospec")) for (const o of [bay.root, rider.root, rider.walker]) specializeUber(o);
 
 const shadow = new SunShadow(2048, 55);
+const reflection = new PlanarReflection(Math.floor(innerWidth * 0.5), Math.floor(innerHeight * 0.5));
 const startParam = params.get("start");
 const ctl = new Controller(AUTOPLAY, startParam !== null && Number.isFinite(Number(startParam)) ? Number(startParam) : START_Z);
 const chase = new ChaseCam(innerWidth / innerHeight);
@@ -172,6 +173,7 @@ addEventListener("resize", () => {
   chase.cam.aspect = innerWidth / innerHeight;
   chase.cam.updateProjectionMatrix();
   post.setSize(innerWidth, innerHeight);
+  reflection.setSize(Math.floor(innerWidth * 0.5), Math.floor(innerHeight * 0.5));
 });
 
 let frames = 0;
@@ -296,6 +298,8 @@ function frame(now: number) {
   else shadowCenter.set(ctl.x - Math.sin(ctl.yaw) * 30, 0, ctl.z - Math.cos(ctl.yaw) * 30);
   renderer.info.reset();
   shadow.update(renderer, scene, shadowCenter);
+  bay.beam.update(t, chase.cam.position);
+  reflection.update(renderer, scene, chase.cam, SEA_Y);
   post.setNear(chase.cam.near);
   post.render(scene, chase.cam, t);
   prof.poll();

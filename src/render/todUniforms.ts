@@ -47,6 +47,15 @@ export const TOD = {
   uWaterRefl: { value: raw(1, 1, 1) },
   /** 0…1 lighthouse lamp + beam. */
   uBeam: { value: 0 },
+  /** Lighthouse lamp centre (world) and the beam's current heading (unit xz). */
+  uLampPos: { value: new THREE.Vector3(-197, 16, -22) },
+  uBeamDir: { value: new THREE.Vector2(1, 0) },
+  /** Cirrus wisp opacity (calm and dim at night). */
+  uWispAmt: { value: 0.5 },
+  /** Light the clouds are shaded by (the sun by day, the moon at night) and how much of it reaches them. */
+  uCloudLight: { value: new THREE.Vector3(-0.55, 0.42, 0.72).normalize() },
+  /** Sun glitter path: x = water slope spread (path width), y = broad sheen amount. */
+  uGlintShape: { value: new THREE.Vector2(0.12, 0.2) },
 };
 
 export const TOD_GLSL = /* glsl */ `
@@ -79,6 +88,11 @@ uniform vec3 uWaterShallow;
 uniform vec3 uWaterDeep;
 uniform vec3 uWaterRefl;
 uniform float uBeam;
+uniform vec3 uLampPos;
+uniform vec2 uBeamDir;
+uniform float uWispAmt;
+uniform vec3 uCloudLight;
+uniform vec2 uGlintShape;
 // Emission added after lighting (not tinted by uWorldTint), set by lamp/window/lantern surfaces.
 vec3 gEmit = vec3(0.0);
 `;

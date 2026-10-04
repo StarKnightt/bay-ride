@@ -22,8 +22,8 @@ export const SHOTS: Record<number, Shot> = {
   2: { name: "coast road", eye: v(roadX(60) - 1.6, 1.6, 60), look: v(ISLAND.x, SEA_Y + 4, ISLAND.z), fov: 50 },
   // Pier end, looking back at the harbour and the town on the hill.
   3: { name: "pier end", eye: v(-92, SEA_Y + 3.2, -192), look: v(30, 6, -168), fov: 50 },
-  // Low over the water toward the lighthouse (and the low sun behind it in the evening).
-  4: { name: "lighthouse", eye: v(-66, SEA_Y + 1.3, 46), look: v(LIGHTHOUSE.x, SEA_Y + 13, LIGHTHOUSE.z), fov: 50 },
+  // Low over the water toward the lighthouse, the evening sun setting just beside it.
+  4: { name: "lighthouse", eye: v(-82, SEA_Y + 1.3, 74), look: v(LIGHTHOUSE.x - 6, SEA_Y + 11, LIGHTHOUSE.z + 12), fov: 50 },
   // High, wide establishing view of the whole bay.
   5: { name: "establishing", eye: v(215, 100, 250), look: v(-90, 2, -80), fov: 46 },
 };

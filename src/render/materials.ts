@@ -97,8 +97,9 @@ vec3 skyColor(vec3 dir){
     float az = dot(normalize(dir.xz + 1e-5), normalize(uSkySun.xz + 1e-5)) * 0.5 + 0.5;
     col = mix(col, uHorizGlow, clamp(exp(-h * uHorizGlowK.y) * az * az * uHorizGlowK.x, 0.0, 1.0));
   }
-  // Warm aerial haze hugging the horizon.
-  col = mix(col, uHaze, exp(-h * 26.0) * uHazeAmt);
+  // Aerial haze: a tight band on the horizon plus a broad lightening that still reaches above
+  // the hills, the same in every direction.
+  col = mix(col, uHaze, (exp(-h * 26.0) * 0.75 + exp(-h * 7.0) * 0.35) * uHazeAmt);
   return col;
 }
 
@@ -106,8 +107,12 @@ vec3 applyFog(vec3 col, vec3 wpos){
   col = col * uWorldTint + gEmit;
   vec3 d = wpos - cameraPosition;
   float dist = length(d);
-  float f = 1.0 - exp(-max(dist - 70.0, 0.0) * uFogDensity);
   vec3 dir = d / max(dist, 0.001);
+  // Haze thins with height (scale ~90 m above the sea): a view from high up looks through less of it.
+  float y0 = max(cameraPosition.y + 3.0, 0.0), y1 = max(wpos.y + 3.0, 0.0);
+  float dy = (y0 - y1) / 90.0;
+  float hk = abs(dy) < 1e-3 ? exp(-y0 / 90.0) : (exp(-y1 / 90.0) - exp(-y0 / 90.0)) / dy;
+  float f = 1.0 - exp(-max(dist - 70.0, 0.0) * uFogDensity * hk);
   vec3 fc = mix(uFogColor, skyColor(normalize(vec3(dir.x, 0.03, dir.z))), 0.45);
   fc *= vec3(1.03, 1.0, 0.95);
   return mix(col, fc, f * 0.9);
@@ -180,10 +185,18 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   if (soft > 0.12 || gSoftCast > 0.5) sv = mix(sv, 1.0, 0.45);
   float lit = smoothstep(0.02 - soft, 0.06 + soft, t) * sv;
   float mid = smoothstep(-0.5 - soft, -0.44 + soft, t);
+  float al = dot(base, vec3(0.2126, 0.7152, 0.0722));
   vec3 cLit = base * uSunColor;
+  // Bright ground (sand, paving) takes a warm sun only partly: keep it under the sky's brightness
+  // and let some cool sky ambient through, instead of a flat saturated slab at a low sun.
+  float chroma0 = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
+  float bright = smoothstep(0.3, 0.6, al) * smoothstep(0.08, 0.2, chroma0);
+  float sunL = dot(uSunColor, vec3(0.2126, 0.7152, 0.0722));
+  vec3 calm = base * (mix(vec3(sunL), uSunColor, 0.35) * 0.74 + uSkyMid * 0.16);
+  calm *= 0.88 + 0.2 * vnoise(wpos.xz * 0.07);
+  cLit = mix(cLit, calm, bright);
   // High-albedo surfaces (blouse, plaster, socks) shade to a light, less saturated blue-grey so
   // they read as white-in-shade, never as holes or sky.
-  float al = dot(base, vec3(0.2126, 0.7152, 0.0722));
   float chroma = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
   float whiteK = smoothstep(0.35, 0.75, al) * (1.0 - smoothstep(0.12, 0.3, chroma));
   vec3 cSh = base * mix(shTint, vec3(0.37, 0.4, 0.52), whiteK);
@@ -195,7 +208,8 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   col += base * vec3(0.07, 0.045, 0.02) * (0.5 - N.y * 0.5) * (1.0 - lit);
   vec3 V = normalize(cameraPosition - wpos);
   float fr = 1.0 - max(dot(N, V), 0.0);
-  float rim = smoothstep(0.58, 0.72, fr) * rimAmt;
+  // Flat ground seen at a grazing angle is not a silhouette: no rim there.
+  float rim = smoothstep(0.58, 0.72, fr) * rimAmt * (1.0 - 0.85 * smoothstep(0.75, 0.97, N.y));
   float sunSide = smoothstep(-0.3, 0.3, dot(N, uSunDir) + 0.2) * (0.3 + 0.7 * sv);
   col += uRimColor * base * rim * (0.2 + 0.8 * sunSide) * 0.8;
   // Skin turning away from the camera takes one soft cel shade (far cheek in 3/4, jaw edges).
@@ -799,37 +813,32 @@ export function skyMaterial(): THREE.ShaderMaterial {
       ${COMMON}
       ${OUT}
       in vec3 vWPos;
+      // Screen-round disc coordinates around a sky direction, in units of its angular radius:
+      // measured on the view plane so a disc stays a circle anywhere in a wide frame.
+      vec2 discQ(vec3 dir, vec3 c, float ang, out float ok){
+        vec3 a = mat3(viewMatrix) * dir;
+        vec3 b = mat3(viewMatrix) * c;
+        ok = step(0.0, -b.z) * step(0.0, -a.z);
+        // Offsets on the image plane are what the screen shows, so a circle there stays round.
+        vec2 pa = a.xy / max(-a.z, 1e-5);
+        vec2 pb = b.xy / max(-b.z, 1e-5);
+        // Back to angle units at the disc.
+        return (pa - pb) * -b.z / ang;
+      }
       void main(){
         vec3 dir = normalize(vWPos - cameraPosition);
         vec3 col = skyColor(dir);
-        // Thin cirrus wisps high up.
+        float skyLum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+        // Thin cirrus wisps high up; dim at night, a little brighter near the moon.
         float h = max(dir.y, 0.02);
         vec2 p = dir.xz / h * 0.6;
         float w = fbm2(p * vec2(0.5, 2.6) + vec2(uTime * 0.004, 0.0));
         float wisp = smoothstep(0.6, 0.8, w) * smoothstep(0.12, 0.3, dir.y) * (1.0 - smoothstep(0.55, 0.95, dir.y));
-        col = mix(col, uWisp, wisp * 0.5);
-        float cd = dot(dir, uSkySun);
-        if (cd > 0.9) {
-          // Sun disk with a soft halo (HDR: the bloom pass turns it into a glow).
-          float disk = smoothstep(0.99972, 0.99982, cd);
-          col += uSunDisk * (disk + pow(cd, 1400.0) * 0.45 + pow(cd, 160.0) * 0.1);
-        }
         float md = dot(dir, uMoonDir);
-        if (md > 0.97 && dot(uMoonCol, vec3(1.0)) > 0.0) {
-          // Painted moon: a large soft-edged disk with a few cool grey maria and a halo.
-          vec3 mu = normalize(cross(uMoonDir, vec3(0.0, 1.0, 0.0)));
-          vec3 mv = cross(mu, uMoonDir);
-          vec2 q = vec2(dot(dir, mu), dot(dir, mv)) / 0.028;
-          float r = length(q);
-          float fw = max(fwidth(r), 1e-3);
-          float disk = 1.0 - smoothstep(1.0 - fw * 1.5, 1.0 + fw * 1.5, r);
-          float maria = smoothstep(0.5, 0.68, vnoise(q * 1.7 + 3.0) * 0.65 + vnoise(q * 4.3 + 9.0) * 0.35);
-          vec3 mc = uMoonCol * mix(vec3(1.0), vec3(0.6, 0.65, 0.76), maria * 0.85) * (1.0 - 0.1 * r * r);
-          col = mix(col, mc, disk * (1.0 - wisp * 0.5));
-          col += uMoonCol * (pow(max(md, 0.0), 2500.0) * 0.22 + pow(max(md, 0.0), 160.0) * 0.08) * (1.0 - disk);
-        }
-        if (uStars > 0.0 && dir.y > 0.04) {
-          // Soft painted stars (big enough to survive the paint filter), twinkling slowly.
+        vec3 wc = uWisp + uMoonCol * pow(max(md, 0.0), 6.0) * 0.25 * uNight;
+        col = mix(col, wc, wisp * uWispAmt);
+        if (uStars > 0.0 && dir.y > 0.02) {
+          // Soft painted stars: only once the sky is dark, and at dusk only high up.
           vec2 sp = dir.xz / (1.0 + dir.y) * 70.0;
           vec2 ci = floor(sp);
           float hs = hash12(ci);
@@ -837,61 +846,44 @@ export function skyMaterial(): THREE.ShaderMaterial {
           float d = length(fract(sp) - off);
           float tw = 0.65 + 0.35 * sin(uTime * (0.8 + hs * 2.5) + hs * 40.0);
           float star = step(0.94, hs) * (1.0 - smoothstep(0.03, 0.11 + 0.08 * fract(hs * 17.0), d)) * tw;
-          col += vec3(0.95, 0.95, 1.0) * star * uStars * smoothstep(0.04, 0.3, dir.y) * (1.0 - wisp * 0.8);
+          float minY = mix(0.6, 0.06, uStars);
+          float dark = 1.0 - smoothstep(0.05, 0.16, skyLum);
+          col += vec3(0.95, 0.95, 1.0) * star * smoothstep(minY, minY + 0.15, dir.y) * dark * (1.0 - wisp * 0.8);
         }
-        gColor = vec4(col, 1.0);
-        gNormal = vec4(0.5, 0.5, 0.0, 0.0);
-      }`,
-  });
-}
-
-// ------------------------------------------------------------------ cumulus clouds
-
-export function cloudMaterial(): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
-    glslVersion: THREE.GLSL3,
-    uniforms: { ...G, uId: { value: 0 }, uMask: { value: 0 } },
-    vertexShader: /* glsl */ `
-      in float aH;
-      in vec3 aLobe;
-      out vec3 vWPos; out vec3 vN; out vec3 vL; out float vH;
-      void main(){
-        vec4 wp = modelMatrix * vec4(position, 1.0);
-        vWPos = wp.xyz; vN = normalize(mat3(modelMatrix) * normal); vH = aH;
-        vL = mat3(modelMatrix) * (position - aLobe);
-        gl_Position = projectionMatrix * viewMatrix * wp;
-      }`,
-    fragmentShader: /* glsl */ `
-      ${COMMON}
-      ${OUT}
-      in vec3 vWPos; in vec3 vN; in vec3 vL; in float vH;
-      void main(){
-        // Per-lobe shading: each puff is lit like its own ball, blended with the merged normal.
-        vec3 N = normalize(mix(normalize(vN), normalize(vL), 0.55));
-        float n = vnoise3(vWPos * 0.02) * 0.6 + vnoise3(vWPos * 0.06) * 0.4;
-        float t = dot(N, uSkySun) * 0.5 + 0.5 + (n - 0.5) * 0.3 + (vH - 0.4) * 0.25;
-        float lit = smoothstep(0.5, 0.54, t);
-        float mid = smoothstep(0.3, 0.34, t);
-        vec3 cTop = uCloudTop, cMid = uCloudMid, cLow = uCloudLow;
-        // Underside (facing down or low in the cloud) always sits in the cool tone.
-        float under = smoothstep(0.15, -0.35, N.y) * (1.0 - smoothstep(0.1, 0.35, vH));
-        vec3 col = mix(cLow, cMid, mid);
-        col = mix(col, cTop, lit);
-        col = mix(col, cLow, under * 0.85);
-        vec3 V = normalize(cameraPosition - vWPos);
-        if (uCloudK.z > 0.0) {
-          // Low sun: undersides and low flanks catch warm light, strongest on the sunward side.
-          float sAz = dot(normalize(-V.xz + 1e-5), normalize(uSkySun.xz + 1e-5)) * 0.5 + 0.5;
-          float low = clamp(under + (1.0 - smoothstep(0.0, 0.55, vH)) * 0.6, 0.0, 1.0);
-          col = mix(col, uCloudUnder, uCloudK.z * low * (0.3 + 0.7 * sAz));
+        float ok;
+        if (dot(uSunDisk, vec3(1.0)) > 0.0 && dot(dir, uSkySun) > 0.6) {
+          // Sun: a small defined white-hot disc, a tight halo and a few painted rays (all in the
+          // sky pass, so hills and clouds always stand in front of them).
+          vec2 q = discQ(dir, uSkySun, 0.011, ok);
+          float r = length(q);
+          float fw = max(fwidth(r), 0.02);
+          float disk = (1.0 - smoothstep(1.0 - fw, 1.0 + fw, r)) * ok;
+          float ang = atan(q.y, q.x);
+          float rays = pow(abs(sin(ang * 4.0 + 0.4)), 40.0) + pow(abs(sin(ang * 7.0 + 1.3)), 60.0) * 0.6;
+          rays *= exp(-max(r - 1.0, 0.0) * 0.16) * smoothstep(1.0, 2.0, r) * ok;
+          float halo = exp(-max(r - 1.0, 0.0) * 0.55) * 0.35 + exp(-max(r - 1.0, 0.0) * 0.09) * 0.12;
+          // A bright sky already glows round the sun: the halo only adds what is missing.
+          halo *= mix(1.0, 0.3, smoothstep(0.35, 0.85, skyLum));
+          vec3 hot = uSunDisk;
+          col = mix(col, hot, disk);
+          col += normalize(hot + 1e-4) * (halo * ok * (1.0 - disk) + rays * 0.22) * min(length(hot), 1.4);
         }
-        float fr = pow(1.0 - abs(dot(N, V)), 3.0);
-        float sunSide = smoothstep(-0.2, 0.4, dot(N, uSkySun));
-        col = mix(col, uCloudRim, fr * uCloudK.x * sunSide);   // #fff6e0 rim
-        // Backlit silver lining toward a low sun.
-        col += uCloudRim * fr * uCloudK.y * pow(max(dot(-V, uSkySun), 0.0), 3.0);
-        vec3 dir = -V;
-        col = mix(col, skyColor(dir), smoothstep(0.1, 0.0, dir.y) * 0.7 + 0.05);
+        if (dot(uMoonCol, vec3(1.0)) > 0.0 && md > 0.6) {
+          // Painted moon: crisp round cream disc with soft grey maria, a tight soft halo and a
+          // faint wide one.
+          vec2 q = discQ(dir, uMoonDir, 0.026, ok);
+          float r = length(q);
+          float fw = max(fwidth(r), 0.02);
+          float disk = (1.0 - smoothstep(1.0 - fw, 1.0 + fw, r)) * ok;
+          vec2 mq = q * 1.6;
+          float maria = smoothstep(0.48, 0.66, vnoise(mq * 1.3 + 3.0) * 0.6 + vnoise(mq * 3.1 + 9.0) * 0.4);
+          float crater = smoothstep(0.7, 0.8, vnoise(mq * 6.0 + 1.0)) * 0.5;
+          vec3 mc = uMoonCol * mix(vec3(1.0), vec3(0.72, 0.68, 0.62), clamp(maria * 0.75 + crater * 0.4, 0.0, 1.0));
+          mc *= 1.0 - 0.12 * r * r;
+          col = mix(col, mc, disk * (1.0 - wisp * 0.4 * uWispAmt));
+          float halo = exp(-max(r - 1.0, 0.0) * 2.2) * 0.32 + exp(-max(r - 1.0, 0.0) * 0.18) * 0.06;
+          col += uMoonCol * halo * (1.0 - disk) * ok;
+        }
         gColor = vec4(col, 1.0);
         gNormal = vec4(0.5, 0.5, 0.0, 0.0);
       }`,

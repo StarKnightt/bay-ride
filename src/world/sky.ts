@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { blob, prep, spherize, M, ID } from "./geo";
+import { blob, prep, M, ID } from "./geo";
 import { SEA_Y } from "./bay/road";
-import { cloudMaterial, skyMaterial, uber } from "../render/materials";
+import { skyMaterial, uber } from "../render/materials";
+import { CLOUD_LOBES, paintedCloudMaterial } from "../render/cloudPaint";
 import { LAYER_REFLECT, onLayers } from "../render/lightpasses";
 import { mulberry32, range } from "../core/rng";
 
@@ -13,8 +14,8 @@ const smooth01 = (x: number) => {
 
 /**
  * Sky and distance. The dome (gradient, sun disk, painted moon, stars, cirrus) follows the camera;
- * the cumulus towers and the distant ridges are fixed around the bay, ridges only on the land
- * side so the sea horizon stays open. Drifting light motes wrap around the camera in the shader.
+ * the painted cumulus cards and the distant ridges are fixed around the bay, ridges only on the
+ * land side so the sea horizon stays open.
  */
 export class Sky {
   /** Follows the camera. */
@@ -28,32 +29,7 @@ export class Sky {
     dome.renderOrder = -10;
     this.group.add(dome);
 
-    const cm = cloudMaterial();
-    const r = mulberry32(77);
-    // Hand-placed cumulus (azimuth in radians from -Z toward +X, distance, size, tallness).
-    // The heaviest towers stand over the open sea (-X), where the sun goes down.
-    const SEA = -Math.PI / 2;
-    const spots: [number, number, number, number][] = [
-      [0.28, 2300, 560, 2.3], // the big towering one near the horizon
-      [-0.42, 1450, 290, 1.1],
-      [0.75, 1350, 280, 1.2],
-      [-1.15, 1300, 220, 0.9],
-      [1.25, 1400, 260, 1.1],
-      [-0.12, 2000, 170, 0.6],
-      [1.9, 1500, 180, 0.9],
-      [-1.9, 1500, 170, 0.85],
-      [2.7, 1400, 200, 1.0],
-      [-2.6, 1500, 190, 0.9],
-      [3.14, 1600, 170, 0.8],
-    ];
-    for (const [az, dist, size, tall] of spots) {
-      const g = cumulus(size, tall, Math.floor(r() * 1e6));
-      const m = new THREE.Mesh(g, cm);
-      m.position.set(Math.sin(az + SEA) * dist, range(r, 110, 150), -Math.cos(az + SEA) * dist);
-      m.rotation.y = r() * 6.28;
-      m.frustumCulled = false;
-      this.far.add(m);
-    }
+    this.far.add(cloudField(mulberry32(77)));
 
     // Distant layers behind the hill: forested ridges, then painted blue mountains fading lighter
     // (aerial perspective). Arcs centred on the land side (+X); the far bands reach further round.
@@ -76,6 +52,7 @@ export class Sky {
     onLayers(this.far, LAYER_REFLECT);
 
     // Light motes drifting on the wind (wrapped around the camera in the shader).
+    const r = mulberry32(78);
     const n = 160;
     const mote = prep(new THREE.PlaneGeometry(0.06, 0.06), "#ffffff", M.mote);
     const im = new THREE.InstancedMesh(mote, uber(ID.sky, -1, THREE.DoubleSide), n);
@@ -86,6 +63,8 @@ export class Sky {
       im.setMatrixAt(i, m4);
     }
     im.frustumCulled = false;
+    // Sunbeam dust only floats under canopies; the open coast has none yet.
+    im.visible = false;
     this.motes = im;
   }
 
@@ -97,82 +76,116 @@ export class Sky {
   }
 }
 
-/** Cauliflower cumulus: flat floor, heaped towers, crisp secondary lobes; normals partly spherized. */
-function cumulus(size: number, tall: number, seed: number): THREE.BufferGeometry {
-  const r = mulberry32(seed);
-  const parts: THREE.BufferGeometry[] = [];
-  const n = 24 + Math.round(tall * 6);
-  const top = size * (0.5 + tall * 0.55);
-  const big: { x: number; y: number; z: number; rad: number }[] = [];
-  const lobe = (g: THREE.BufferGeometry, x: number, y: number, z: number) => {
-    const c = new Float32Array(g.attributes.position.count * 3);
-    for (let k = 0; k < c.length; k += 3) (c[k] = x), (c[k + 1] = y), (c[k + 2] = z);
-    g.setAttribute("aLobe", new THREE.BufferAttribute(c, 3));
-  };
-  for (let i = 0; i < n; i++) {
-    const t = i / n;
-    const a = r() * Math.PI * 2;
-    // Base lobes stay tucked in so the flat floor is one clean line, not stacked slabs.
-    const spread = size * (1 - t * 0.72) * range(r, 0.3, 0.95) * (0.7 + 0.3 * Math.min(1, t * 4));
-    const y = t * top * range(r, 0.72, 1.0);
-    const rad = size * range(r, 0.22, 0.36) * (1 - t * 0.35);
-    const x = Math.cos(a) * spread, z = Math.sin(a) * spread * 0.55;
-    const g = blob(rad, 2, 0.12, seed + i * 3.7);
-    const cy = y + rad * 0.5;
-    g.translate(x, cy, z);
-    lobe(g, x, cy, z);
-    parts.push(g);
-    big.push({ x, y: cy, z, rad });
+type Lobe = [number, number, number];
+type CloudKind = "tower" | "heap" | "flat";
+
+/**
+ * Lobe layout of one cloud in cloud units (half width = 1, base at y = 0): a row of uneven base
+ * lobes cut flat by the base, then cauliflower lobes heaped on the upper edges of earlier ones.
+ */
+function cloudLobes(r: () => number, kind: CloudKind): { lobes: Lobe[]; top: number } {
+  const lobes: Lobe[] = [];
+  const nBase = kind === "flat" ? 3 + Math.floor(r() * 2) : 3 + Math.floor(r() * 3);
+  const big = Math.floor(r() * nBase);
+  for (let i = 0; i < nBase; i++) {
+    const t = nBase === 1 ? 0.5 : i / (nBase - 1);
+    const rad = (kind === "flat" ? range(r, 0.2, 0.32) : range(r, 0.24, 0.38)) * (i === big ? 1.3 : 1);
+    const x = (t * 2 - 1) * (0.92 - rad) + range(r, -0.06, 0.06);
+    lobes.push([x, rad * range(r, 0.2, 0.55), rad]);
   }
-  // Secondary cauliflower lobes on the upper surfaces.
-  for (let i = 0; i < 34; i++) {
-    const b = big[Math.floor(r() * big.length)];
-    const u = range(r, 0.15, 1), a = r() * Math.PI * 2;
-    const s = Math.sqrt(1 - u * u);
-    const rad = b.rad * range(r, 0.22, 0.38);
-    const g = blob(rad, 1, 0.15, seed + 100 + i);
-    const lx = b.x + Math.cos(a) * s * b.rad * 0.92, ly = b.y + u * b.rad * 0.92, lz = b.z + Math.sin(a) * s * b.rad * 0.92;
-    g.translate(lx, ly, lz);
-    lobe(g, lx, ly, lz);
-    parts.push(g);
-  }
-  // Small bulges around the outer flanks so the vertical sides never read as flat walls.
-  for (let i = 0; i < 22; i++) {
-    let b = big[Math.floor(r() * big.length)];
-    for (let k = 0; k < 2; k++) {
-      const o = big[Math.floor(r() * big.length)];
-      if (Math.hypot(o.x, o.z) > Math.hypot(b.x, b.z)) b = o;
+  const extra = kind === "tower" ? 6 + Math.floor(r() * 3) : kind === "heap" ? 3 + Math.floor(r() * 3) : 1 + Math.floor(r() * 2);
+  // Tall clouds heap into a broad crown, never a thin column.
+  const cap = kind === "tower" ? 1.05 : kind === "heap" ? 0.8 : 0.5;
+  for (let k = 0, added = 0; added < extra && k < extra * 4 && lobes.length < CLOUD_LOBES - 1; k++) {
+    // Prefer growing from the higher, more central lobes: the tower heaps up, not out.
+    let p = lobes[Math.floor(r() * lobes.length)];
+    for (let tries = 0; tries < 2; tries++) {
+      const o = lobes[Math.floor(r() * lobes.length)];
+      if (o[1] + o[2] - Math.abs(o[0]) * 0.5 > p[1] + p[2] - Math.abs(p[0]) * 0.5) p = o;
     }
-    const out = Math.atan2(b.z, b.x) + range(r, -0.9, 0.9);
-    const u = range(r, -0.25, 0.4), s = Math.sqrt(1 - u * u);
-    const rad = b.rad * range(r, 0.2, 0.34);
-    const g = blob(rad, 1, 0.15, seed + 300 + i);
-    const lx = b.x + Math.cos(out) * s * b.rad * 0.9, ly = b.y + u * b.rad * 0.9, lz = b.z + Math.sin(out) * s * b.rad * 0.9;
-    g.translate(lx, ly, lz);
-    lobe(g, lx, ly, lz);
-    parts.push(g);
+    const ang = range(r, 0.35, Math.PI - 0.35);
+    const rad = Math.max(0.12, p[2] * range(r, 0.55, kind === "tower" ? 1.0 : 0.85));
+    const d = p[2] * range(r, 0.5, 0.85);
+    let x = p[0] + Math.cos(ang) * d;
+    x = Math.max(-0.98 + rad, Math.min(0.98 - rad, x * (kind === "tower" ? 0.8 : 1)));
+    const y = p[1] + Math.sin(ang) * d;
+    if (y + rad > cap) continue;
+    lobes.push([x, y, rad]);
+    added++;
   }
-  const merged = mergeGeometries(parts, false)!;
-  const p = merged.attributes.position;
-  let ymin = Infinity, ymax = -Infinity;
-  const floor = size * 0.14;
-  for (let i = 0; i < p.count; i++) {
-    let y = p.getY(i);
-    // Flat horizontal base with a slightly rounded lip (no hard step where lobes are cut).
-    if (y < floor + size * 0.04) {
-      const d = floor + size * 0.04 - y;
-      y = floor + size * 0.04 - (size * 0.04) * (1 - Math.exp(-d / (size * 0.04)));
+  const top = Math.max(...lobes.map((l) => l[1] + l[2]));
+  return { lobes, top };
+}
+
+/**
+ * The painted cumulus field: big towers fairly near, smaller heaps further out and small
+ * flattened clouds along the horizon, at natural (jittered) spacing all round the bay. The sky
+ * stays clear around the low golden and setting sun so the disc and its path are never hidden.
+ */
+function cloudField(r: () => number): THREE.Mesh {
+  // [count, dist min, dist max, base height min, max, half width min, max, kind, vertical squash, haze]
+  const bands: [number, number, number, number, number, number, number, CloudKind, number, number][] = [
+    [9, 700, 1050, 210, 300, 95, 170, "tower", 1, 0.0],
+    [15, 1050, 1600, 150, 230, 65, 125, "heap", 0.9, 0.1],
+    [22, 1600, 2150, 45, 120, 60, 140, "flat", 0.55, 0.3],
+  ];
+  const suns = [
+    [-112, 4.5],
+    [-100, 12],
+  ].map(([az, el]) => [(az * Math.PI) / 180, (el * Math.PI) / 180]);
+  const angDiff = (a: number, b: number) => Math.abs(((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+  interface C { x: number; y: number; z: number; hw: number; sy: number; haze: number; lobes: Lobe[]; top: number; d: number }
+  const clouds: C[] = [];
+  for (const [count, d0, d1, y0, y1, w0, w1, kind, sy, haze] of bands) {
+    const phase = r() * Math.PI * 2;
+    for (let i = 0; i < count; i++) {
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const az = phase + ((i + range(r, -0.42, 0.42)) / count) * Math.PI * 2;
+        const d = range(r, d0, d1);
+        const y = range(r, y0, y1);
+        const hw = range(r, w0, w1);
+        const { lobes, top } = cloudLobes(r, kind);
+        const halfA = Math.atan(hw / d);
+        const elLo = Math.atan(y / d), elHi = Math.atan((y + top * hw * sy) / d);
+        const hidesSun = suns.some(([sa, se]) => angDiff(az, sa) < halfA + 0.12 && se > elLo - 0.06 && se < elHi + 0.08);
+        if (hidesSun) continue;
+        clouds.push({ x: Math.sin(az) * d, y, z: Math.cos(az) * d, hw, sy, haze, lobes, top, d });
+        break;
+      }
     }
-    p.setY(i, y);
-    ymin = Math.min(ymin, y);
-    ymax = Math.max(ymax, y);
   }
-  merged.computeVertexNormals();
-  spherize(merged, new THREE.Vector3(0, top * 0.35, 0), 0.3, 0.8);
-  const h = new Float32Array(p.count);
-  for (let i = 0; i < p.count; i++) h[i] = (p.getY(i) - ymin) / (ymax - ymin);
-  merged.setAttribute("aH", new THREE.BufferAttribute(h, 1));
-  return merged;
+  // Far first: the cards are blended in this order.
+  clouds.sort((a, b) => b.d - a.d);
+
+  const n = clouds.length;
+  const table = new Float32Array(CLOUD_LOBES * n * 4);
+  const pos: number[] = [], corner: number[] = [], size: number[] = [], info: number[] = [], idx: number[] = [];
+  clouds.forEach((c, row) => {
+    c.lobes.forEach((l, i) => table.set([l[0], l[1], l[2], 0], (row * CLOUD_LOBES + i) * 4));
+    table.set([c.top, 0, 0, 0], (row * CLOUD_LOBES + CLOUD_LOBES - 1) * 4);
+    const seed = r();
+    const v0 = pos.length / 3;
+    for (const [cx, cy] of [[-1.2, -0.08], [1.2, -0.08], [1.2, c.top + 0.15], [-1.2, c.top + 0.15]]) {
+      pos.push(c.x, c.y, c.z);
+      corner.push(cx, cy);
+      size.push(c.hw, c.sy);
+      info.push(row, seed, c.haze);
+    }
+    idx.push(v0, v0 + 1, v0 + 2, v0, v0 + 2, v0 + 3);
+  });
+  const tex = new THREE.DataTexture(table, CLOUD_LOBES, n, THREE.RGBAFormat, THREE.FloatType);
+  tex.magFilter = tex.minFilter = THREE.NearestFilter;
+  tex.needsUpdate = true;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute("aCorner", new THREE.Float32BufferAttribute(corner, 2));
+  g.setAttribute("aSize", new THREE.Float32BufferAttribute(size, 2));
+  g.setAttribute("aInfo", new THREE.Float32BufferAttribute(info, 3));
+  g.setIndex(idx);
+  const m = new THREE.Mesh(g, paintedCloudMaterial(tex));
+  m.frustumCulled = false;
+  m.renderOrder = -5;
+  return m;
 }
 
 /**

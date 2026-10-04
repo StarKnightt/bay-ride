@@ -35,13 +35,17 @@ interface Look {
   haze: RGB; hazeA: number;
   hgl: RGB; hglA: number; hglF: number;
   cTop: RGB; cMid: RGB; cLow: RGB; cRim: RGB; cRimK: number; cBack: number; cUnder: RGB; cUnderA: number;
-  wisp: RGB; disk: RGB; stars: number; night: number;
+  /** Cirrus colour and strength. */
+  wisp: RGB; wispA: number;
+  disk: RGB; stars: number; night: number;
   world: RGB; far: RGB; farHaze: number;
   grade: RGB; sat: number;
   bloomS: number; bloomR: number; bloomT: number;
   moonAz: number; moonEl: number; moon: RGB;
   /** Water: body colours, reflection tint, glitter strength / colour, 0…1 glitter follows the moon. */
   wShallow: RGB; wDeep: RGB; wRefl: RGB; glint: number; glintCol: RGB; glintMoon: number;
+  /** Glitter path width (facet slope spread) and the broad sheen under the light. */
+  gSpread: number; gSheen: number;
   /** Lighthouse lamp and beam. */
   beam: number;
   evening: number;
@@ -70,21 +74,23 @@ const DEG = Math.PI / 180;
 // lavender shadow sides, warm rim light; the sea goes from clear turquoise shallows to deep blue,
 // gold and rose at sunset, indigo with a moon path at night.
 const LOOKS: Record<Preset, Look> = {
+  // Low sun over the hill: pale peach key, long cool shadows, a softer paler blue than noon.
   morning: {
-    az: 78, el: 14, shadeMin: 16,
-    sun: hx("#ffe6c8"), shadow: hx("#8a8fba"), rim: hx("#ffd8b0", 1.3),
-    zenith: hx("#3a7fc0"), mid: hx("#8cc2e2"), horizon: hx("#f4dccb"), fog: hx("#e3e2df"), fogD: 0.0013,
-    glow: [1.0, 0.84, 0.64], glowA: 0.22, glowB: 0.35,
-    haze: [0.97, 0.9, 0.86], hazeA: 0.55,
-    hgl: hx("#ffd5b8"), hglA: 0.35, hglF: 8,
-    cTop: [1.0, 0.93, 0.84], cMid: [0.84, 0.83, 0.9], cLow: [0.48, 0.5, 0.67], cRim: [1.0, 0.9, 0.78], cRimK: 0.55, cBack: 0.35,
-    cUnder: [1.0, 0.82, 0.72], cUnderA: 0.2,
-    wisp: [1.0, 0.94, 0.9], disk: [2.4, 2.15, 1.75], stars: 0, night: 0,
-    world: [1.02, 0.99, 0.95], far: [0.98, 0.98, 1.02], farHaze: 0.28,
-    grade: [1.0, 1.0, 1.0], sat: 1.04,
+    az: 140, el: 13, shadeMin: 15,
+    sun: hx("#ffd9b4", 0.98), shadow: hx("#7b8ac4"), rim: hx("#ffd2a8", 1.35),
+    zenith: hx("#5a8cc4"), mid: hx("#a6c8e2"), horizon: hx("#f2dccc"), fog: hx("#dedfe2"), fogD: 0.001,
+    glow: [1.0, 0.82, 0.62], glowA: 0.24, glowB: 0.36,
+    haze: [0.97, 0.9, 0.86], hazeA: 0.5,
+    hgl: hx("#ffd2b0"), hglA: 0.38, hglF: 8,
+    cTop: [1.0, 0.89, 0.78], cMid: [0.8, 0.81, 0.9], cLow: [0.5, 0.54, 0.72], cRim: [1.0, 0.86, 0.72], cRimK: 0.6, cBack: 0.35,
+    cUnder: [1.0, 0.8, 0.68], cUnderA: 0.25,
+    wisp: [1.0, 0.93, 0.88], wispA: 0.5, disk: [1.7, 1.5, 1.2], stars: 0, night: 0,
+    world: [1.02, 0.98, 0.94], far: [0.94, 0.95, 1.04], farHaze: 0.26,
+    grade: [1.02, 1.0, 0.98], sat: 0.98,
     bloomS: 0.3, bloomR: 0.5, bloomT: 0.95,
     moonAz: -78, moonEl: 24, moon: [0.86, 0.88, 0.92],
-    wShallow: hx("#7cd8cc"), wDeep: hx("#2a6aa2"), wRefl: [1.0, 0.98, 0.96], glint: 0.55, glintCol: [1.0, 0.92, 0.8], glintMoon: 0,
+    wShallow: hx("#86cfc6"), wDeep: hx("#326c9c"), wRefl: [1.0, 0.97, 0.95], glint: 0.55, glintCol: [1.0, 0.9, 0.78], glintMoon: 0,
+    gSpread: 0.15, gSheen: 0.12,
     beam: 0,
     evening: 0.25,
     birds: 1,
@@ -92,94 +98,103 @@ const LOOKS: Record<Preset, Look> = {
   noon: {
     az: -150, el: 62, shadeMin: 62,
     sun: hx("#fff5e6"), shadow: hx("#8290bc"), rim: hx("#fff1d6"),
-    zenith: hx("#1f62b4"), mid: hx("#4fa2e0"), horizon: hx("#cde6f0"), fog: hx("#cfe2e8"), fogD: 0.0009,
+    zenith: hx("#1f62b4"), mid: hx("#4fa2e0"), horizon: hx("#cfe4ee"), fog: hx("#cfe0e8"), fogD: 0.00075,
     glow: [1.0, 0.92, 0.75], glowA: 0.12, glowB: 0.25,
-    haze: [0.86, 0.9, 0.9], hazeA: 0.4,
+    haze: [0.86, 0.9, 0.92], hazeA: 0.45,
     hgl: hx("#ffffff"), hglA: 0, hglF: 6,
-    cTop: [1.0, 0.98, 0.94], cMid: [0.8, 0.83, 0.9], cLow: [0.4, 0.45, 0.64], cRim: [1.0, 0.98, 0.92], cRimK: 0.5, cBack: 0.1,
+    cTop: [1.0, 0.98, 0.94], cMid: [0.8, 0.83, 0.9], cLow: [0.42, 0.47, 0.66], cRim: [1.0, 0.98, 0.92], cRimK: 0.45, cBack: 0.1,
     cUnder: [1.0, 0.9, 0.8], cUnderA: 0,
-    wisp: [0.96, 0.97, 1.0], disk: [3.0, 2.9, 2.6], stars: 0, night: 0,
-    world: [1.0, 1.0, 1.0], far: [0.98, 1.0, 1.04], farHaze: 0.12,
+    wisp: [0.96, 0.97, 1.0], wispA: 0.55, disk: [3.0, 2.9, 2.6], stars: 0, night: 0,
+    world: [1.0, 1.0, 1.0], far: [0.96, 1.0, 1.06], farHaze: 0.14,
     grade: [1.0, 1.0, 1.01], sat: 1.06,
     bloomS: 0.26, bloomR: 0.5, bloomT: 1.0,
     moonAz: 0, moonEl: -30, moon: [0, 0, 0],
     wShallow: hx("#58d6c8"), wDeep: hx("#1a5aa0"), wRefl: [1.0, 1.0, 1.0], glint: 0.5, glintCol: [1.0, 0.97, 0.9], glintMoon: 0,
+    gSpread: 0.17, gSheen: 0.1,
     beam: 0,
     evening: 0,
     birds: 1,
   },
+  // Amber hour: warm grey-blue zenith over a gold sky, cream-gold clouds, warm water.
   golden: {
-    az: -100, el: 12, shadeMin: 15,
-    sun: hx("#ffc98a", 1.02), shadow: hx("#8583ad"), rim: hx("#ffc07a", 1.7),
-    zenith: hx("#1b5c80"), mid: hx("#4d9cbc"), horizon: hx("#f4d6a8"), fog: hx("#e4d3b2"), fogD: 0.0011,
-    glow: [1.0, 0.7, 0.36], glowA: 0.3, glowB: 0.5,
-    haze: [0.96, 0.8, 0.58], hazeA: 0.42,
-    hgl: hx("#ffc58a"), hglA: 0.45, hglF: 7,
-    cTop: [1.0, 0.86, 0.6], cMid: [0.86, 0.74, 0.72], cLow: [0.44, 0.42, 0.62], cRim: [1.0, 0.86, 0.6], cRimK: 0.6, cBack: 0.5,
-    cUnder: [1.0, 0.7, 0.45], cUnderA: 0.25,
-    wisp: [1.0, 0.88, 0.74], disk: [2.2, 1.85, 1.3], stars: 0, night: 0,
-    world: [1.05, 0.97, 0.87], far: [1.02, 0.94, 0.88], farHaze: 0.1,
-    grade: [1.02, 1.0, 0.97], sat: 1.08,
-    bloomS: 0.34, bloomR: 0.5, bloomT: 0.95,
+    az: -100, el: 12, shadeMin: 9,
+    sun: hx("#ffc887", 1.02), shadow: hx("#6c86a2"), rim: hx("#ffbe74", 1.7),
+    zenith: hx("#56708c"), mid: hx("#d4b37c"), horizon: hx("#f6cf90"), fog: hx("#dfcaa4"), fogD: 0.001,
+    glow: [1.0, 0.72, 0.36], glowA: 0.24, glowB: 0.45,
+    haze: [0.98, 0.82, 0.55], hazeA: 0.45,
+    hgl: hx("#ffc480"), hglA: 0.45, hglF: 7,
+    cTop: [1.0, 0.86, 0.58], cMid: [0.78, 0.67, 0.54], cLow: [0.52, 0.46, 0.44], cRim: [1.0, 0.82, 0.48], cRimK: 0.8, cBack: 0.6,
+    cUnder: [1.0, 0.72, 0.42], cUnderA: 0.45,
+    wisp: [1.0, 0.86, 0.66], wispA: 0.45, disk: [1.7, 1.45, 1.0], stars: 0, night: 0,
+    world: [1.04, 0.96, 0.86], far: [1.0, 0.9, 0.82], farHaze: 0.14,
+    grade: [1.02, 1.0, 0.96], sat: 1.0,
+    bloomS: 0.26, bloomR: 0.5, bloomT: 1.05,
     moonAz: 0, moonEl: -30, moon: [0, 0, 0],
-    wShallow: hx("#88c8ae"), wDeep: hx("#245a80"), wRefl: [1.05, 0.95, 0.82], glint: 1.0, glintCol: [1.0, 0.84, 0.58], glintMoon: 0,
+    wShallow: hx("#a2b590"), wDeep: hx("#2e5a76"), wRefl: [1.1, 0.96, 0.78], glint: 1.0, glintCol: [1.0, 0.84, 0.56], glintMoon: 0,
+    gSpread: 0.14, gSheen: 0.16,
     beam: 0,
     evening: 0.8,
     birds: 1,
   },
+  // Sun on the horizon: cool grey-violet cloud bodies with orange-gold undersides and rims.
   sunset: {
-    az: -112, el: 4.5, shadeMin: 13,
-    sun: hx("#f7ae82", 0.88), shadow: hx("#6f5f96"), rim: hx("#ff9448", 2.2),
-    zenith: hx("#2a4a7a"), mid: hx("#b98aac"), horizon: hx("#ffb070"), fog: hx("#8f7aa8"), fogD: 0.0009,
-    glow: [1.0, 0.6, 0.28], glowA: 0.42, glowB: 0.6,
-    haze: [1.0, 0.64, 0.4], hazeA: 0.38,
-    hgl: hx("#ff8a5c"), hglA: 0.62, hglF: 5,
-    cTop: [1.0, 0.76, 0.46], cMid: [0.95, 0.56, 0.52], cLow: [0.42, 0.3, 0.5], cRim: [1.0, 0.72, 0.38], cRimK: 0.6, cBack: 0.5,
-    cUnder: [1.0, 0.6, 0.36], cUnderA: 0.75,
-    wisp: [1.0, 0.62, 0.5], disk: [2.6, 1.95, 1.2], stars: 0, night: 0.3,
-    world: [0.98, 0.86, 0.8], far: [0.52, 0.42, 0.64], farHaze: 0.2,
-    grade: [1.02, 0.98, 0.96], sat: 1.12,
-    bloomS: 0.42, bloomR: 0.55, bloomT: 0.95,
+    az: -112, el: 4.5, shadeMin: 6,
+    sun: hx("#ffa676", 0.92), shadow: hx("#5f5596"), rim: hx("#ff9448", 2.1),
+    zenith: hx("#34497a"), mid: hx("#c08ca4"), horizon: hx("#ffab68"), fog: hx("#8a76a2"), fogD: 0.0008,
+    glow: [1.0, 0.6, 0.28], glowA: 0.4, glowB: 0.55,
+    haze: [1.0, 0.66, 0.42], hazeA: 0.38,
+    hgl: hx("#ff8a5c"), hglA: 0.6, hglF: 5,
+    cTop: [0.7, 0.55, 0.62], cMid: [0.5, 0.42, 0.58], cLow: [0.3, 0.26, 0.44], cRim: [1.0, 0.66, 0.3], cRimK: 1.0, cBack: 0.8,
+    cUnder: [1.0, 0.56, 0.28], cUnderA: 0.9,
+    wisp: [1.0, 0.62, 0.48], wispA: 0.45, disk: [2.0, 1.55, 1.05], stars: 0, night: 0.3,
+    world: [0.94, 0.84, 0.8], far: [0.5, 0.4, 0.62], farHaze: 0.2,
+    grade: [1.02, 0.98, 0.96], sat: 1.05,
+    bloomS: 0.3, bloomR: 0.45, bloomT: 1.05,
     moonAz: 0, moonEl: -30, moon: [0, 0, 0],
-    wShallow: hx("#a39aa6"), wDeep: hx("#2e3c6c"), wRefl: [1.05, 0.9, 0.85], glint: 1.0, glintCol: [1.0, 0.68, 0.4], glintMoon: 0,
+    wShallow: hx("#9a90a2"), wDeep: hx("#2a3868"), wRefl: [1.05, 0.9, 0.85], glint: 1.0, glintCol: [1.0, 0.66, 0.38], glintMoon: 0,
+    gSpread: 0.12, gSheen: 0.14,
     beam: 0.3,
     evening: 0.95,
     birds: 0.5,
   },
+  // After the sun: dark slate clouds with thin pink rims, the first stars high up.
   dusk: {
     az: -116, el: -3, shadeMin: 18,
-    sun: hx("#535d96"), shadow: hx("#444e80"), rim: hx("#ff9a6a", 0.7),
-    zenith: hx("#141a46"), mid: hx("#3a4c7c"), horizon: hx("#dd8e6c"), fog: hx("#3c4570"), fogD: 0.001,
+    sun: hx("#535d96"), shadow: hx("#40497a"), rim: hx("#ff9a6a", 0.7),
+    zenith: hx("#141a46"), mid: hx("#3a4c7c"), horizon: hx("#dd8e6c"), fog: hx("#343c66"), fogD: 0.0009,
     glow: [1.0, 0.55, 0.35], glowA: 0.18, glowB: 0.12,
     haze: [0.56, 0.45, 0.56], hazeA: 0.3,
     hgl: hx("#ff9a60"), hglA: 0.55, hglF: 14,
-    cTop: [0.36, 0.31, 0.47], cMid: [0.25, 0.24, 0.4], cLow: [0.13, 0.14, 0.27], cRim: [0.9, 0.55, 0.45], cRimK: 0.25, cBack: 0.25,
-    cUnder: [0.8, 0.44, 0.42], cUnderA: 0.4,
-    wisp: [0.6, 0.5, 0.66], disk: [0, 0, 0], stars: 0.7, night: 1,
-    world: [0.42, 0.46, 0.66], far: [0.4, 0.43, 0.66], farHaze: 0.35,
+    cTop: [0.3, 0.27, 0.4], cMid: [0.2, 0.2, 0.33], cLow: [0.11, 0.12, 0.23], cRim: [1.0, 0.56, 0.56], cRimK: 0.55, cBack: 0.5,
+    cUnder: [0.85, 0.45, 0.45], cUnderA: 0.35,
+    wisp: [0.42, 0.36, 0.52], wispA: 0.25, disk: [0, 0, 0], stars: 0.45, night: 1,
+    world: [0.4, 0.44, 0.64], far: [0.32, 0.34, 0.56], farHaze: 0.3,
     grade: [0.97, 0.98, 1.04], sat: 1.05,
-    bloomS: 0.7, bloomR: 0.6, bloomT: 0.8,
-    moonAz: -62, moonEl: 11, moon: [0.9, 0.86, 0.8],
+    bloomS: 0.6, bloomR: 0.55, bloomT: 0.85,
+    moonAz: -62, moonEl: 11, moon: [0.95, 0.88, 0.72],
     wShallow: hx("#4a5a86"), wDeep: hx("#18204a"), wRefl: [1.0, 1.0, 1.0], glint: 0.25, glintCol: [1.0, 0.62, 0.45], glintMoon: 0,
+    gSpread: 0.12, gSheen: 0.1,
     beam: 1,
     evening: 1.0,
     birds: 0,
   },
+  // Moonlight: cool weak clouds lit only on the moon side, haze and far land darker than the sky.
   night: {
-    az: -84, el: 19, shadeMin: 22,
-    sun: hx("#7d90c8", 0.72), shadow: hx("#2c3666"), rim: hx("#a8bce8", 0.8),
-    zenith: hx("#071131"), mid: hx("#172a5a"), horizon: hx("#36508a"), fog: hx("#1f2d58"), fogD: 0.0011,
+    az: -84, el: 19, shadeMin: 15,
+    sun: hx("#7d90c8", 0.66), shadow: hx("#26305e"), rim: hx("#a8bce8", 0.8),
+    zenith: hx("#071131"), mid: hx("#172a5a"), horizon: hx("#33497e"), fog: hx("#141d3e"), fogD: 0.0007,
     glow: [0.62, 0.72, 0.98], glowA: 0.1, glowB: 0.22,
-    haze: [0.24, 0.3, 0.5], hazeA: 0.3,
-    hgl: hx("#40568e"), hglA: 0.25, hglF: 10,
-    cTop: [0.3, 0.35, 0.53], cMid: [0.16, 0.19, 0.34], cLow: [0.07, 0.09, 0.19], cRim: [0.62, 0.7, 0.9], cRimK: 0.45, cBack: 0.4,
-    cUnder: [0.3, 0.32, 0.5], cUnderA: 0.1,
-    wisp: [0.34, 0.4, 0.62], disk: [0, 0, 0], stars: 1, night: 1,
-    world: [0.36, 0.42, 0.66], far: [0.3, 0.36, 0.6], farHaze: 0.4,
+    haze: [0.2, 0.25, 0.44], hazeA: 0.3,
+    hgl: hx("#3a4e86"), hglA: 0.22, hglF: 10,
+    cTop: [0.2, 0.235, 0.38], cMid: [0.11, 0.14, 0.27], cLow: [0.06, 0.075, 0.16], cRim: [0.8, 0.84, 0.95], cRimK: 0.6, cBack: 0.55,
+    cUnder: [0.2, 0.22, 0.38], cUnderA: 0.05,
+    wisp: [0.16, 0.22, 0.42], wispA: 0.3, disk: [0, 0, 0], stars: 1, night: 1,
+    world: [0.3, 0.35, 0.58], far: [0.17, 0.21, 0.4], farHaze: 0.22,
     grade: [0.96, 0.98, 1.06], sat: 1.05,
-    bloomS: 0.75, bloomR: 0.6, bloomT: 0.75,
-    moonAz: -84, moonEl: 19, moon: [0.94, 0.92, 0.84],
-    wShallow: hx("#1e3a5e"), wDeep: hx("#08122e"), wRefl: [1.0, 1.0, 1.0], glint: 0.75, glintCol: [0.85, 0.92, 1.1], glintMoon: 1,
+    bloomS: 0.6, bloomR: 0.55, bloomT: 0.85,
+    moonAz: -84, moonEl: 19, moon: [0.95, 0.88, 0.7],
+    wShallow: hx("#1e3a5e"), wDeep: hx("#08122e"), wRefl: [0.9, 0.92, 1.0], glint: 0.6, glintCol: [1.0, 0.92, 0.74], glintMoon: 1,
+    gSpread: 0.15, gSheen: 0.08,
     beam: 1,
     evening: 1,
     birds: 0,
@@ -352,6 +367,7 @@ export class TimeOfDay {
     G.uCloudK.value.set(l.cRimK, l.cBack, l.cUnderA);
     G.uCloudUnder.value.setRGB(...l.cUnder);
     G.uWisp.value.setRGB(...l.wisp);
+    G.uWispAmt.value = l.wispA;
     G.uSunDisk.value.setRGB(...l.disk);
     G.uStars.value = l.stars;
     G.uNight.value = l.night;
@@ -363,6 +379,9 @@ export class TimeOfDay {
     G.uGlint.value = l.glint;
     G.uGlintDir.value.copy(G.uSkySun.value).lerp(G.uMoonDir.value, l.glintMoon).normalize();
     G.uGlintCol.value.setRGB(...l.glintCol);
+    G.uGlintShape.value.set(l.gSpread, l.gSheen);
+    // Clouds are lit by the sun (even just below the horizon at dusk), by the moon at night.
+    G.uCloudLight.value.copy(G.uGlintDir.value);
     G.uWaterShallow.value.setRGB(...l.wShallow);
     G.uWaterDeep.value.setRGB(...l.wDeep);
     G.uWaterRefl.value.setRGB(...l.wRefl);
