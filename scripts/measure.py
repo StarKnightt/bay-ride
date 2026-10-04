@@ -5,6 +5,13 @@ usage: python scripts/measure.py <png> x,y[,r] [x,y[,r] ...]   (r = box half-siz
 import sys
 from PIL import Image
 
+if len(sys.argv) < 3 or sys.argv[1] in ("-h", "--help"):
+    print(__doc__.strip())
+    print()
+    print("Prints one line per box: x,y: rgb=(R,G,B) L=<Rec.709 luma>, all 0-255.")
+    print("example: python scripts/measure.py shots/x/shot1_noon_t20.png 1650,850 1890,720,10")
+    sys.exit(0 if len(sys.argv) > 1 and sys.argv[1] in ("-h", "--help") else 2)
+
 img = Image.open(sys.argv[1]).convert("RGB")
 for spec in sys.argv[2:]:
     parts = [int(v) for v in spec.split(",")]

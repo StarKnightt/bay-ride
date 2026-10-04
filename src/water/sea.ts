@@ -36,7 +36,7 @@ const VS = /* glsl */ `
     // beach itself the swash sheet takes over (beach.ts), so the sea never floods the sand.
     float hv = W_SEA - wField(wp.xz).r;
     // The tuck depth wanders along the shore so the meeting line with the sand is never ruled.
-    float tuck = 0.035 + 0.05 * vnoise(wp.xz * vec2(0.09, 0.23)) + 0.14 * smoothstep(0.25, 0.85, vnoise(vec2(wp.z * 0.03, wp.x * 0.05 + 2.0)));
+    float tuck = 0.035 + 0.05 * vnoise(wp.xz * vec2(0.09, 0.23)) + 0.22 * smoothstep(0.25, 0.85, vnoise(vec2(wp.z * 0.03, wp.x * 0.05 + 2.0))) + 0.08 * vnoise(vec2(wp.z * 0.09, 4.0));
     wp.y += wEta(wp.xz, uTime) * aEdge * smoothstep(0.0, 0.8, hv) - tuck * (1.0 - smoothstep(0.0, 1.0, hv));
 #endif
     vWPos = wp.xyz;
@@ -142,9 +142,9 @@ const FS = /* glsl */ `
       vec2 so2 = fract(pb * 2.3) - 0.5 - (vec2(hash12(sc2 + 1.7), hash12(sc2 + 6.2)) - 0.5) * 0.5;
       float peb = step(0.8, hash12(sc2 + 3.3)) * (1.0 - smoothstep(0.1, 0.18, length(so2 * vec2(1.0, 1.3))));
       alb = mix(alb, vec3(0.3, 0.27, 0.21) * (0.7 + 0.5 * hash12(sc2)), peb * stoneK * (1.0 - smoothstep(0.03, 0.08, px)));
-      // The thin water at the edge is dark and glassy like the wet sand it meets (the beach film
-      // uses the same values); the bed only brightens as the water deepens.
-      alb *= mix(vec3(0.3, 0.35, 0.45), vec3(1.0), smoothstep(0.03, 0.6, hd + 0.2 * (vnoise(pb * 0.12) - 0.5)));
+      // The thin water at the edge matches the beach's clear film over wet sand; the bed brightens
+      // steadily as the water deepens.
+      alb *= mix(vec3(0.52, 0.5, 0.47), vec3(1.0), smoothstep(0.03, 0.6, hd + 0.2 * (vnoise(pb * 0.12) - 0.5)));
       float weed = smoothstep(0.6, 0.7, fbm2(pb * 0.05 + 4.0)) * smoothstep(1.2, 3.0, hd);
       alb = mix(alb, vec3(0.13, 0.17, 0.08), weed * 0.55);
       float rk = smoothstep(0.9, 0.99, Fb.a);
@@ -167,7 +167,8 @@ const FS = /* glsl */ `
     // the warm light never turns the shallows khaki.
     float warmK = smoothstep(0.08, 0.35, uSunColor.r - uSunColor.b);
     float hw = hd + 0.12 * (vnoise(q * 0.09) - 0.5);
-    float f1 = smoothstep(-0.03, 0.06, hw), f2 = smoothstep(0.55, 0.7, hw), f3 = smoothstep(1.5, 1.8, hw);
+    // Clear over the darkened sand at the very edge (as the beach's film), yellow-green once deeper.
+    float f1 = smoothstep(0.12, 0.32, hw + 0.2 * (vnoise(q * 0.04 + 3.0) - 0.5)), f2 = smoothstep(0.55, 0.7, hw), f3 = smoothstep(1.5, 1.8, hw);
     vec3 st1 = mix(vec3(0.86, 1.0, 0.56), tint * vec3(0.8, 1.0, 0.86), 0.65 * warmK);
     vec3 st2 = tint * vec3(0.78, 1.0, 0.8);
     vec3 wt = mix(mix(mix(vec3(0.97, 1.0, 0.95), st1, f1), st2, f2), tint * 0.88, f3);
@@ -180,9 +181,9 @@ const FS = /* glsl */ `
     col *= 1.0 + clamp(dot(-sl, Ls) * 2.0, -0.16, 0.16) * (1.0 - uNight * 0.5);
     // Painted swell lines offshore: lighter crests, darker troughs (they show the swell bending).
     float offs = smoothstep(1.5, 5.0, s.h);
-    float swk = offs * (1.0 - 0.6 * uNight) * (1.0 - 0.6 * smoothstep(700.0, 1800.0, dist));
-    col *= 1.0 + s.swell * 0.3 * swk;
-    col = mix(col, cW * 1.15 + 0.05, smoothstep(0.4, 0.9, s.swell) * 0.38 * swk);
+    float swk = offs * (1.0 - 0.6 * uNight) * (1.0 - 0.6 * smoothstep(900.0, 2200.0, dist));
+    col *= 1.0 + s.swell * 0.4 * swk;
+    col = mix(col, cW * 1.15 + 0.05, smoothstep(0.35, 0.85, s.swell) * 0.45 * swk);
     // Light through the thin lip of a steepening crest.
     col = mix(col, cW * 1.3 * mix(vec3(1.0), uSunColor, 0.5) + 0.02, s.crest * 0.55);
 

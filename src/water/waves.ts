@@ -155,6 +155,7 @@ float wLace(vec2 p, float dens, float seed, float px){
   q += (vec2(vnoise(q * 0.3), vnoise(q * 0.3 + 7.0)) - 0.5) * 1.6;
   // Patch shapes ~1-2 m: large enough to be followed from frame to frame as they drift.
   float c = vnoise(q * 0.62) * 0.62 + vnoise(q * 1.5 + 4.0) * 0.28 + vnoise(q * 3.4 + 9.0) * 0.1;
+  c += (vnoise(q * 4.5 + seed) - 0.5) * 0.16 + (vnoise(q * 11.0 + seed * 2.0) - 0.5) * 0.07 * (1.0 - smoothstep(0.02, 0.06, px));
   float d = clamp(dens, 0.0, 1.0);
   float th = mix(0.8, 0.18, d);
   float aa = 0.025 + px * 0.9;
@@ -245,10 +246,14 @@ WSurf wSurface(vec2 xz, float t, float px){
       s.crest = max(s.crest, smoothstep(0.45, 0.85, beta) * (1.0 - brk) * exp(-pow((tau + 0.15) / 0.45, 2.0)) * smoothstep(0.08, 0.3, sz));
       // Painted swell lines: light crests, darker troughs ahead of them.
       // Broken into staggered tapering strokes along each crest, fading in the island's lee.
+      // Offshore they sit on the refracted travel-time isochrones (no beach-only wobble), so they
+      // curve round the island into its lee and bend into the bay.
+      float tauS = tau + wWob(along, n, k) * smoothstep(12.0, 30.0, h);
       float ac = dot(xz, vec2(-s.dir.y, s.dir.x));
-      float seg = 0.35 + 0.65 * smoothstep(0.2, 0.75, vnoise(vec2(ac / 70.0, float(n) * 1.37 + float(k) * 5.0)));
-      float sw = smoothstep(0.08, 0.45, sz) * (1.0 - brk) * seg * mix(0.25, 1.0, s.expose);
-      s.swell += sw * (exp(-pow(tau / 0.9, 2.0)) - 0.45 * exp(-pow((tau + 2.2) / 1.3, 2.0)));
+      float seg = 0.5 + 0.5 * smoothstep(0.25, 0.7, vnoise(vec2(ac / 38.0, float(n) * 1.37 + float(k) * 5.0)));
+      float szS = mix(sz, wH0(n, k), smoothstep(12.0, 30.0, h));
+      float sw = smoothstep(0.05, 0.35, szS) * (1.0 - brk) * seg * mix(0.6, 1.0, s.expose);
+      s.swell += sw * (exp(-pow(tauS / 0.9, 2.0)) - 0.45 * exp(-pow((tauS + 2.2) / 1.3, 2.0)));
       s.pulse = max(s.pulse, smoothstep(0.1, 0.5, sz) * smoothstep(-0.6, 0.0, tau) * exp(-max(tau, 0.0) / 2.2));
       // Foam that belongs to this wave: the crest whitens where its section starts to spill, then a
       // white roller rides the bore with a clean leading edge, trailing streaks that fade.
@@ -300,8 +305,8 @@ WSwash wSwash(vec2 xz, float zs, float t, float px){
   float along = wAlong(xz);
   // Frothy, never-straight outline (vertical metres; the swash slope rises ~3-4 cm per metre).
   float lobeF = (vnoise(xz * vec2(1.6, 2.2) + 3.0) - 0.5) * 0.01 + (vnoise(xz * 5.0) - 0.5) * 0.003
-              + (vnoise(vec2(along * 0.11, 2.0)) - 0.5) * 0.035 + (vnoise(vec2(along * 0.035, 8.0)) - 0.5) * 0.03
-              + (vnoise(vec2(along * 0.02, 4.0)) - 0.5) * 0.07;
+              + (vnoise(vec2(along * 0.11, 2.0)) - 0.5) * 0.04 + (vnoise(vec2(along * 0.035, 8.0)) - 0.5) * 0.09
+              + (vnoise(vec2(along * 0.02, 4.0)) - 0.5) * 0.22;
   float ew = 0.003 + px * 0.03;
   float best = 0.0;
   // Foam lace is evaluated once, for the wave carrying the most foam here.
@@ -350,8 +355,8 @@ WSwash wSwash(vec2 xz, float zs, float t, float px){
         // from the front, scraps sliding back down with the backwash.
         float fw = 0.008 + 0.03 * vnoise(vec2(along * 0.35, float(n) * 3.1));
         float ezp = max(ezs, 0.0);
-        float clump = 0.55 + 0.6 * vnoise(vec2(along * 0.4 + float(n) * 1.7, 0.5));
-        float trail = 0.34 * exp(-ezp / 0.12) * smoothstep(0.3, 0.6, vnoise(vec2(along * 0.25 + float(n) * 2.1, fp.y * 0.3)));
+        float clump = 0.45 + 0.4 * vnoise(vec2(along * 0.4 + float(n) * 1.7, 0.5));
+        float trail = 0.42 * exp(-ezp / 0.3) * smoothstep(0.22, 0.55, vnoise(vec2(along * 0.3 + float(n) * 2.1, fp.y * 0.35)));
         float d = up ? max(max(clump * exp(-ezp / fw), 0.45 * exp(-ezp / 0.05)), trail) * (1.0 - 0.3 * tau / Tu)
                      : 0.45 * exp(-sb * 1.6) * (0.5 + 0.5 * exp(-ezp / 0.03));
         d *= smoothstep(-ew, 0.5 * ew, ezs) * smoothstep(0.04, 0.2, A);
@@ -376,9 +381,13 @@ WSwash wSwash(vec2 xz, float zs, float t, float px){
   }
   o.foam = wLace(lP, lD, lSeed, px) * lA;
   // Below the mean waterline (a wandering line, never a contour) the sand stays under water.
-  float under = smoothstep(0.0, -0.035, zs + 0.03 * (vnoise(vec2(along * 0.11, 5.0)) - 0.5) + 0.02 * (vnoise(xz * 0.4) - 0.5));
+  float under = smoothstep(0.0, -0.035, zs + 0.03 * (vnoise(vec2(along * 0.11, 5.0)) - 0.5) + 0.06 * (vnoise(vec2(along * 0.04, 1.0)) - 0.5) + 0.02 * (vnoise(xz * 0.4) - 0.5));
+  // Sand near the water never dries: a damp strip whose width wanders along the beach.
+  float dwn = vnoise(vec2(along * 0.03, 6.0));
+  float dw = 0.05 + 0.42 * dwn * dwn + 0.07 * vnoise(vec2(along * 0.13, 7.0));
+  o.mem = max(o.mem, smoothstep(dw, 0.25 * dw, zs + 0.02 * (vnoise(xz * 0.3) - 0.5)) * 0.85);
   o.cover = max(o.cover, under);
-  o.film = max(o.film, under * 0.03);
+  o.film = max(o.film, under * 0.012);
   o.wet = max(o.wet, under);
   o.sheen = max(o.sheen, under);
   return o;

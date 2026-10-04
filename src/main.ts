@@ -308,7 +308,11 @@ function frame(now: number) {
   renderer.info.reset();
   shadow.update(renderer, scene, shadowCenter);
   bay.beam.update(t, chase.cam.position);
+  // Stars stay in the sky: mirrored as sharp dots they read as specks painted on the sea.
+  const stars = G.uStars.value;
+  G.uStars.value = 0;
   reflection.update(renderer, scene, chase.cam, SEA_Y);
+  G.uStars.value = stars;
   post.setNear(chase.cam.near);
   post.render(scene, chase.cam, t);
   prof.poll();

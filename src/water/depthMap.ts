@@ -89,8 +89,27 @@ const NB: [number, number][] = [
   [2, 1], [2, -1], [-2, 1], [-2, -1], [1, 2], [1, -2], [-1, 2], [-1, -2],
 ];
 
-/** Travel-time offset field (TN x TN) for one train: T - dot(p, dir) / cDeep. */
-function solveTravel(depth: Float32Array, dir: readonly [number, number]): Float32Array {
+/**
+ * Wrapped travel field offshore, blending to the plain field inside ~20 m of depth: the crest shapes
+ * refract round the island and across the bay while the beach keeps its arrival times exactly.
+ */
+function shoreMatched(depth: Float32Array, dir: readonly [number, number], period: number): Float32Array {
+  const plain = solveTravel(depth, dir), wrapped = solveTravel(depth, dir, period);
+  for (let k = 0; k < wrapped.length; k++) {
+    const w = Math.min(Math.max((depth[k] - 3) / 17, 0), 1);
+    wrapped[k] = plain[k] + (wrapped[k] - plain[k]) * w * w * (3 - 2 * w);
+  }
+  return wrapped;
+}
+
+/**
+ * Travel-time offset field (TN x TN) for one train: T - dot(p, dir) / cDeep. With wrapPeriod, only the
+ * domain edge is seeded and water slows with depth relative to the wavelength (dispersion), so crests
+ * bend over the bay's slopes and wrap into the island's lee instead of staying ruled lines.
+ */
+function solveTravel(depth: Float32Array, dir: readonly [number, number], wrapPeriod = 0): Float32Array {
+  const wrap = wrapPeriod > 0;
+  const kw = (2 * Math.PI) / (WAVE.cDeep * wrapPeriod);
   const { x0, z0, size } = DEPTH_BOUNDS;
   const cell = size / TN;
   const g = 9.81;
@@ -99,7 +118,9 @@ function solveTravel(depth: Float32Array, dir: readonly [number, number]): Float
     const h = depth[i];
     // Broken bores ride on their own height (c ~ sqrt(g (h + H))), so the inner surf never crawls:
     // the swash arrives a few seconds after its wave breaks, not ten.
-    slow[i] = h < 0.12 ? 0 : 1 / Math.min(Math.max(Math.sqrt(g * h), 3.6), WAVE.cDeep);
+    // Intermediate-depth dispersion, c ~ c0 tanh(k0 h): crests already slow (and turn) over 10-30 m.
+    const cMax = wrap ? WAVE.cDeep * Math.tanh(kw * h) : WAVE.cDeep;
+    slow[i] = h < 0.12 ? 0 : 1 / Math.min(Math.max(Math.sqrt(g * h), 3.6), cMax);
   }
   const T = new Float64Array(TN * TN).fill(Infinity);
   const done = new Uint8Array(TN * TN);
@@ -108,6 +129,7 @@ function solveTravel(depth: Float32Array, dir: readonly [number, number]): Float
     for (let i = 0; i < TN; i++) {
       const k = j * TN + i;
       if (depth[k] < 16) continue;
+      if (wrap && i > 0 && j > 0 && i < TN - 1 && j < TN - 1) continue;
       const x = x0 + (i + 0.5) * cell, z = z0 + (j + 0.5) * cell;
       T[k] = (x * dir[0] + z * dir[1]) / WAVE.cDeep;
       heap.push(k, T[k]);
@@ -192,8 +214,8 @@ export function bakeDepth(): THREE.DataTexture {
   const depth = new Float32Array(TN * TN);
   for (let j = 0; j < TN; j++)
     for (let i = 0; i < TN; i++) depth[j * TN + i] = SEA_Y - bedY(x0 + (i + 0.5) * tc, z0 + (j + 0.5) * tc);
-  const tA = solveTravel(depth, WAVE.dir[0]);
-  const tB = solveTravel(depth, WAVE.dir[1]);
+  const tA = shoreMatched(depth, WAVE.dir[0], WAVE.period[0]);
+  const tB = shoreMatched(depth, WAVE.dir[1], WAVE.period[1]);
 
   const field = new Float32Array(RES * RES * 4);
   const data = new Uint16Array(RES * RES * 4);

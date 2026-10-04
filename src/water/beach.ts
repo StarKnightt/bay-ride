@@ -51,15 +51,25 @@ export function beachMaterial(): THREE.ShaderMaterial {
         float zs = beachZs(q);
         WSwash w = wSwash(q, zs, uTime, px);
 
-        // Sand: pale and warm when dry, a clear 35-40% darker (and a touch cooler) where the recent
-        // run-ups reached, a lighter damp from older ones.
+        // Sand: pale and warm when dry; wet it is a deeper, richer version of the same sand (35-40%
+        // darker on screen, nudged cool), one gradient from fresh-wet at the water to drying above.
         float n1 = vnoise(q * 0.45), n2 = vnoise(q * 2.7 + 3.0);
         float keep = 1.0 - smoothstep(0.02, 0.08, px);
         vec3 dry = vec3(0.8, 0.69, 0.44) * (0.94 + 0.08 * n1 + 0.05 * (n2 - 0.5) * keep);
         float patchy = 0.8 + 0.4 * vnoise(q * 0.7 + 9.0);
-        float wet = clamp(max(w.wet, 0.6 * w.mem * patchy), 0.0, 1.0);
-        // Linear factor ~0.23 in luma: after tone mapping it reads ~35% darker on screen; cool, not brown.
-        vec3 base = dry * mix(vec3(1.0), vec3(0.245, 0.27, 0.315), wet);
+        float wet = clamp(max(w.wet, 0.8 * w.mem * patchy), 0.0, 1.0);
+        // Under a running sheet the water fills the surface instead of the pores, so the sand reads
+        // lighter than freshly drained sand; the last draining film stays at the wet value.
+        wet *= 1.0 - 0.32 * w.cover * smoothstep(0.004, 0.02, w.film) * smoothstep(-0.3, 0.03, zs);
+        // Linear factor ~0.27: after tone mapping it reads ~35% darker on screen. Scaling the sand colour
+        // keeps its hue; large soft patches keep it from reading as one flat slab.
+        vec3 base = dry * mix(vec3(1.0), vec3(0.24, 0.21, 0.175) * (0.88 + 0.24 * vnoise(q * 0.06 + 2.0)), wet);
+        // Below the waterline the bed follows the sea's depth ramps (sea.ts), so the two meet at the
+        // same value wherever the sea's edge happens to tuck under.
+        float dB = max(-zs, 0.0);
+        float hwB = dB + 0.12 * (vnoise(q * 0.09) - 0.5);
+        float bedUp = smoothstep(0.03, 0.6, dB + 0.2 * (vnoise(q * 0.12) - 0.5)) * step(0.0, -zs);
+        base = mix(base, dry * vec3(0.54, 0.53, 0.52), bedUp);
         // The high-water line of recent run-ups: a thin darker damp edge.
         base *= 1.0 - 0.2 * w.line * (1.0 - w.cover);
         // Backwash ripple marks on the wet sand (diamond pattern), soft and only up close.
@@ -72,10 +82,12 @@ export function beachMaterial(): THREE.ShaderMaterial {
         // yellow-green where it deepens), kept cool against warm sand at low sun.
         float warmK = smoothstep(0.08, 0.35, uSunColor.r - uSunColor.b);
         float thin = smoothstep(0.0, 0.012, w.film);
-        float band = smoothstep(0.01, 0.02, w.film);
+        float band = max(smoothstep(0.01, 0.02, w.film), smoothstep(0.12, 0.32, hwB + 0.2 * (vnoise(q * 0.04 + 3.0) - 0.5)) * step(0.0, -zs));
         vec3 filmTint = mix(mix(vec3(0.95, 1.0, 0.86), vec3(0.86, 1.0, 0.6), band), vec3(0.8, 0.96, 0.92), warmK);
-        // Water over sand is darker and glassier than the wet sand around it, never lighter.
-        col *= mix(vec3(1.0), filmTint * 0.8, w.cover * thin);
+        // A clear film: the wet sand shows through, a touch brighter where it deepens (sky gloss below
+        // adds the rest); only the last thin draining film darkens it, glassy rather than muddy.
+        col *= mix(vec3(1.0), filmTint * 1.22, w.cover * thin);
+        col *= mix(1.0, mix(0.88, 1.0, smoothstep(0.003, 0.012, w.film)), w.cover);
         col = mix(col, wCool(col), 0.5 * warmK * w.cover);
 
         // Sheen: a few broad, soft painted strokes along the shore that ride with the water, well
@@ -91,9 +103,9 @@ export function beachMaterial(): THREE.ShaderMaterial {
         float sn = vnoise(vec2(along * 0.14, w.adv * 0.55 + 1.5 * vnoise(vec2(along * 0.09, 3.0)))) * 0.7 + vnoise(vec2(along * 0.4 + 3.0, w.adv * 1.3)) * 0.3;
         // Only on moving sheets: below the waterline the pattern coordinate is a fixed contour.
         float stroke = smoothstep(0.58, 0.72, sn) * smoothstep(2.5, 10.0, dist) * smoothstep(-0.04, 0.02, zs + 0.03 * (vnoise(q * 0.2) - 0.5));
-        float gl = w.cover * thin * (0.02 + 0.05 * fres) + stroke * w.cover * mix(0.04, 0.12, thin)
-                 + (1.0 - w.cover) * w.sheen * (0.06 + 0.1 * fres + 0.08 * stroke);
-        col = mix(col, min(sky, vec3(0.7)), clamp(gl, 0.0, 0.25));
+        float gl = w.cover * thin * (0.06 + 0.14 * fres) * (1.0 - 0.5 * step(0.0, -zs) * (1.0 - smoothstep(0.012, 0.02, w.film))) + stroke * w.cover * mix(0.04, 0.1, thin)
+                 + (1.0 - w.cover) * w.sheen * (0.08 + 0.12 * fres + 0.06 * stroke);
+        col = mix(col, min(sky, vec3(0.7)), clamp(gl, 0.0, 0.3));
         // At night the sheet keeps a faint cool glint so the water's edge still reads.
         col += vec3(0.012, 0.018, 0.03) * uNight * (w.cover + stroke * w.cover);
 
