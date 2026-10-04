@@ -1,0 +1,9 @@
+node_modules
+dist
+.gauntlet/
+refs/
+shots/
+*.log
+*.mp4
+*.webm
+.env*
