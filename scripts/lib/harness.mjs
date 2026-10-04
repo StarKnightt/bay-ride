@@ -3,7 +3,7 @@
  * background-processes.mdc and gpu-rendering.mdc):
  * - teardown on every exit path (normal end, SIGINT, SIGTERM, uncaughtException, unhandledRejection)
  *   closes the browser and any server; servers run in-process, so nothing is spawned or detached;
- * - headless Chromium on the discrete GPU (ANGLE/D3D11), with the WebGL renderer string printed on
+ * - headless installed Chrome (bundled Chromium fallback) on the discrete GPU (ANGLE/D3D11), with the WebGL renderer string printed on
  *   every run and a loud failure on a software rasteriser (opt out with --allow-software);
  * - shader compile/link errors are fatal.
  */
@@ -49,9 +49,20 @@ export function own(server) {
   return server;
 }
 
-/** Headless Chromium on the discrete GPU; closed by teardown. */
+/**
+ * The user's installed Google Chrome, headless on the discrete GPU; bundled Chromium only if Chrome
+ * fails to launch. Logs which one is used; closed by teardown.
+ */
 export async function launchBrowser(extraArgs = []) {
-  owned.browser = await chromium.launch({ channel: "chromium", headless: true, args: [...GPU_ARGS, ...extraArgs] });
+  const opts = { headless: true, args: [...GPU_ARGS, ...extraArgs] };
+  try {
+    owned.browser = await chromium.launch({ ...opts, channel: "chrome" });
+    console.log(`[browser] installed Google Chrome ${owned.browser.version()}`);
+  } catch (e) {
+    console.warn(`[browser] installed Chrome failed to launch (${String(e?.message ?? e).split("\n")[0]}); falling back to bundled Chromium`);
+    owned.browser = await chromium.launch({ ...opts, channel: "chromium" });
+    console.log(`[browser] bundled Chromium ${owned.browser.version()}`);
+  }
   return owned.browser;
 }
 

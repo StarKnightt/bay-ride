@@ -142,7 +142,12 @@ export class PlanarReflection {
     vc.projectionMatrixInverse.copy(vc.projectionMatrix).invert();
 
     renderer.setRenderTarget(this.rt);
+    // Alpha 0 marks texels where nothing was drawn (below the mirrored horizon); the water fills
+    // them with sky instead of black.
+    const alpha = renderer.getClearAlpha();
+    renderer.setClearAlpha(0);
     renderer.clear();
+    renderer.setClearAlpha(alpha);
     G.uNoFringe.value = 1;
     renderer.render(scene, vc);
     G.uNoFringe.value = 0;

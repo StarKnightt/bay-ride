@@ -77,7 +77,7 @@ vec2 oChopGrad(vec2 q, float t, float px, float gust, out float resVar, out floa
   for (int i = 0; i < 8; i++) {
     vec4 T = O_T[i]; vec3 P = O_P[i];
     float L = 6.2831853 / T.z;
-    float lod = 1.0 - smoothstep(0.12 * L, 0.4 * L, px);
+    float lod = 1.0 - smoothstep(0.07 * L, 0.22 * L, px);
     float amp = mix(1.0, gust, smoothstep(2.0, 6.0, float(i))) * oEnv(q, i);
     float v = P.z * amp;
     lostVar += (1.0 - lod * lod) * 0.5 * v * v;
