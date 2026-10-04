@@ -81,7 +81,7 @@ const FS = /* glsl */ `
       float flank = 1.0 - abs(face);
       float rag = 0.45 + 1.0 * vnoise(vec2(atan(n.y, n.x) * 2.6 + R.w * 7.0, t * 0.5 + R.w));
       // Wide burst on the face the waves hit, wrapping round the flanks, thin on the lee.
-      float w = (0.15 + 2.4 * max(face, 0.0) + 0.6 * flank) * (0.3 + 1.4 * pulse) * rag;
+      float w = (0.15 + 2.4 * max(face, 0.0) + 0.6 * flank) * (0.3 + 1.4 * pulse) * rag * (0.7 + 0.16 * min(R.z, 5.0));
       float skirt = exp(-max(dd, 0.0) / max(w, 0.05)) * smoothstep(-0.25, 0.05, dd);
       float ax = dot(d, dir), sd = dot(d, side);
       // Streaks trailing off the lee side, drifting shoreward with the water.
@@ -128,22 +128,29 @@ const FS = /* glsl */ `
     if (seeBed > 0.0) {
       float rkeep = 1.0 - smoothstep(0.03, 0.12, px);
       vec3 alb = mix(vec3(0.43, 0.365, 0.23), vec3(0.62, 0.55, 0.33), smoothstep(0.15, 1.2, hd));
-      // Sand ripples along the shore, scattered dark stones, patchy weed further out, rocks.
+      // Sand ripples along the shore (lit crests, shaded troughs), scattered stones and pebbles,
+      // patchy weed further out, rocks.
       float rp = sin(dot(pb, vec2(1.0, 0.18)) * 6.5 + vnoise(pb * 0.45) * 7.0);
-      alb *= 1.0 + 0.14 * rp * rkeep * smoothstep(0.1, 0.6, hd);
+      alb *= 1.0 + (0.1 * rp + 0.12 * (smoothstep(0.4, 0.9, rp) - 0.3)) * rkeep * smoothstep(0.08, 0.5, hd);
       alb *= 0.88 + 0.24 * vnoise(pb * 0.11);
+      float stoneK = smoothstep(0.05, 0.3, hd) * (1.0 - smoothstep(0.06, 0.2, px));
       vec2 sc = floor(pb * 0.7);
       vec2 so = fract(pb * 0.7) - 0.5 - (vec2(hash12(sc + 2.3), hash12(sc + 9.1)) - 0.5) * 0.6;
       float stone = step(0.86, hash12(sc + 5.5)) * (1.0 - smoothstep(0.12, 0.2 + 0.06 * vnoise(pb * 6.0), length(so * vec2(1.0, 1.4))));
-      alb = mix(alb, vec3(0.2, 0.2, 0.17) * (0.8 + 0.4 * hash12(sc)), stone * smoothstep(0.05, 0.3, hd) * (1.0 - smoothstep(0.06, 0.2, px)));
+      alb = mix(alb, vec3(0.2, 0.2, 0.17) * (0.8 + 0.4 * hash12(sc)), stone * stoneK);
+      vec2 sc2 = floor(pb * 2.3);
+      vec2 so2 = fract(pb * 2.3) - 0.5 - (vec2(hash12(sc2 + 1.7), hash12(sc2 + 6.2)) - 0.5) * 0.5;
+      float peb = step(0.8, hash12(sc2 + 3.3)) * (1.0 - smoothstep(0.1, 0.18, length(so2 * vec2(1.0, 1.3))));
+      alb = mix(alb, vec3(0.3, 0.27, 0.21) * (0.7 + 0.5 * hash12(sc2)), peb * stoneK * (1.0 - smoothstep(0.03, 0.08, px)));
       float weed = smoothstep(0.6, 0.7, fbm2(pb * 0.05 + 4.0)) * smoothstep(1.2, 3.0, hd);
       alb = mix(alb, vec3(0.13, 0.17, 0.08), weed * 0.55);
       float rk = smoothstep(0.9, 0.99, Fb.a);
       alb = mix(alb, vec3(0.16, 0.17, 0.13) * (0.75 + 0.5 * vnoise(pb * 1.7)), rk);
       vec3 lit = toonT(alb, vec3(0.0, 1.0, 0.0), vec3(pb.x, Fb.r, pb.y), 0.0, 0.25, 0.0, 0.05, uShadowTint);
       float sunUp = clamp(uSunDir.y * 3.0, 0.0, 1.0) * (1.0 - uNight);
-      float ca = caustic(pb, uTime) * smoothstep(0.08, 0.4, hd) * exp(-hd * 0.4) * sunUp * (1.0 - rk * 0.6) * (1.0 - smoothstep(0.08, 0.3, px));
-      lit += alb * uSunColor * ca * 0.6;
+      // Caustics as flat painted filaments of warm light.
+      float ca = smoothstep(0.1, 0.24, caustic(pb, uTime)) * smoothstep(0.05, 0.3, hd) * exp(-hd * 0.35) * sunUp * (1.0 - rk * 0.6) * (1.0 - smoothstep(0.08, 0.3, px));
+      lit += mix(alb, vec3(1.0, 0.95, 0.75), 0.5) * uSunColor * ca * 0.5;
       bed = lit;
     }
     // Depth colour: sand plain at the edge, yellow-green by ~1 m, the shallow colour, then deep blue.
@@ -152,9 +159,17 @@ const FS = /* glsl */ `
     depthK = mix(depthK, (floor(kb) + smoothstep(0.25, 0.75, fract(kb))) / 5.0, 0.22);
     vec3 bodyCol = mix(cW, uWaterDeep, smoothstep(0.03, 0.95, depthK));
     vec3 tint = cW / max(max(cW.r, max(cW.g, cW.b)), 0.05);
-    vec3 green = tint * vec3(0.95, 1.0, 0.72);
-    vec3 wt = mix(green, tint * 0.9, smoothstep(0.6, 2.0, hd));
-    vec3 seen = bed * mix(vec3(1.0), wt, smoothstep(0.0, 1.0, hd));
+    // Painted stages over the bed, as flat bands with wobbly edges: nearly clear at the edge, a
+    // yellow-green stage, then green, then the shallow-water colour. Low sun keeps them cool so
+    // the warm light never turns the shallows khaki.
+    float warmK = smoothstep(0.08, 0.35, uSunColor.r - uSunColor.b);
+    float hw = hd + 0.12 * (vnoise(q * 0.09) - 0.5);
+    float f1 = smoothstep(0.05, 0.11, hw), f2 = smoothstep(0.55, 0.7, hw), f3 = smoothstep(1.5, 1.8, hw);
+    vec3 st1 = mix(vec3(0.86, 1.0, 0.56), tint * vec3(0.8, 1.0, 0.86), 0.65 * warmK);
+    vec3 st2 = tint * vec3(0.78, 1.0, 0.8);
+    vec3 wt = mix(mix(mix(vec3(0.97, 1.0, 0.95), st1, f1), st2, f2), tint * 0.88, f3);
+    vec3 seen = bed * wt;
+    seen = mix(seen, wCool(seen), 0.45 * warmK);
     float clarity = exp(-hd * 0.38) * seeBed;
     vec3 col = mix(bodyCol, seen, clarity);
     // Wave faces turned to the light read a shade lighter, backs a shade darker.
@@ -162,9 +177,9 @@ const FS = /* glsl */ `
     col *= 1.0 + clamp(dot(-sl, Ls) * 2.0, -0.16, 0.16) * (1.0 - uNight * 0.5);
     // Painted swell lines offshore: lighter crests, darker troughs (they show the swell bending).
     float offs = smoothstep(1.5, 5.0, s.h);
-    float swk = offs * (1.0 - 0.6 * uNight);
-    col *= 1.0 + s.swell * 0.3 * swk;
-    col = mix(col, cW * 1.15 + 0.05, smoothstep(0.55, 0.95, s.swell) * 0.35 * swk);
+    float swk = offs * (1.0 - 0.6 * uNight) * (1.0 - 0.65 * smoothstep(250.0, 1100.0, dist));
+    col *= 1.0 + s.swell * 0.2 * swk;
+    col = mix(col, cW * 1.12 + 0.04, smoothstep(0.5, 0.95, s.swell) * 0.25 * swk);
     // Light through the thin lip of a steepening crest.
     col = mix(col, cW * 1.3 * mix(vec3(1.0), uSunColor, 0.5) + 0.02, s.crest * 0.55);
 
@@ -196,6 +211,9 @@ const FS = /* glsl */ `
     float fres = 0.04 + 0.96 * pow(1.0 - cosT, 5.0);
     // Wave faces and the churned surf zone show their own body; the clear shallows let the bed through.
     float rk = (1.0 - s.foam) * (1.0 - 0.85 * clamp(length(sl) * 3.0, 0.0, 1.0)) * (1.0 - 0.75 * s.brk) * mix(0.6, 1.0, smoothstep(0.8, 4.0, s.h));
+    // Water a few centimetres deep shows the sand rather than the sky, so the sea fades into the
+    // beach's swash sheet with no seam.
+    rk *= mix(0.2, 1.0, smoothstep(0.04, 0.5, hd));
     col = mix(col, refl, fres * 0.92 * rk);
 
     // Glitter path under the sun or moon (see the sky system).
@@ -220,6 +238,8 @@ const FS = /* glsl */ `
     float offBeach = 1.0 - (1.0 - smoothstep(${(BAND.z1 - 60).toFixed(1)}, ${(BAND.z1 - 30).toFixed(1)}, abs(q.y))) * smoothstep(-90.0, -70.0, u);
     float skirt = (1.0 - smoothstep(0.15, 3.2, s.h)) * smoothstep(-0.3, 0.05, s.h) * (0.45 + 0.75 * s.pulse) * offBeach;
     skirt *= 0.6 + 0.8 * vnoise(q * 0.12 + vec2(0.0, uTime * 0.05));
+    // Thick on shores facing the swell, a thin trickle in the lee.
+    skirt *= mix(0.2, 1.5, smoothstep(-0.5, 0.6, dot(wDir(0), s.up))) * mix(0.5, 1.0, s.expose);
     vec2 fq = q - s.dir * uTime * 0.5;
     float fskirt = wLace(fq * 0.9, skirt, 9.0, px);
     float frock = wLace(vec2(dot(q, s.dir) - uTime * 0.6, dot(q, vec2(-s.dir.y, s.dir.x))) * 1.2, clamp(rf * 1.6, 0.0, 1.0), 5.0, px);

@@ -51,55 +51,50 @@ export function beachMaterial(): THREE.ShaderMaterial {
         float zs = beachZs(q);
         WSwash w = wSwash(q, zs, uTime, px);
 
-        // Sand: pale and warm when dry, ~40% darker when freshly wet, a lighter damp in between.
+        // Sand: pale and warm when dry, a clear 35-40% darker (and a touch cooler) where the recent
+        // run-ups reached, a lighter damp from older ones.
         float n1 = vnoise(q * 0.45), n2 = vnoise(q * 2.7 + 3.0);
         float keep = 1.0 - smoothstep(0.02, 0.08, px);
         vec3 dry = vec3(0.8, 0.69, 0.44) * (0.94 + 0.08 * n1 + 0.05 * (n2 - 0.5) * keep);
         float patchy = 0.8 + 0.4 * vnoise(q * 0.7 + 9.0);
-        // The lower beach stays faintly damp from earlier tides; recent run-ups leave a lighter damp.
-        float damp = max(0.3 * w.mem * patchy, 0.22 * smoothstep(0.9, 0.15, zs));
-        float wet = clamp(max(w.wet, damp), 0.0, 1.0);
-        // Freshly wet sand is ~40% darker and a little cooler than dry sand.
-        vec3 base = dry * mix(vec3(1.0), vec3(0.56, 0.58, 0.62), wet);
+        float wet = clamp(max(w.wet, 0.6 * w.mem * patchy), 0.0, 1.0);
+        vec3 base = dry * mix(vec3(1.0), vec3(0.58, 0.6, 0.64), wet);
         // The high-water line of recent run-ups: a thin darker damp edge.
-        base *= 1.0 - 0.4 * w.line * (1.0 - w.cover);
+        base *= 1.0 - 0.35 * w.line * (1.0 - w.cover);
         // Backwash ripple marks on the wet sand (diamond pattern), soft and only up close.
         float rA = abs(fract(dot(q, vec2(0.82, 0.57)) * 1.3 + vnoise(q * 0.6) * 0.7) - 0.5);
         float rB = abs(fract(dot(q, vec2(0.82, -0.57)) * 1.3 + vnoise(q * 0.6 + 4.0) * 0.7) - 0.5);
         base *= 1.0 - 0.06 * (smoothstep(0.32, 0.5, rA) + smoothstep(0.32, 0.5, rB)) * wet * keep;
         vec3 col = toonT(base, N, vWPos, 0.0, 0.25, 0.0, 0.06, uShadowTint);
 
-        // The swash sheet is a thin, clear film: the wet sand shows through, turning yellow-green
-        // only as the water deepens (the same depth tint as the clear shallows beyond).
-        vec3 cW = wCool(uWaterShallow);
-        vec3 tint = cW / max(max(cW.r, max(cW.g, cW.b)), 0.05);
-        vec3 green = tint * vec3(0.95, 1.0, 0.72);
-        col *= mix(vec3(1.0), green, smoothstep(0.0, 1.0, w.film) * w.cover);
+        // The swash sheet: a clear film in two flat painted bands (barely tinted where thin,
+        // yellow-green where it deepens), kept cool against warm sand at low sun.
+        float warmK = smoothstep(0.08, 0.35, uSunColor.r - uSunColor.b);
+        float thin = smoothstep(0.0, 0.007, w.film);
+        float band = smoothstep(0.01, 0.02, w.film);
+        vec3 filmTint = mix(mix(vec3(0.95, 1.0, 0.86), vec3(0.86, 1.0, 0.6), band), vec3(0.8, 0.96, 0.92), warmK);
+        col *= mix(vec3(1.0), filmTint, w.cover * thin);
+        col = mix(col, wCool(col), 0.5 * warmK * w.cover);
 
-        // Gloss: the sheet and freshly drained sand mirror the sky and the scene.
+        // Sheen: a few broad, soft painted strokes along the shore that ride with the water, well
+        // below foam white, fading out toward the camera. Drained sand keeps a fainter version.
         vec3 V = normalize(vWPos - cameraPosition);
-        vec2 rip = (vec2(vnoise(q * 2.2 + uTime * 0.6), vnoise(q * 2.0 - uTime * 0.5 + 3.0)) - 0.5) * w.cover;
-        // The breaking crests stand between the beach and distant land: the sheet mirrors the sky.
-        vec3 R = reflect(V, normalize(vec3(rip.x * 0.3, 1.0, rip.y * 0.3)));
-        vec3 refl = skyColor(normalize(vec3(R.x, max(R.y, 0.02), R.z))) * uWorldTint;
-        refl *= uWaterRefl * mix(0.9, 0.7, uNight);
-        refl /= max(uWorldTint, vec3(0.05));
-        // Water stays cool against warm sand at low sun, so the sheet's edge keeps reading.
-        refl = mix(refl, wCool(refl), 0.8 * w.cover);
+        float dist = length(vWPos - cameraPosition);
+        float along = wAlong(q);
+        vec3 R = reflect(V, vec3(0.0, 1.0, 0.0));
+        vec3 sky = skyColor(normalize(vec3(R.x, max(R.y, 0.03), R.z))) * uWorldTint;
+        sky = mix(sky, wCool(sky), 0.8) * uWaterRefl * mix(0.85, 0.7, uNight) / max(uWorldTint, vec3(0.05));
         float cosT = max(-V.y, 0.0);
         float fres = 0.02 + 0.98 * pow(1.0 - cosT, 5.0);
-        // Drained sand: a glassy mirror of the sky in soft patches (it stays dark where it doesn't
-        // catch the sky); the moving sheet a little less, broken by its ripples.
-        float sheen = w.sheen * smoothstep(0.25, 0.75, vnoise(q * vec2(0.5, 1.4) + 2.0) * 0.6 + 0.5 * w.sheen);
-        float gl = max(sheen * (1.0 - 0.5 * w.cover) * (0.12 + 0.75 * fres), w.cover * (0.03 + 0.55 * fres));
-        col = mix(col, refl * mix(vec3(1.0), vec3(0.92, 0.96, 1.0), sheen), clamp(gl, 0.0, 0.62));
-        // Sun sparkles on the moving sheet.
-        vec3 H = normalize(normalize(uGlintDir) - V);
-        float sp = step(0.93, vnoise(q * 9.0 + uTime * 1.5)) * pow(max(H.y, 0.0), 40.0) * w.cover * keep;
-        col += uGlintCol * uGlint * sp * 1.5;
+        float sn = vnoise(vec2(along * 0.14, w.adv * 0.55)) * 0.7 + vnoise(vec2(along * 0.4 + 3.0, w.adv * 1.3)) * 0.3;
+        float stroke = smoothstep(0.58, 0.72, sn) * smoothstep(2.5, 10.0, dist);
+        float gl = w.cover * thin * (0.02 + 0.08 * fres) + stroke * (w.cover * mix(0.08, 0.26, thin) + (1.0 - w.cover) * w.sheen * 0.12);
+        col = mix(col, min(sky, vec3(0.82)), clamp(gl, 0.0, 0.4));
+        // At night the sheet keeps a faint cool glint so the water's edge still reads.
+        col += vec3(0.012, 0.018, 0.03) * uNight * (w.cover + stroke * w.cover);
 
-        // Foam lace.
-        col = mix(col, wFoamColor(vec3(0.0, 1.0, 0.0), q, col, 0.0), w.foam);
+        // Foam lace on top.
+        col = mix(col, wFoamColor(vec3(0.0, 1.0, 0.0), q, col, 0.0), w.foam * 0.92);
 
         col = applyFog(col, vWPos);
         vec3 vn = normalize((viewMatrix * vec4(N, 0.0)).xyz);

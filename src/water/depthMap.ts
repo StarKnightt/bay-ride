@@ -97,7 +97,9 @@ function solveTravel(depth: Float32Array, dir: readonly [number, number]): Float
   const slow = new Float32Array(TN * TN);
   for (let i = 0; i < TN * TN; i++) {
     const h = depth[i];
-    slow[i] = h < 0.12 ? 0 : 1 / Math.min(Math.sqrt(g * h), WAVE.cDeep);
+    // Broken bores ride on their own height (c ~ sqrt(g (h + H))), so the inner surf never crawls:
+    // the swash arrives a few seconds after its wave breaks, not ten.
+    slow[i] = h < 0.12 ? 0 : 1 / Math.min(Math.max(Math.sqrt(g * h), 3.6), WAVE.cDeep);
   }
   const T = new Float64Array(TN * TN).fill(Infinity);
   const done = new Uint8Array(TN * TN);
