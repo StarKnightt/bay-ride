@@ -36,7 +36,7 @@ const VS = /* glsl */ `
     // beach itself the swash sheet takes over (beach.ts), so the sea never floods the sand.
     float hv = W_SEA - wField(wp.xz).r;
     // The tuck depth wanders along the shore so the meeting line with the sand is never ruled.
-    float tuck = 0.035 + 0.05 * vnoise(wp.xz * vec2(0.09, 0.23));
+    float tuck = 0.035 + 0.05 * vnoise(wp.xz * vec2(0.09, 0.23)) + 0.14 * smoothstep(0.25, 0.85, vnoise(vec2(wp.z * 0.03, wp.x * 0.05 + 2.0)));
     wp.y += wEta(wp.xz, uTime) * aEdge * smoothstep(0.0, 0.8, hv) - tuck * (1.0 - smoothstep(0.0, 1.0, hv));
 #endif
     vWPos = wp.xyz;
@@ -142,6 +142,9 @@ const FS = /* glsl */ `
       vec2 so2 = fract(pb * 2.3) - 0.5 - (vec2(hash12(sc2 + 1.7), hash12(sc2 + 6.2)) - 0.5) * 0.5;
       float peb = step(0.8, hash12(sc2 + 3.3)) * (1.0 - smoothstep(0.1, 0.18, length(so2 * vec2(1.0, 1.3))));
       alb = mix(alb, vec3(0.3, 0.27, 0.21) * (0.7 + 0.5 * hash12(sc2)), peb * stoneK * (1.0 - smoothstep(0.03, 0.08, px)));
+      // The thin water at the edge is dark and glassy like the wet sand it meets (the beach film
+      // uses the same values); the bed only brightens as the water deepens.
+      alb *= mix(vec3(0.3, 0.35, 0.45), vec3(1.0), smoothstep(0.03, 0.6, hd + 0.2 * (vnoise(pb * 0.12) - 0.5)));
       float weed = smoothstep(0.6, 0.7, fbm2(pb * 0.05 + 4.0)) * smoothstep(1.2, 3.0, hd);
       alb = mix(alb, vec3(0.13, 0.17, 0.08), weed * 0.55);
       float rk = smoothstep(0.9, 0.99, Fb.a);
@@ -164,7 +167,7 @@ const FS = /* glsl */ `
     // the warm light never turns the shallows khaki.
     float warmK = smoothstep(0.08, 0.35, uSunColor.r - uSunColor.b);
     float hw = hd + 0.12 * (vnoise(q * 0.09) - 0.5);
-    float f1 = smoothstep(0.05, 0.11, hw), f2 = smoothstep(0.55, 0.7, hw), f3 = smoothstep(1.5, 1.8, hw);
+    float f1 = smoothstep(-0.03, 0.06, hw), f2 = smoothstep(0.55, 0.7, hw), f3 = smoothstep(1.5, 1.8, hw);
     vec3 st1 = mix(vec3(0.86, 1.0, 0.56), tint * vec3(0.8, 1.0, 0.86), 0.65 * warmK);
     vec3 st2 = tint * vec3(0.78, 1.0, 0.8);
     vec3 wt = mix(mix(mix(vec3(0.97, 1.0, 0.95), st1, f1), st2, f2), tint * 0.88, f3);
@@ -177,9 +180,9 @@ const FS = /* glsl */ `
     col *= 1.0 + clamp(dot(-sl, Ls) * 2.0, -0.16, 0.16) * (1.0 - uNight * 0.5);
     // Painted swell lines offshore: lighter crests, darker troughs (they show the swell bending).
     float offs = smoothstep(1.5, 5.0, s.h);
-    float swk = offs * (1.0 - 0.6 * uNight) * (1.0 - 0.65 * smoothstep(250.0, 1100.0, dist));
-    col *= 1.0 + s.swell * 0.2 * swk;
-    col = mix(col, cW * 1.12 + 0.04, smoothstep(0.5, 0.95, s.swell) * 0.25 * swk);
+    float swk = offs * (1.0 - 0.6 * uNight) * (1.0 - 0.6 * smoothstep(700.0, 1800.0, dist));
+    col *= 1.0 + s.swell * 0.3 * swk;
+    col = mix(col, cW * 1.15 + 0.05, smoothstep(0.4, 0.9, s.swell) * 0.38 * swk);
     // Light through the thin lip of a steepening crest.
     col = mix(col, cW * 1.3 * mix(vec3(1.0), uSunColor, 0.5) + 0.02, s.crest * 0.55);
 
@@ -213,7 +216,7 @@ const FS = /* glsl */ `
     float rk = (1.0 - s.foam) * (1.0 - 0.85 * clamp(length(sl) * 3.0, 0.0, 1.0)) * (1.0 - 0.75 * s.brk) * mix(0.6, 1.0, smoothstep(0.8, 4.0, s.h));
     // Water a few centimetres deep shows the sand rather than the sky, so the sea fades into the
     // beach's swash sheet with no seam.
-    rk *= mix(0.2, 1.0, smoothstep(0.04, 0.5, hd));
+    rk *= mix(0.04, 1.0, smoothstep(0.5, 1.4, hd + 0.3 * (vnoise(q * 0.12) - 0.5)));
     col = mix(col, refl, fres * 0.92 * rk);
 
     // Glitter path under the sun or moon (see the sky system).
@@ -224,12 +227,12 @@ const FS = /* glsl */ `
     float sig = uGlintShape.x;
     float path = exp(-tan2 / (2.0 * sig * sig)) * smoothstep(-0.02, 0.04, Ld.y);
     vec2 fwd = normalize(V.xz + 1e-5);
-    vec2 sq = vec2(dot(q, vec2(-fwd.y, fwd.x)), dot(q, fwd)) / (0.4 + dist * 0.01);
-    float dn = vnoise(sq * vec2(0.55, 3.2) + vec2(uTime * 0.5, -uTime * 1.1)) * 0.6
-             + vnoise(sq * vec2(1.3, 7.0) + vec2(-uTime * 0.7, uTime * 0.6) + 5.0) * 0.4;
-    float th = 1.0 - path * 0.42;
-    float dash = smoothstep(th, th + 0.04, dn);
-    col += uGlintCol * uGlint * (dash * (0.7 + 1.6 * path) + path * uGlintShape.y) * (1.0 - s.foam) * mix(0.35, 1.0, smoothstep(0.8, 4.0, s.h));
+    vec2 sq = vec2(dot(q, vec2(-fwd.y, fwd.x)), dot(q, fwd)) / (1.5 + dist * 0.012);
+    float dn = vnoise(sq * vec2(0.7, 1.8) + vec2(uTime * 0.4, -uTime * 0.8)) * 0.65
+             + vnoise(sq * vec2(1.5, 3.2) + vec2(-uTime * 0.5, uTime * 0.45) + 5.0) * 0.35;
+    float th = 1.0 - path * 0.32;
+    float dash = smoothstep(th, th + 0.07, dn) * smoothstep(0.04, 0.3, path);
+    col += uGlintCol * uGlint * (dash * 1.8 * path + path * uGlintShape.y) * (1.0 - s.foam) * mix(0.35, 1.0, smoothstep(0.8, 4.0, s.h));
 
     // Foam: white water of the breaking waves, surf on the rocks, and a skirt of surf where the
     // swell meets the island and headland shores (the beach has its own bores and swash).

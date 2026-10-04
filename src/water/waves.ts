@@ -132,7 +132,8 @@ float wBub(vec2 p, float ph){
     vec2 g = vec2(float(x), float(y));
     vec2 hh = vec2(hash12(i + g), hash12(i + g + 17.3));
     vec2 o = 0.5 + 0.4 * sin(ph + 6.2831 * hh);
-    float rad = 0.55 + 0.45 * hash12(i + g + 41.7);
+    float hr = hash12(i + g + 41.7);
+    float rad = 0.28 + 0.95 * hr * hr;
     d = min(d, length(g + o - fr) / rad);
   }
   return d;
@@ -159,10 +160,17 @@ float wLace(vec2 p, float dens, float seed, float px){
   float aa = 0.025 + px * 0.9;
   float patchM = smoothstep(th - aa, th + aa, c);
   // Bubble holes inside the patches, bigger and more of them where the foam is thin.
-  float hr = mix(0.62, 0.2, d) * smoothstep(th - 0.05, th + 0.18, c);
-  float b = wBub(q * F2, seed);
+  // Hole size and how many there are wander across the foam; two scales, so the band reads as an
+  // open network of threads around bubbles of every size rather than one perforated strip.
+  float m = vnoise(q * 0.45 + 2.0);
+  float hr = mix(0.62, 0.2, d) * smoothstep(th - 0.05, th + 0.18, c) * (0.55 + 0.9 * m);
+  vec2 qs = vec2(q.x * 0.8, q.y * 1.25);
+  float b = wBub(qs * F2, seed);
   float holes = 1.0 - smoothstep(hr - aa * F2, hr + aa * F2, b);
-  float l = patchM * (1.0 - holes * smoothstep(0.08, 0.22, hr));
+  float hr2 = mix(0.55, 0.25, d) * smoothstep(0.35, 0.75, vnoise(q * 0.8 + 6.0));
+  float b2 = wBub(q * F2 * 2.4 + 3.1, seed + 1.7);
+  float holes2 = (1.0 - smoothstep(hr2 - aa * F2 * 2.4, hr2 + aa * F2 * 2.4, b2)) * (1.0 - smoothstep(0.02, 0.06, px));
+  float l = patchM * (1.0 - max(holes * smoothstep(0.08, 0.22, hr), holes2));
   return mix(l, cov, far);
 }
 
@@ -186,7 +194,7 @@ vec3 wFoamColor(vec3 N, vec2 q, vec3 under, float glintPath){
   float lum = dot(uSunColor, vec3(0.2126, 0.7152, 0.0722));
   vec3 day = mix(sh, lit, ft) * mix(1.0, clamp(lum, 0.0, 1.0), uNight);
   // Night foam stays readable: a cool value ~20% above the water under it, brighter in the moon path.
-  vec3 nite = under * 1.2 + vec3(0.018, 0.024, 0.036) + uGlintCol * uGlint * glintPath * 0.5;
+  vec3 nite = under * 1.2 + vec3(0.045, 0.058, 0.095) + uGlintCol * uGlint * glintPath * 0.5;
   return mix(day, nite, uNight);
 }
 
@@ -237,7 +245,8 @@ WSurf wSurface(vec2 xz, float t, float px){
       s.crest = max(s.crest, smoothstep(0.45, 0.85, beta) * (1.0 - brk) * exp(-pow((tau + 0.15) / 0.45, 2.0)) * smoothstep(0.08, 0.3, sz));
       // Painted swell lines: light crests, darker troughs ahead of them.
       // Broken into staggered tapering strokes along each crest, fading in the island's lee.
-      float seg = smoothstep(0.28, 0.62, wVn(along / 34.0, n, 77 + k)) * (0.55 + 0.45 * smoothstep(0.3, 0.6, wVn(along / 9.0, n, 79 + k)));
+      float ac = dot(xz, vec2(-s.dir.y, s.dir.x));
+      float seg = 0.35 + 0.65 * smoothstep(0.2, 0.75, vnoise(vec2(ac / 70.0, float(n) * 1.37 + float(k) * 5.0)));
       float sw = smoothstep(0.08, 0.45, sz) * (1.0 - brk) * seg * mix(0.25, 1.0, s.expose);
       s.swell += sw * (exp(-pow(tau / 0.9, 2.0)) - 0.45 * exp(-pow((tau + 2.2) / 1.3, 2.0)));
       s.pulse = max(s.pulse, smoothstep(0.1, 0.5, sz) * smoothstep(-0.6, 0.0, tau) * exp(-max(tau, 0.0) / 2.2));
@@ -290,9 +299,13 @@ WSwash wSwash(vec2 xz, float zs, float t, float px){
   vec4 F = wFieldS(xz);
   float along = wAlong(xz);
   // Frothy, never-straight outline (vertical metres; the swash slope rises ~3-4 cm per metre).
-  float lobeF = (vnoise(xz * vec2(1.6, 2.2) + 3.0) - 0.5) * 0.01 + (vnoise(xz * 5.0) - 0.5) * 0.003;
+  float lobeF = (vnoise(xz * vec2(1.6, 2.2) + 3.0) - 0.5) * 0.01 + (vnoise(xz * 5.0) - 0.5) * 0.003
+              + (vnoise(vec2(along * 0.11, 2.0)) - 0.5) * 0.035 + (vnoise(vec2(along * 0.035, 8.0)) - 0.5) * 0.03
+              + (vnoise(vec2(along * 0.02, 4.0)) - 0.5) * 0.07;
   float ew = 0.003 + px * 0.03;
   float best = 0.0;
+  // Foam lace is evaluated once, for the wave carrying the most foam here.
+  float lD = 0.0, lA = 1.0, lSeed = 0.0; vec2 lP = vec2(0.0);
   for (int k = 0; k < 2; k++) {
     float T = wTravel(xz, F, k);
     float P = wPeriod(k);
@@ -306,7 +319,7 @@ WSwash wSwash(vec2 xz, float zs, float t, float px){
       float A = wH0(n, k) * wMod(along, n, k);
       float R = wRunup(A, along, n, k);
       // Tongues on three scales: no two run-ups share an outline.
-      float z = zs - ((wVn(along / 3.2, n, 63 + k) - 0.5) * 0.5 + (wVn(along / 9.0, n, 65 + k) - 0.5) * 0.4 + (wVn(along / 26.0, n, 67 + k) - 0.5) * 0.5) * R - lobeF;
+      float z = zs - ((wVn(along / 3.2, n, 63 + k) - 0.5) * 0.5 + (wVn(along / 9.0, n, 65 + k) - 0.5) * 0.4 + (wVn(along / 26.0, n, 67 + k) - 0.5) * 0.5) * (R + 0.02) - lobeF;
       if (z > R + 0.02) continue;
       float Tu = 1.3 + 4.5 * R, Td = 1.7 * Tu;
       float zr = clamp(z / R, 0.0, 1.0);
@@ -338,11 +351,15 @@ WSwash wSwash(vec2 xz, float zs, float t, float px){
         float fw = 0.008 + 0.03 * vnoise(vec2(along * 0.35, float(n) * 3.1));
         float ezp = max(ezs, 0.0);
         float clump = 0.55 + 0.6 * vnoise(vec2(along * 0.4 + float(n) * 1.7, 0.5));
-        float d = up ? max(clump * exp(-ezp / fw), 0.45 * exp(-ezp / 0.05)) * (1.0 - 0.3 * tau / Tu)
+        float trail = 0.34 * exp(-ezp / 0.12) * smoothstep(0.3, 0.6, vnoise(vec2(along * 0.25 + float(n) * 2.1, fp.y * 0.3)));
+        float d = up ? max(max(clump * exp(-ezp / fw), 0.45 * exp(-ezp / 0.05)), trail) * (1.0 - 0.3 * tau / Tu)
                      : 0.45 * exp(-sb * 1.6) * (0.5 + 0.5 * exp(-ezp / 0.03));
         d *= smoothstep(-ew, 0.5 * ew, ezs) * smoothstep(0.04, 0.2, A);
-        o.foam = max(o.foam, wLace(fp, d, seed, px));
-        o.wet = max(o.wet, cov); o.sheen = max(o.sheen, cov);
+        float lo = up ? 1.0 : 1.0 - 0.55 * sb;
+        if (d * lo > lD * lA) { lD = d; lA = lo; lP = fp; lSeed = seed; }
+        // The sand under any water is fully wet, however thin the draining film.
+        float under = max(smoothstep(-ew, 0.0, ez), step(tLeave - 0.05, tau));
+        o.wet = max(o.wet, under); o.sheen = max(o.sheen, under); o.mem = max(o.mem, under);
       } else if (tau >= tLeave) {
         float age = tau - tLeave;
         // Soft, wavy top edge (it follows this run-up's tongues); the sand dries unevenly.
@@ -357,9 +374,11 @@ WSwash wSwash(vec2 xz, float zs, float t, float px){
       }
     }
   }
+  o.foam = wLace(lP, lD, lSeed, px) * lA;
   // Below the mean waterline (a wandering line, never a contour) the sand stays under water.
-  float under = smoothstep(0.0, -0.035, zs + 0.025 * (vnoise(vec2(along * 0.11, 5.0)) - 0.5));
+  float under = smoothstep(0.0, -0.035, zs + 0.03 * (vnoise(vec2(along * 0.11, 5.0)) - 0.5) + 0.02 * (vnoise(xz * 0.4) - 0.5));
   o.cover = max(o.cover, under);
+  o.film = max(o.film, under * 0.03);
   o.wet = max(o.wet, under);
   o.sheen = max(o.sheen, under);
   return o;
@@ -492,7 +511,7 @@ export function waterAt(x: number, z: number, t: number, ground: number, out: Wa
       const A = h0(n, k) * wmod(a, n, k);
       const cusp = Math.abs((((a / 18) % 1) + 1) % 1 * 2 - 1);
       const R = (0.012 + 0.12 * A) * (0.75 + 0.5 * vn(a / 7, n, 61 + k)) * (0.8 + 0.35 * cusp);
-      const z = zs - ((vn(a / 3.2, n, 63 + k) - 0.5) * 0.5 + (vn(a / 9, n, 65 + k) - 0.5) * 0.4 + (vn(a / 26, n, 67 + k) - 0.5) * 0.5) * R;
+      const z = zs - ((vn(a / 3.2, n, 63 + k) - 0.5) * 0.5 + (vn(a / 9, n, 65 + k) - 0.5) * 0.4 + (vn(a / 26, n, 67 + k) - 0.5) * 0.5) * (R + 0.02);
       if (z > R) continue;
       const Tu = 1.3 + 4.5 * R, Td = 1.7 * Tu;
       const zr = Math.min(1, Math.max(0, z / R));
