@@ -20,7 +20,7 @@ export const LIGHTHOUSE = { x: ISLAND.x + 3, z: ISLAND.z - 2 };
 /** Sea wall top / bottom (road-relative u) and the promenade between it and the road. */
 export const WALL_IN = -5.6;
 export const WALL_OUT = -7.0;
-const BEACH_TOP = -1.4;
+export const BEACH_TOP = -1.4;
 
 /** Mean waterline on the beach (road-relative u): the beach is a little wider in places. */
 export function waterlineU(z: number): number {

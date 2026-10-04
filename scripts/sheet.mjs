@@ -1,0 +1,43 @@
+#!/usr/bin/env node
+/**
+ * Contact sheet of captures (headless, no GPU needed):
+ *   node scripts/sheet.mjs --out=shots/x/sheet.jpg --cols=4 [--w=480] [--crop=x,y,w,h] a.png b.png ...
+ * --crop takes a region of each source image in source pixels (default: whole image).
+ */
+import { chromium } from "playwright";
+import fs from "node:fs/promises";
+import path from "node:path";
+
+const argv = process.argv.slice(2);
+const arg = (n, d) => {
+  const hit = argv.find((a) => a.startsWith(`--${n}=`));
+  return hit ? hit.slice(n.length + 3) : d;
+};
+const files = argv.filter((a) => !a.startsWith("--"));
+const out = path.resolve(arg("out", "sheet.jpg"));
+const cols = Number(arg("cols", "4"));
+const w = Number(arg("w", "480"));
+const crop = arg("crop", "0,0,1920,1080").split(",").map(Number);
+const h = Math.round((w * crop[3]) / crop[2]);
+const s = w / crop[2];
+
+const cells = await Promise.all(
+  files.map(async (f) => {
+    const b64 = (await fs.readFile(f)).toString("base64");
+    const label = path.basename(f).replace(/\.png$/, "");
+    return `<div style="position:relative;width:${w}px;height:${h}px;overflow:hidden">
+      <img src="data:image/png;base64,${b64}" style="position:absolute;left:${-crop[0] * s}px;top:${-crop[1] * s}px;width:${1920 * s}px">
+      <span style="position:absolute;left:3px;top:2px;font:12px sans-serif;color:#fff;text-shadow:0 0 2px #000">${label}</span></div>`;
+  }),
+);
+const html = `<body style="margin:0;background:#222;display:grid;grid-template-columns:repeat(${cols},${w}px);gap:2px">${cells.join("")}</body>`;
+const rows = Math.ceil(files.length / cols);
+const browser = await chromium.launch({ headless: true });
+try {
+  const page = await browser.newPage({ viewport: { width: cols * (w + 2), height: rows * (h + 2) } });
+  await page.setContent(html, { waitUntil: "load" });
+  await page.screenshot({ path: out, type: "jpeg", quality: 85, fullPage: true });
+} finally {
+  await browser.close();
+}
+console.log(out);

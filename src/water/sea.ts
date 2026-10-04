@@ -5,6 +5,7 @@ import { SEA_Y, roadX } from "../world/bay/road";
 import { waterlineU } from "../world/bay/terrain";
 import { DEPTH, DEPTH_GLSL } from "./depthMap";
 import { WAVES_GLSL } from "./waves";
+import { SKIRT_MAX, rockSkirts } from "./rocks";
 
 const OUT = /* glsl */ `
 layout(location = 0) out vec4 gColor;
@@ -17,7 +18,7 @@ uniform float uMask;
 export const BAND = { z0: -320, z1: 300, outer: -150, inner: 3 };
 
 /** Coast shape in GLSL (must match road.ts roadX and terrain.ts waterlineU). */
-const COAST_GLSL = /* glsl */ `
+export const COAST_GLSL = /* glsl */ `
 float coastRoadX(float z){ return 45.0 * cos(clamp((z + 30.0) / 200.0, -1.0, 1.0) * 1.5707963); }
 float coastWaterU(float z){ return -28.0 - 4.0 * sin(z * 0.021 + 0.6) - 2.0 * sin(z * 0.057); }
 `;
@@ -31,7 +32,12 @@ const VS = /* glsl */ `
   void main(){
     vec4 wp = modelMatrix * vec4(position, 1.0);
 #ifdef BAND_MESH
-    wp.y += wEta(wp.xz, uTime) * aEdge;
+    // The surface settles flat into the last metre of depth and tucks just under the sand: on the
+    // beach itself the swash sheet takes over (beach.ts), so the sea never floods the sand.
+    float hv = W_SEA - wField(wp.xz).r;
+    // The tuck depth wanders along the shore so the meeting line with the sand is never ruled.
+    float tuck = 0.035 + 0.05 * vnoise(wp.xz * vec2(0.09, 0.23));
+    wp.y += wEta(wp.xz, uTime) * aEdge * smoothstep(0.0, 0.8, hv) - tuck * (1.0 - smoothstep(0.0, 1.0, hv));
 #endif
     vWPos = wp.xyz;
     gl_Position = projectionMatrix * viewMatrix * wp;
@@ -47,13 +53,43 @@ const FS = /* glsl */ `
   uniform mat4 uReflMat;
   uniform float uReflOn;
   uniform float uReflY;
+  uniform vec4 uRocks[${SKIRT_MAX}];
   in vec3 vWPos;
 
-  // Painted caustics: two swaying cell webs, bright where their borders cross.
+  // Painted caustics on the seabed: wobbly bright filaments where two drifting ridged noises meet
+  // (no cells, so they never read like the foam).
   float caustic(vec2 p, float t){
-    float a = wCellEdge(p * 0.55 + vec2(t * 0.05, t * 0.03), t * 0.9);
-    float b = wCellEdge(p * 0.8 + vec2(-t * 0.04, t * 0.05) + 3.1, t * 0.7 + 2.0);
-    return (1.0 - smoothstep(0.03, 0.16, a)) * 0.65 + (1.0 - smoothstep(0.02, 0.12, b)) * 0.35 + (1.0 - smoothstep(0.02, 0.1, min(a, b))) * 0.5;
+    vec2 w = p * 0.9 + (vec2(vnoise(p * 0.3 + t * 0.2), vnoise(p * 0.3 - t * 0.17 + 5.0)) - 0.5) * 2.4;
+    float a = 1.0 - abs(2.0 * vnoise(w + vec2(t * 0.25, -t * 0.1)) - 1.0);
+    float b = 1.0 - abs(2.0 * vnoise(w * 1.7 + vec2(-t * 0.3, t * 0.2) + 9.0) - 1.0);
+    return pow(a * b, 5.0);
+  }
+
+  // Surf on rocks: bursts on the side the waves come from, pulsing as each crest hits, ragged
+  // skirts, and streaks trailing off the lee side.
+  float rockFoam(vec2 q, vec2 dir, float pulse, float t, float px){
+    float f = 0.0;
+    vec2 side = vec2(-dir.y, dir.x);
+    for (int i = 0; i < ${SKIRT_MAX}; i++) {
+      vec4 R = uRocks[i];
+      vec2 d = q - R.xy;
+      float L = length(d);
+      float dd = L - R.z;
+      if (dd > 10.0 || R.z <= 0.0) continue;
+      vec2 n = d / max(L, 1e-3);
+      float face = dot(n, -dir);
+      float flank = 1.0 - abs(face);
+      float rag = 0.45 + 1.0 * vnoise(vec2(atan(n.y, n.x) * 2.6 + R.w * 7.0, t * 0.5 + R.w));
+      // Wide burst on the face the waves hit, wrapping round the flanks, thin on the lee.
+      float w = (0.15 + 2.4 * max(face, 0.0) + 0.6 * flank) * (0.3 + 1.4 * pulse) * rag;
+      float skirt = exp(-max(dd, 0.0) / max(w, 0.05)) * smoothstep(-0.25, 0.05, dd);
+      float ax = dot(d, dir), sd = dot(d, side);
+      // Streaks trailing off the lee side, drifting shoreward with the water.
+      float lee = smoothstep(0.0, R.z, ax) * exp(-max(dd, 0.0) / 7.0) * (1.0 - smoothstep(R.z * 0.5, R.z * 1.6, abs(sd)));
+      float st = smoothstep(0.38, 0.72, vnoise(vec2(sd * 1.6 + R.w, ax * 0.3 - t * 0.8)));
+      f = max(f, max(skirt * (0.55 + 0.7 * pulse), lee * st * (0.4 + 0.55 * pulse)));
+    }
+    return f;
   }
 
   void main(){
@@ -66,8 +102,9 @@ const FS = /* glsl */ `
     vec2 q = vWPos.xz;
     vec3 V = normalize(vWPos - cameraPosition);
     float dist = length(vWPos - cameraPosition);
-    float px = length(fwidth(q)) * 0.7;
+    float px = sqrt(length(dFdx(q)) * length(dFdy(q)));
     WSurf s = wSurface(q, uTime, px);
+    vec3 cW = wCool(uWaterShallow);
 
     // Painted ripples on top of the swell, calmed with distance so they never alias, and smoothed
     // out inside the foam.
@@ -90,34 +127,46 @@ const FS = /* glsl */ `
     vec3 bed = vec3(0.0);
     if (seeBed > 0.0) {
       float rkeep = 1.0 - smoothstep(0.03, 0.12, px);
-      vec3 alb = mix(vec3(0.42, 0.33, 0.19), vec3(0.6, 0.53, 0.3), smoothstep(0.0, 0.9, hd));
-      // Sand ripples along the shore, patchy weed further out, rocks.
+      vec3 alb = mix(vec3(0.43, 0.365, 0.23), vec3(0.62, 0.55, 0.33), smoothstep(0.15, 1.2, hd));
+      // Sand ripples along the shore, scattered dark stones, patchy weed further out, rocks.
       float rp = sin(dot(pb, vec2(1.0, 0.18)) * 6.5 + vnoise(pb * 0.45) * 7.0);
-      alb *= 1.0 + 0.09 * rp * rkeep * smoothstep(0.2, 0.8, hd);
+      alb *= 1.0 + 0.14 * rp * rkeep * smoothstep(0.1, 0.6, hd);
       alb *= 0.88 + 0.24 * vnoise(pb * 0.11);
+      vec2 sc = floor(pb * 0.7);
+      vec2 so = fract(pb * 0.7) - 0.5 - (vec2(hash12(sc + 2.3), hash12(sc + 9.1)) - 0.5) * 0.6;
+      float stone = step(0.86, hash12(sc + 5.5)) * (1.0 - smoothstep(0.12, 0.2 + 0.06 * vnoise(pb * 6.0), length(so * vec2(1.0, 1.4))));
+      alb = mix(alb, vec3(0.2, 0.2, 0.17) * (0.8 + 0.4 * hash12(sc)), stone * smoothstep(0.05, 0.3, hd) * (1.0 - smoothstep(0.06, 0.2, px)));
       float weed = smoothstep(0.6, 0.7, fbm2(pb * 0.05 + 4.0)) * smoothstep(1.2, 3.0, hd);
       alb = mix(alb, vec3(0.13, 0.17, 0.08), weed * 0.55);
       float rk = smoothstep(0.9, 0.99, Fb.a);
       alb = mix(alb, vec3(0.16, 0.17, 0.13) * (0.75 + 0.5 * vnoise(pb * 1.7)), rk);
       vec3 lit = toonT(alb, vec3(0.0, 1.0, 0.0), vec3(pb.x, Fb.r, pb.y), 0.0, 0.25, 0.0, 0.05, uShadowTint);
       float sunUp = clamp(uSunDir.y * 3.0, 0.0, 1.0) * (1.0 - uNight);
-      float ca = caustic(pb, uTime) * smoothstep(0.08, 0.5, hd) * exp(-hd * 0.35) * sunUp * (1.0 - rk * 0.6);
-      lit += uSunColor * ca * 0.3;
+      float ca = caustic(pb, uTime) * smoothstep(0.08, 0.4, hd) * exp(-hd * 0.4) * sunUp * (1.0 - rk * 0.6) * (1.0 - smoothstep(0.08, 0.3, px));
+      lit += alb * uSunColor * ca * 0.6;
       bed = lit;
     }
+    // Depth colour: sand plain at the edge, yellow-green by ~1 m, the shallow colour, then deep blue.
     float depthK = 1.0 - exp(-hd * 0.2);
     float kb = depthK * 5.0 + vnoise(q * 0.04);
     depthK = mix(depthK, (floor(kb) + smoothstep(0.25, 0.75, fract(kb))) / 5.0, 0.22);
-    vec3 bodyCol = mix(uWaterShallow, uWaterDeep, smoothstep(0.0, 0.95, depthK));
-    vec3 tint = uWaterShallow / max(max(uWaterShallow.r, max(uWaterShallow.g, uWaterShallow.b)), 0.05);
-    vec3 seen = bed * mix(vec3(1.0), tint * 0.95, 1.0 - exp(-hd * 1.1));
-    float clarity = exp(-hd * 0.3) * seeBed;
+    vec3 bodyCol = mix(cW, uWaterDeep, smoothstep(0.03, 0.95, depthK));
+    vec3 tint = cW / max(max(cW.r, max(cW.g, cW.b)), 0.05);
+    vec3 green = tint * vec3(0.95, 1.0, 0.72);
+    vec3 wt = mix(green, tint * 0.9, smoothstep(0.6, 2.0, hd));
+    vec3 seen = bed * mix(vec3(1.0), wt, smoothstep(0.0, 1.0, hd));
+    float clarity = exp(-hd * 0.38) * seeBed;
     vec3 col = mix(bodyCol, seen, clarity);
     // Wave faces turned to the light read a shade lighter, backs a shade darker.
     vec2 Ls = normalize(uSunDir.xz + 1e-5);
     col *= 1.0 + clamp(dot(-sl, Ls) * 2.0, -0.16, 0.16) * (1.0 - uNight * 0.5);
+    // Painted swell lines offshore: lighter crests, darker troughs (they show the swell bending).
+    float offs = smoothstep(1.5, 5.0, s.h);
+    float swk = offs * (1.0 - 0.6 * uNight);
+    col *= 1.0 + s.swell * 0.3 * swk;
+    col = mix(col, cW * 1.15 + 0.05, smoothstep(0.55, 0.95, s.swell) * 0.35 * swk);
     // Light through the thin lip of a steepening crest.
-    col = mix(col, uWaterShallow * 1.3 * mix(vec3(1.0), uSunColor, 0.5) + 0.02, s.crest * 0.55);
+    col = mix(col, cW * 1.3 * mix(vec3(1.0), uSunColor, 0.5) + 0.02, s.crest * 0.55);
 
     // Mirror: the real scene above the water (sky, clouds, hills, island), broken up by the waves.
     vec3 refl;
@@ -126,6 +175,14 @@ const FS = /* glsl */ `
       vec4 rp = uReflMat * vec4(vWPos.x, uReflY, vWPos.z, 1.0);
       vec2 ruv = rp.xy / rp.w + tilt * vec2(0.05, 0.08) * (0.25 + 0.75 * near);
       refl = texture(uRefl, clamp(ruv, 0.001, 0.999)).rgb;
+      // In the surf zone the breaking crests stand between the water and distant land, so the
+      // shallows mirror only the sky.
+      float surfK = 1.0 - smoothstep(2.0, 5.0, s.h);
+      if (surfK > 0.0) {
+        vec3 R = reflect(V, normalize(vec3(tilt.x * 0.4, 1.0, tilt.y * 0.4)));
+        R.y = max(R.y, 0.02);
+        refl = mix(refl, skyColor(normalize(R)) * uWorldTint, surfK);
+      }
     } else {
       vec3 R = reflect(V, normalize(vec3(tilt.x * 0.4, 1.0, tilt.y * 0.4)));
       R.y = max(R.y, 0.02);
@@ -134,9 +191,12 @@ const FS = /* glsl */ `
     float rl = dot(refl, vec3(0.2126, 0.7152, 0.0722));
     refl = mix(vec3(rl), refl, 1.15) * uWaterRefl * mix(0.9, 0.68, uNight);
     refl /= max(uWorldTint, vec3(0.05));
+    refl = mix(refl, wCool(refl), 0.55 * (1.0 - smoothstep(0.5, 3.0, s.h)));
     float cosT = max(dot(-V, Nw), 0.0);
     float fres = 0.04 + 0.96 * pow(1.0 - cosT, 5.0);
-    col = mix(col, refl, fres * 0.92 * (1.0 - s.foam));
+    // Wave faces and the churned surf zone show their own body; the clear shallows let the bed through.
+    float rk = (1.0 - s.foam) * (1.0 - 0.85 * clamp(length(sl) * 3.0, 0.0, 1.0)) * (1.0 - 0.75 * s.brk) * mix(0.6, 1.0, smoothstep(0.8, 4.0, s.h));
+    col = mix(col, refl, fres * 0.92 * rk);
 
     // Glitter path under the sun or moon (see the sky system).
     vec3 Ld = normalize(uGlintDir);
@@ -151,20 +211,30 @@ const FS = /* glsl */ `
              + vnoise(sq * vec2(1.3, 7.0) + vec2(-uTime * 0.7, uTime * 0.6) + 5.0) * 0.4;
     float th = 1.0 - path * 0.42;
     float dash = smoothstep(th, th + 0.04, dn);
-    col += uGlintCol * uGlint * (dash * (0.7 + 1.6 * path) + path * uGlintShape.y) * (1.0 - s.foam);
+    col += uGlintCol * uGlint * (dash * (0.7 + 1.6 * path) + path * uGlintShape.y) * (1.0 - s.foam) * mix(0.35, 1.0, smoothstep(0.8, 4.0, s.h));
 
-    // Foam: white water of the breaking waves, plus lace skirts around rocks at the waterline.
-    float ring = smoothstep(0.2, 0.9, s.rock) * (1.0 - smoothstep(0.95, 0.995, s.rock)) * (1.0 - smoothstep(0.8, 2.6, s.h));
-    float surge = 0.35 + 0.65 * smoothstep(-0.04, 0.2, s.eta) + s.brk;
-    float rf = wLace(q * 1.3 + vec2(uTime * 0.15, 0.0), clamp(ring * surge, 0.0, 1.0) * 0.8, 5.0, px);
-    float foam = max(s.foam, rf);
+    // Foam: white water of the breaking waves, surf on the rocks, and a skirt of surf where the
+    // swell meets the island and headland shores (the beach has its own bores and swash).
+    float rf = rockFoam(q, s.dir, s.pulse, uTime, px);
+    float u = q.x - coastRoadX(q.y) - coastWaterU(q.y);
+    float offBeach = 1.0 - (1.0 - smoothstep(${(BAND.z1 - 60).toFixed(1)}, ${(BAND.z1 - 30).toFixed(1)}, abs(q.y))) * smoothstep(-90.0, -70.0, u);
+    float skirt = (1.0 - smoothstep(0.15, 3.2, s.h)) * smoothstep(-0.3, 0.05, s.h) * (0.45 + 0.75 * s.pulse) * offBeach;
+    skirt *= 0.6 + 0.8 * vnoise(q * 0.12 + vec2(0.0, uTime * 0.05));
+    vec2 fq = q - s.dir * uTime * 0.5;
+    float fskirt = wLace(fq * 0.9, skirt, 9.0, px);
+    float frock = wLace(vec2(dot(q, s.dir) - uTime * 0.6, dot(q, vec2(-s.dir.y, s.dir.x))) * 1.2, clamp(rf * 1.6, 0.0, 1.0), 5.0, px);
+    float foam = max(s.foam, max(frock, fskirt));
+    // The last half metre of depth hands over to the beach's swash foam, so the lace carries on
+    // across the waterline instead of stopping at it.
+#ifdef BAND_MESH
+    float hA = 0.02 + max(-u, 0.0) * 0.07;
+    if (hA < 0.6 && s.rock < 0.2) {
+      WSwash sw = wSwash(q, -s.h, uTime, px);
+      foam = mix(sw.foam, foam, max(smoothstep(0.15, 0.6, hA), smoothstep(0.0, 0.2, s.rock)));
+    }
+#endif
     vec3 Nf = normalize(Nw + vec3(0.0, 1.2, 0.0));
-    float ft = smoothstep(0.05, 0.35, dot(Nf, uSunDir) + 0.2 * (vnoise(q * 1.7) - 0.5) - 0.3 * s.crest);
-    vec3 foamLit = uSunColor * 0.93 + uSkyMid * 0.06;
-    vec3 foamSh = mix(uShadowTint, uSkyMid, 0.35) * 0.82;
-    vec3 foamCol = mix(foamSh, foamLit, ft);
-    // At night foam gathers the moonlight and the warm glow of the lit windows on the water.
-    foamCol += refl * (0.15 + 0.35 * uNight);
+    vec3 foamCol = wFoamColor(normalize(Nf - vec3(0.0, 0.3 * s.crest, 0.0)), q, col, path);
     col = mix(col, foamCol, foam);
 
     // Lighthouse beam brushing across the water as it turns (open water is a later system).
@@ -183,10 +253,12 @@ const FS = /* glsl */ `
     gNormal = vec4(vn.xy * 0.5 + 0.5, uId / 32.0, 0.0);
   }`;
 
+const SKIRTS = { value: rockSkirts() };
+
 function material(defines: Record<string, string>): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...G, ...DEPTH, ...REFL, uId: { value: ID.water }, uMask: { value: 0 } },
+    uniforms: { ...G, ...DEPTH, ...REFL, uRocks: SKIRTS, uId: { value: ID.water }, uMask: { value: 0 } },
     defines,
     vertexShader: VS,
     fragmentShader: FS,

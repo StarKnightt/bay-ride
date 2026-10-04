@@ -74,6 +74,27 @@ export function rockAt(x: number, z: number): { y: number; cover: number } {
   return { y, cover: Math.max(0, cover) };
 }
 
+/** Max rocks that get surf foam in the water shader (the uniform array size). */
+export const SKIRT_MAX = 16;
+
+/**
+ * Rocks that reach the surface, for foam skirts: (x, z, radius at the waterline, seed). Awash rocks
+ * just under the surface get a small boil over their top.
+ */
+export function rockSkirts(): THREE.Vector4[] {
+  const out = ROCKS.filter((r) => r.top > SEA_Y - 0.4)
+    .sort((a, b) => b.top - a.top)
+    .slice(0, SKIRT_MAX)
+    .map((r) => {
+      const cy = r.top - r.r * r.sy;
+      const k = (SEA_Y - cy) / (r.r * r.sy);
+      const rs = r.top > SEA_Y ? r.r * Math.sqrt(Math.max(0.05, 1 - k * k)) : r.r * 0.45;
+      return new THREE.Vector4(r.x, r.z, rs * (0.9 + 0.1 * Math.sin(r.seed)), r.seed);
+    });
+  while (out.length < SKIRT_MAX) out.push(new THREE.Vector4(1e5, 1e5, 0, 0));
+  return out;
+}
+
 const ROCK = new THREE.Color("#8a8070");
 const ROCK_WET = new THREE.Color("#4e5148");
 
