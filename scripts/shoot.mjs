@@ -79,6 +79,18 @@ if (FPS) {
   console.log(`fps (headless, not vsync-locked): ${log.join(",")}  calls=${st.sceneCalls} tris=${(st.sceneTris / 1e6).toFixed(2)}M`);
   await page.screenshot({ path: path.join(OUT, "autoplay_golden.png") });
   await page.close();
+  // Live (unfrozen) fixed views over the open water, where the sea fills most of the frame.
+  const views = arg("fpsviews", "4:golden,4:night,5:noon,3:night").split(",").filter(Boolean).map((v) => v.split(":"));
+  for (const [s, tod] of views) {
+    const p = await ctx.newPage();
+    watch(p, `fps shot${s}`);
+    await p.goto(`${URL}?shot=${s}&tod=${tod}&hud=0`, { waitUntil: "load" });
+    await p.waitForFunction(() => window.__ready === true, null, { timeout: 120_000, polling: 100 });
+    await p.waitForTimeout(5000);
+    const l = await p.evaluate(() => window.__ride.fpsLog);
+    console.log(`fps shot${s}_${tod} (live): ${l.slice(-4).join(",")}`);
+    await p.close();
+  }
 }
 if (errors.length) {
   console.error("\nPage errors/warnings:");

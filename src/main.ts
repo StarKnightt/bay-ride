@@ -10,7 +10,9 @@ import { ROAD_Z1, SEA_Y, roadX, roadYaw } from "./world/bay/road";
 import { Sky } from "./world/sky";
 import { TimeOfDay, parsePreset, type Preset } from "./world/timeofday";
 import { bakeDepth } from "./water/depthMap";
-import { buildSea } from "./water/sea";
+import { buildSea, followSea } from "./water/sea";
+import { Buoys } from "./water/buoys";
+import { seaHeight, seaNormal, waterSample, type WaterSample } from "./water/query";
 import { ShoreEvents, waterAt, waveEta, type WaterAt } from "./water/waves";
 import { terrainH, waterlineU } from "./world/bay/terrain";
 import { Rider } from "./rider/rider";
@@ -92,6 +94,8 @@ scene.add(bay.root);
 await step("the sea", W_BUILD * 0.15, () => bakeDepth());
 const sea = buildSea();
 scene.add(sea);
+const buoys = new Buoys();
+bay.root.add(buoys.group);
 // After the scenery on purpose: opaque draws sort by material id, and the dome should draw last
 // so early-z rejects most of its pixels.
 const sky = await step("the sky", W_BUILD * 0.25, () => new Sky());
@@ -278,6 +282,8 @@ function frame(now: number) {
   else if (onFoot && chase.mode !== "custom") explore.updateCamera(simDt, chase.cam);
   else chase.update(simDt, ctl, t, rider);
   sky.follow(chase.cam.position);
+  followSea(chase.cam.position);
+  buoys.update(t);
   tod.update(dt);
   shoreEvents.update(t, roadX(pz) + waterlineU(pz), pz);
   rider.bike.setLamp(tod.night);
@@ -405,6 +411,16 @@ window.__ride = {
     seaLevel: SEA_Y,
     eta: (x: number, z: number, at?: number) => waveEta(x, z, at ?? t),
     waterAt: (x: number, z: number, at?: number, out?: WaterAt) => waterAt(x, z, at ?? t, terrainH(x, z), out),
+  },
+  /**
+   * The water of the whole bay (open sea, surf zone and swash), as drawn: surface height and
+   * normal at (x, z), and a full sample over the ground there. Optional t = seconds.
+   */
+  sea: {
+    seaLevel: SEA_Y,
+    height: (x: number, z: number, at?: number) => seaHeight(x, z, at ?? t),
+    normal: (x: number, z: number, at?: number) => seaNormal(x, z, at ?? t),
+    sample: (x: number, z: number, at?: number, out?: WaterSample) => waterSample(x, z, at ?? t, terrainH(x, z), out),
   },
   setCam(mode: CamMode | "fpp" | "tpp") {
     chase.fpp = mode === "fpp" ? 1 : 0;

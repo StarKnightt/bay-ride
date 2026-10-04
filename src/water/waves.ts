@@ -1,4 +1,5 @@
 import { SEA_Y } from "../world/bay/road";
+import { OPEN_GLSL, chopEta, openDeep } from "./open";
 
 /**
  * Shoreline wave model, shared by the water surface, the swash on the sand and gameplay queries.
@@ -29,6 +30,7 @@ const f = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : String(v));
 
 /** Water-model GLSL. Needs COMMON (vnoise, hash12) and DEPTH_GLSL (uDepthTex, uDepthXf) first. */
 export const WAVES_GLSL = /* glsl */ `
+${OPEN_GLSL}
 const float W_SEA = ${f(SEA_Y)};
 const float W_CDEEP = ${f(WAVE.cDeep)};
 const vec2 W_DIR0 = vec2(${WAVE.dir[0][0]}, ${WAVE.dir[0][1]});
@@ -122,7 +124,7 @@ float wEta(vec2 xz, float t){
     int n0 = int(floor((t - T) / wPeriod(k)));
     for (int i = -2; i <= 1; i++) eta += wOne(k, n0 + i, T, along, h, t, d, tau, beta, sz);
   }
-  return eta;
+  return eta + oChopEta(xz, t) * oDeep(h);
 }
 
 /** Distance to the nearest bubble centre, in units of that bubble's own size (sizes vary). */
@@ -482,7 +484,7 @@ export function waveEta(x: number, z: number, t: number): number {
     const n0 = Math.floor((t - T) / period(k));
     for (let i = -2; i <= 1; i++) eta += one(k, n0 + i, T, a, h, t);
   }
-  return eta * smooth(0, 0.8, h);
+  return (eta + chopEta(x, z, t) * openDeep(h)) * smooth(0, 0.8, h);
 }
 
 export interface WaterAt {
