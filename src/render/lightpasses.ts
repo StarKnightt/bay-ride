@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import { G, REFL, shadowDepthMaterial } from "./materials";
 
-/** Render layers: 0 = main view, 1 = casts sun shadow, 2 = appears in water reflections. */
+/** Render layers: 0 = main view, 1 = casts sun shadow, 2 = appears in water reflections, 3 = her own shadow. */
 export const LAYER_SHADOW = 1;
 export const LAYER_REFLECT = 2;
+export const LAYER_CHAR = 3;
 
 export function onLayers(o: THREE.Object3D, ...layers: number[]): void {
   o.traverse((c) => {
@@ -61,6 +62,49 @@ export class SunShadow {
     G.uShadowCenter.value.copy(center);
     G.uShadowOn.value = 1;
 
+    const prevOverride = scene.overrideMaterial;
+    scene.overrideMaterial = this.mat;
+    renderer.setRenderTarget(this.rt);
+    renderer.clear();
+    renderer.render(scene, this.cam);
+    scene.overrideMaterial = prevOverride;
+    renderer.setRenderTarget(null);
+  }
+}
+
+/**
+ * Her own sun shadow, from a small map wrapped tightly round her along the same light direction
+ * (about 2 mm per texel). In the bay's 110 m map her legs were two texels wide, so at a low sun
+ * their long shadow broke into stepped dashes. Receivers take the darker of the two maps.
+ */
+export class CharShadow {
+  readonly rt: THREE.WebGLRenderTarget;
+  readonly cam: THREE.OrthographicCamera;
+  private bias = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
+
+  constructor(readonly mat: THREE.Material, size = 1024, half = 1.25) {
+    this.rt = new THREE.WebGLRenderTarget(size, size, {
+      depthTexture: new THREE.DepthTexture(size, size, THREE.UnsignedIntType),
+      type: THREE.UnsignedByteType,
+    });
+    this.rt.depthTexture!.minFilter = THREE.NearestFilter;
+    this.rt.depthTexture!.magFilter = THREE.NearestFilter;
+    this.cam = new THREE.OrthographicCamera(-half, half, half, -half, 0.5, 40);
+    this.cam.layers.set(LAYER_CHAR);
+    G.uCharShadowMap.value = this.rt.depthTexture;
+    G.uCharShadowTexel.value = 1 / size;
+  }
+
+  /** `center`: her middle (world); `dir`: toward the light; off when she isn't drawn. */
+  update(renderer: THREE.WebGLRenderer, scene: THREE.Scene, center: THREE.Vector3, dir: THREE.Vector3, on: boolean): void {
+    G.uCharShadowOn.value = on ? 1 : 0;
+    if (!on) return;
+    this.cam.position.copy(center).addScaledVector(dir, 20);
+    this.cam.up.set(0, 1, 0);
+    this.cam.lookAt(center);
+    this.cam.updateMatrixWorld();
+    G.uCharShadowMat.value.copy(this.bias).multiply(this.cam.projectionMatrix).multiply(this.cam.matrixWorldInverse);
+    G.uCharShadowDir.value.copy(dir);
     const prevOverride = scene.overrideMaterial;
     scene.overrideMaterial = this.mat;
     renderer.setRenderTarget(this.rt);

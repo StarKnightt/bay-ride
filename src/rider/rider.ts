@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { G, uber } from "../render/materials";
 import { ID } from "../world/geo";
-import { LAYER_SHADOW } from "../render/lightpasses";
+import { LAYER_CHAR } from "../render/lightpasses";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { Chain, Rig, V, ik } from "./rig";
 import { ANKLE_H, FORE, J, SHIN, THIGH, UPPER, buildSkeleton, skinParts, smooth, type Bones, type Geo } from "./body";
@@ -224,7 +224,7 @@ export class Rider {
     this.fppArms = arms;
     for (const k of ["face", "hair", "hat", "skinUpper", "cami", "shirt"]) {
       const m = this.meshes[k];
-      m.layers.enable(LAYER_SHADOW);
+      m.layers.enable(LAYER_CHAR);
       if (on) m.layers.disable(0);
       else m.layers.enable(0);
     }
@@ -808,5 +808,7 @@ function blobShadow(w: number, d: number): THREE.Mesh {
   );
   shadow.position.y = 0.03;
   shadow.renderOrder = 1;
+  // A flat card just over the ground: in her shadow map it would cast a square.
+  shadow.userData.noCast = true;
   return shadow;
 }

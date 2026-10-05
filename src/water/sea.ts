@@ -744,6 +744,11 @@ const FS = /* glsl */ `
         col *= mix(vec3(1.0), vec3(0.78, 0.7, 0.76), shd);
       }
     }
+    // Her own shadow comes from her map (she is not in the bay's): wading, or beside the skiff.
+    if (uCharShadowOn > 0.5 && uNight < 0.9) {
+      float shc = (1.0 - charShadow(vec3(vWPos.x, surfY + 0.02, vWPos.z))) * (1.0 - uNight);
+      col *= mix(vec3(1.0), vec3(0.78, 0.7, 0.76), shc);
+    }
     // The troughs and darker strokes keep the cool body, so warm water never reads as sand.
     col = mix(col, coolBody * 0.9, 0.35 * warmSky * clamp(smoothstep(0.1, 0.7, -s.swell) * offs + 0.3 * brkB.x, 0.0, 1.0) * rk);
     // Thin ripple lines of the break bands catch a little more light, broken along their length.

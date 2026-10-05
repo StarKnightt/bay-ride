@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { G, specializeUber } from "./render/materials";
 import { Post } from "./render/post";
-import { LAYER_REFLECT, LAYER_SHADOW, PlanarReflection, SunShadow, onLayers } from "./render/lightpasses";
+import { CharShadow, LAYER_CHAR, LAYER_REFLECT, PlanarReflection, SunShadow, onLayers } from "./render/lightpasses";
 import { precompile, warmDraws } from "./render/precompile";
 import { leafAtlas } from "./render/leafAtlas";
 import { Profiler } from "./render/profiler";
@@ -118,7 +118,11 @@ bay.root.add(buoys.group);
 const sky = await step("the sky", W_BUILD * 0.25, () => new Sky());
 scene.add(sky.group, sky.far, sky.motes);
 const rider = await step("the rider", W_BUILD * 0.1, () => new Rider());
-onLayers(rider.walker, LAYER_SHADOW, LAYER_REFLECT);
+// She casts into her own tight shadow map (CharShadow), not the bay's.
+onLayers(rider.walker, LAYER_CHAR, LAYER_REFLECT);
+rider.walker.traverse((o) => {
+  if (o.userData.noCast) o.layers.disable(LAYER_CHAR);
+});
 scene.add(rider.walker);
 const boat = new Boat(bay);
 scene.add(boat.root);
@@ -144,6 +148,8 @@ boat.update(0, CAP.time ?? 0, null);
 if (!params.has("nospec")) for (const o of [bay.root, rider.walker, boat.root, moor.group]) specializeUber(o);
 
 const shadow = new SunShadow(2048, 55);
+const charShadow = new CharShadow(shadow.mat);
+const _charC = new THREE.Vector3();
 const reflection = new PlanarReflection(Math.floor(innerWidth * 0.5), Math.floor(innerHeight * 0.5));
 const chase = new ChaseCam(innerWidth / innerHeight);
 const camParam = params.get("cam");
@@ -167,14 +173,14 @@ if (SHOT) {
 {
   const s = performance.now();
   let done = 0;
-  await precompile(renderer, scene, chase.cam, post, [shadow], (f) => {
+  await precompile(renderer, scene, chase.cam, post, [shadow, charShadow], (f) => {
     loader.advance((f - done) * W_COMPILE);
     done = f;
   }, yieldToPaint);
   bootLog.push(["compile", Math.round(performance.now() - s)]);
   const parts = [...bay.root.children, sea, sky.far, sky.group, sky.motes, rider.walker, boat.root, spray.mesh, moor.group, trail.group];
   let tp = performance.now();
-  await warmDraws(renderer, scene, chase.cam, post, [shadow], parts, (i) => {
+  await warmDraws(renderer, scene, chase.cam, post, [shadow, charShadow], parts, (i) => {
     const n = performance.now();
     bootLog.push([`draw${i}`, Math.round(n - tp)]);
     tp = n;
@@ -280,6 +286,8 @@ function drawScene(px: number, pz: number): void {
   } else shadowCenter.set(px + (_dir.x / l) * 22, 0, pz + (_dir.z / l) * 22);
   renderer.info.reset();
   shadow.update(renderer, scene, shadowCenter);
+  _charC.copy(rider.walker.position).y += 0.85;
+  charShadow.update(renderer, scene, _charC, shadow.dir ?? G.uSunDir.value, rider.walker.visible);
   bay.beam.update(t, chase.cam.position);
   // Stars stay in the sky: mirrored as sharp dots they read as specks painted on the sea.
   // So is the painted moon: its mirrored disc would sit on the near water as a solid plate (the

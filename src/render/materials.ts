@@ -33,6 +33,12 @@ export const G = {
   uShadowRange: { value: 300 },
   uShadowCenter: { value: new THREE.Vector3() },
   uShadowHalf: { value: 55 },
+  /** Her own shadow map (see CharShadow): texture, world → map matrix, on/off, texel, light dir. */
+  uCharShadowMap: { value: null as THREE.Texture | null },
+  uCharShadowMat: { value: new THREE.Matrix4() },
+  uCharShadowOn: { value: 0 },
+  uCharShadowTexel: { value: 1 / 1024 },
+  uCharShadowDir: { value: new THREE.Vector3(0, 1, 0) },
   /** Set while rendering the water mirror: canopy fringe cards are skipped there. */
   uNoFringe: { value: 0 },
   /** Painted leaf atlas (see leafAtlas.ts); assigned once the renderer exists. */
@@ -84,6 +90,11 @@ uniform vec2 uShadowTexel;
 uniform float uShadowRange;
 uniform vec3 uShadowCenter;
 uniform float uShadowHalf;
+uniform sampler2D uCharShadowMap;
+uniform mat4 uCharShadowMat;
+uniform float uCharShadowOn;
+uniform float uCharShadowTexel;
+uniform vec3 uCharShadowDir;
 ${TOD_GLSL}
 
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
@@ -140,31 +151,55 @@ float gFoot = 0.0;
 float footKeep(float freq){ return 1.0 - smoothstep(0.2, 0.5, gFoot * freq); }
 
 // Directional brush strokes that stick to the surface (world space, planar by dominant normal).
+// The stroke direction wanders through a gentle warp of world space. Turning the world position
+// by a varying angle instead multiplies the stroke frequency by the distance from the origin:
+// on the beach that drew a swirl of fine streaks no footprint filter could hold back.
 float brush(vec3 wp, vec3 n){
   vec3 an = abs(n);
-  vec2 p = an.y > max(an.x, an.z) ? wp.xz : (an.x > an.z ? wp.zy : wp.xy);
-  float ang = vnoise(p * 0.12) * 3.14159;
-  float c = cos(ang), s = sin(ang);
-  vec2 q = mat2(c, -s, s, c) * p;
+  bool horiz = an.y > max(an.x, an.z);
+  vec2 p = horiz ? wp.xz : (an.x > an.z ? wp.zy : wp.xy);
+  // Warp gain at most 1 (the value noise's steepest corner), typically ~0.4: no folds, and the
+  // stroke frequency stays near its nominal value.
+  vec2 w = vec2(vnoise(p * 0.12), vnoise(p * 0.12 + 7.3)) - 0.5;
+  vec2 q = (horiz ? mat2(0.8, -0.6, 0.6, 0.8) : mat2(0.94, 0.34, -0.34, 0.94)) * p + w * 4.0;
   // Band-limited by pixel footprint: stroke octaves fade to their mean before they can alias.
-  float fp = max(length(wp - cameraPosition) * 0.0011, gFoot);
+  float fp = max(length(wp - cameraPosition) * 0.0011, gFoot) * 1.3;
   float k1 = 1.0 - smoothstep(0.25, 0.6, fp * 6.0), k2 = 1.0 - smoothstep(0.25, 0.6, fp * 13.0);
   return 0.5 + (vnoise(q * vec2(1.1, 6.0)) - 0.5) * 0.6 * k1 + (vnoise(q * vec2(2.3, 13.0)) - 0.5) * 0.4 * k2;
 }
 
-// Toon-thresholded shadow map: 1 = sunlit, 0 = in shadow.
+// Her shadow from her own tight map (soft 0..1, 1 = lit). Ortho, so no divide; the receiver is
+// nudged 1.2 cm toward the light and the depth bias is ~2 cm, which keeps her skin free of acne.
+float charShadow(vec3 wpos){
+  if (uCharShadowOn < 0.5) return 1.0;
+  vec3 s = (uCharShadowMat * vec4(wpos + uCharShadowDir * 0.012, 1.0)).xyz;
+  if (s.x <= 0.0 || s.x >= 1.0 || s.y <= 0.0 || s.y >= 1.0 || s.z >= 1.0) return 1.0;
+  vec2 tc = s.xy / uCharShadowTexel - 0.5;
+  vec2 f = fract(tc);
+  vec2 b0 = (floor(tc) + 0.5) * uCharShadowTexel;
+  float z0 = s.z - 0.0005;
+  float l00 = step(z0, textureLod(uCharShadowMap, b0, 0.0).r);
+  float l10 = step(z0, textureLod(uCharShadowMap, b0 + vec2(uCharShadowTexel, 0.0), 0.0).r);
+  float l01 = step(z0, textureLod(uCharShadowMap, b0 + vec2(0.0, uCharShadowTexel), 0.0).r);
+  float l11 = step(z0, textureLod(uCharShadowMap, b0 + vec2(uCharShadowTexel), 0.0).r);
+  return mix(mix(l00, l10, f.x), mix(l01, l11, f.x), f.y);
+}
+
+// Toon-thresholded shadow map: 1 = sunlit, 0 = in shadow. Her own shadow comes from charShadow
+// (she isn't in the bay's map), taken with the same threshold.
 bool gFastShadow = false;
 // Painted wood (the skiff): shade stays a warm violet multiply of the paint, whites included.
 float gWarmShade = 0.0;
 float shadowVis(vec3 wpos, vec3 N){
-  if (uShadowOn < 0.5) return 1.0;
+  float ch = smoothstep(0.35, 0.65, charShadow(wpos));
+  if (uShadowOn < 0.5) return ch;
   vec2 rel = abs(wpos.xz - uShadowCenter.xz);
   float edge = smoothstep(uShadowHalf * 0.82, uShadowHalf * 0.98, max(rel.x, rel.y));
-  if (edge >= 1.0) return 1.0;
+  if (edge >= 1.0) return ch;
   vec3 p = wpos + N * 0.05 + uSunDir * 0.04;
   vec4 sc = uShadowMat * vec4(p, 1.0);
   vec3 s = sc.xyz / sc.w;
-  if (s.x <= 0.0 || s.x >= 1.0 || s.y <= 0.0 || s.y >= 1.0 || s.z >= 1.0) return 1.0;
+  if (s.x <= 0.0 || s.x >= 1.0 || s.y <= 0.0 || s.y >= 1.0 || s.z >= 1.0) return ch;
   vec2 tc = s.xy / uShadowTexel - 0.5;
   vec2 f = fract(tc);
   vec2 b0 = (floor(tc) + 0.5) * uShadowTexel;
@@ -174,7 +209,7 @@ float shadowVis(vec3 wpos, vec3 N){
     float l10 = step(s.z - 0.0008, textureLod(uShadowMap, b0 + vec2(uShadowTexel.x, 0.0), 0.0).r);
     float l01 = step(s.z - 0.0008, textureLod(uShadowMap, b0 + vec2(0.0, uShadowTexel.y), 0.0).r);
     float l11 = step(s.z - 0.0008, textureLod(uShadowMap, b0 + uShadowTexel, 0.0).r);
-    return mix(mix(mix(l00, l10, f.x), mix(l01, l11, f.x), f.y), 1.0, edge);
+    return min(mix(mix(mix(l00, l10, f.x), mix(l01, l11, f.x), f.y), 1.0, edge), ch);
   }
   // 3x3 bilinear PCF from a 4x4 texel footprint: smooth, stair-free edges.
   float L[16];
@@ -199,7 +234,7 @@ float shadowVis(vec3 wpos, vec3 N){
   float pen = gWarmShade * smoothstep(0.6, 4.0, bz / max(bn, 1.0) * uShadowRange);
   float vj = (vnoise(wpos.xz * 7.0 + wpos.y * 9.0) - 0.5) * 0.45 * pen;
   vis = smoothstep(0.35 - 0.3 * pen, 0.65 + 0.3 * pen, vis + vj);
-  return mix(vis, 1.0, edge);
+  return min(mix(vis, 1.0, edge), ch);
 }
 
 // Three-step cel lighting (lit / shadow / dark shadow), painterly terminator, rim light.
