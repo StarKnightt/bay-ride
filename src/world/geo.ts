@@ -25,6 +25,7 @@ export const M = {
 export const ID = {
   sky: 0, ground: 1, water: 2, berm: 3, grass: 4, rice: 5, tree: 6, house: 7, pole: 8, wire: 9,
   fence: 10, sign: 11, bike: 12, rider: 13, hair: 14, hills: 15, flower: 16, butterfly: 17, skin: 18, eye: 19,
+  boat: 20, motor: 21,
 } as const;
 
 type Geo = THREE.BufferGeometry;

@@ -17,7 +17,10 @@ import { ShoreEvents, waterAt, waveEta, type WaterAt } from "./water/waves";
 import { terrainH, waterlineU } from "./world/bay/terrain";
 import { Rider } from "./rider/rider";
 import { Controller, START_Z } from "./rider/controller";
-import { ChaseCam, type CamMode } from "./rider/camera";
+import { ChaseCam, type CamMode, type CamTarget } from "./rider/camera";
+import { Boat } from "./boat/boat";
+import { Spray } from "./boat/spray";
+import { BERTH } from "./boat/berth";
 import { Explore } from "./rider/onfoot";
 import { Input } from "./core/input";
 import { RideAudio } from "./audio";
@@ -30,6 +33,10 @@ const params = new URLSearchParams(location.search);
 const CAP = captureParams(params);
 const SHOT = CAP.shot;
 const AUTOPLAY = params.has("autoplay") && params.get("autoplay") !== "0";
+/** ?boat=1: she is seated in the skiff running the scripted capture course (a function of t). */
+const BOAT_RUN = params.get("boat") === "1";
+/** A frozen-time boat capture from the ride camera (no fixed shot). */
+const BOATCAP = BOAT_RUN && !SHOT && CAP.time !== null;
 /** Go straight in once built (no "click to start" wait): captures and autoplay. */
 const SKIP_INTRO = !!SHOT || (params.has("skipintro") && params.get("skipintro") !== "0");
 const W_BOOT = 0.04, W_BUILD = 0.2, W_COMPILE = 0.2, W_DRAW = 0.5, W_WARM = 0.06;
@@ -103,7 +110,13 @@ scene.add(sky.group, sky.far, sky.motes);
 const rider = await step("the rider", W_BUILD * 0.1, () => new Rider());
 onLayers(rider.lean, LAYER_SHADOW, LAYER_REFLECT);
 scene.add(rider.root, rider.walker);
-if (!params.has("nospec")) for (const o of [bay.root, rider.root, rider.walker]) specializeUber(o);
+const boat = new Boat(bay);
+scene.add(boat.root);
+const spray = new Spray(boat);
+scene.add(spray.mesh);
+if (BOAT_RUN) boat.mode = "scripted";
+boat.update(0, CAP.time ?? 0, null);
+if (!params.has("nospec")) for (const o of [bay.root, rider.root, rider.walker, boat.root]) specializeUber(o);
 
 const shadow = new SunShadow(2048, 55);
 const reflection = new PlanarReflection(Math.floor(innerWidth * 0.5), Math.floor(innerHeight * 0.5));
@@ -112,6 +125,7 @@ const ctl = new Controller(AUTOPLAY, startParam !== null && Number.isFinite(Numb
 const chase = new ChaseCam(innerWidth / innerHeight);
 const camParam = params.get("cam");
 if (camParam === "fpp") chase.fpp = 1;
+else if (camParam === "boat") chase.mode = "chase";
 else if (camParam) chase.mode = camParam as CamMode;
 const post = new Post(renderer, innerWidth, innerHeight, { kuwahara: params.get("kuwahara") !== "0", msaa: Number(params.get("msaa") ?? 4) });
 const prof = new Profiler(renderer, params.has("prof"));
@@ -136,7 +150,7 @@ if (SHOT) {
     done = f;
   }, yieldToPaint);
   bootLog.push(["compile", Math.round(performance.now() - s)]);
-  const parts = [...bay.root.children, sea, sky.far, sky.group, sky.motes, rider.root];
+  const parts = [...bay.root.children, sea, sky.far, sky.group, sky.motes, rider.root, boat.root, spray.mesh];
   let tp = performance.now();
   await warmDraws(renderer, scene, chase.cam, post, shadow, parts, (i) => {
     const n = performance.now();
@@ -161,8 +175,17 @@ addEventListener("keydown", (e) => {
 // F = get off and walk / get back on; C = cinematic ride cameras.
 const explore = new Explore(bay, rider, ctl, chase, audio, renderer.domElement, CAP.hud && !AUTOPLAY);
 chase.clear = explore;
-chase.mouseLook = !AUTOPLAY && !SHOT;
-explore.lockRiding = !AUTOPLAY && !SHOT;
+chase.mouseLook = !AUTOPLAY && !SHOT && !BOAT_RUN;
+explore.lockRiding = !AUTOPLAY && !SHOT && !BOAT_RUN;
+explore.boat = boat;
+boat.onSlap = (s) => audio.boatSlap(s * 0.8);
+if (BOAT_RUN) {
+  explore.seatInBoat();
+  explore.lookAround = false;
+  rider.root.visible = false;
+  rider.walker.visible = true;
+}
+const boatCam: CamTarget & { boat: { y: number; roll: number } } = { x: 0, z: 0, yaw: 0, speed: 0, lean: 0, crank: 0, pedaling: 0, boat: { y: 0, roll: 0 } };
 const canvasEl = renderer.domElement;
 const lockPointer = () => {
   try {
@@ -228,14 +251,21 @@ function frame(now: number) {
     loader.advance(W_WARM / WARM_FRAMES);
   } else if (SKIP_INTRO && fadeEl.style.display !== "none") {
     fadeT += dt;
-    const k = SHOT ? 1 : Math.min(1, fadeT / FADE);
+    const k = SHOT || BOATCAP ? 1 : Math.min(1, fadeT / FADE);
     fadeEl.style.opacity = String(1 - k * k * (3 - 2 * k));
     if (k >= 1) fadeEl.style.display = "none";
   }
   const simDt = CAP.time !== null ? 0 : dt;
   t += simDt;
   G.uTime.value = t;
-  explore.enabled = started && !waiting && !SHOT;
+  explore.enabled = started && !waiting && !SHOT && !BOAT_RUN;
+
+  // The skiff first: the seated rider and the boat camera read its pose.
+  if (!BOAT_RUN) boat.mode = explore.inBoat ? "driven" : "idle";
+  boat.update(simDt, t, explore.inBoat ? input : null);
+  spray.update(t);
+  const boating = BOAT_RUN || explore.inBoat;
+  if (SHOT && BOAT_RUN) explore.update(0, input, t);
 
   if (!SHOT) {
     if (explore.bikeActive) {
@@ -258,29 +288,39 @@ function frame(now: number) {
   }
   const px = explore.playerX, pz = explore.playerZ;
   const onFoot = explore.onFoot;
+  const offBike = explore.offBike;
   rider.root.position.set(ctl.x, 0.02, ctl.z);
   rider.root.rotation.y = ctl.yaw;
-  if (!SHOT) {
+  if (!SHOT || BOAT_RUN) {
     rider.update(
       simDt,
       {
         speed: ctl.speed,
-        steer: onFoot ? ctl.steer * 1.6 * (1 - explore.kick) + explore.parkSteer : ctl.steer * 1.6,
-        lean: onFoot ? ctl.lean * (1 - explore.kick) + explore.parkLean : ctl.lean,
+        steer: offBike ? ctl.steer * 1.6 * (1 - explore.kick) + explore.parkSteer : ctl.steer * 1.6,
+        lean: offBike ? ctl.lean * (1 - explore.kick) + explore.parkLean : ctl.lean,
         crank: ctl.crank,
         wheel: ctl.wheel,
-        pedaling: onFoot ? 0 : ctl.pedaling,
+        pedaling: offBike ? 0 : ctl.pedaling,
         time: t,
         kick: explore.kick,
-        sprint: onFoot ? 0 : ctl.sprint,
+        sprint: offBike ? 0 : ctl.sprint,
       },
-      onFoot ? explore.foot : undefined,
+      offBike ? explore.foot : undefined,
     );
     rider.bike.bump(ctl.bumpImpulse);
   }
+  if (boating) {
+    boatCam.x = boat.x;
+    boatCam.z = boat.z;
+    boatCam.yaw = boat.yaw;
+    boatCam.speed = boat.u;
+    boatCam.lean = -boat.roll * 0.8;
+    boatCam.boat.y = boat.y;
+    boatCam.boat.roll = boat.roll;
+  }
   if (SHOT) poseCamera(chase.cam, SHOT);
   else if (onFoot && chase.mode !== "custom") explore.updateCamera(simDt, chase.cam);
-  else chase.update(simDt, ctl, t, rider);
+  else chase.update(simDt, boating ? boatCam : ctl, t, rider);
   sky.follow(chase.cam.position);
   followSea(chase.cam.position);
   buoys.update(t);
@@ -294,7 +334,21 @@ function frame(now: number) {
     audio.setShore(cue.shore, cue.shorePan);
     audio.setOpenWater(cue.sea);
     audio.setTimeOfDay(tod.preset);
-    audio.update(simDt, Math.abs(ctl.speed), Math.abs(ctl.cadence), Math.abs(ctl.wheelRate), ctl.pedaling, ctl.brakePressure, {
+    audio.setInBoat(boating);
+    if (boating) {
+      audio.setBoatThrottle(Math.max(0, boat.throttle));
+      audio.setBoatSpeed(Math.abs(boat.u));
+      audio.setMotion(Math.hypot(boat.u, boat.v));
+      audio.setNearPier(Math.max(0, 1 - Math.hypot(boat.x - BERTH.x, boat.z - BERTH.z) / 18));
+    } else {
+      audio.setMotion(undefined);
+      // The moored skiff knocking at its lines when she walks or rides past (panned by the camera).
+      const dB = boat.hullDistance(px, pz);
+      const d = Math.hypot(boat.x - px, boat.z - pz);
+      const pan = d > 0.5 ? Math.max(-1, Math.min(1, ((boat.x - px) * -_dir.z + (boat.z - pz) * _dir.x) / d)) : 0;
+      audio.setNearPier(Math.max(0, 1 - dB / 14), pan);
+    }
+    audio.update(simDt, boating ? 0 : Math.abs(ctl.speed), Math.abs(ctl.cadence), Math.abs(ctl.wheelRate), ctl.pedaling, ctl.brakePressure, {
       steer: Math.max(-1, Math.min(1, ctl.steer / 0.3)),
       bump: ctl.bumpImpulse,
       roughness: 0.25,
@@ -309,7 +363,7 @@ function frame(now: number) {
   if (SHOT) {
     const reach = Math.min(40, SHOT.eye.distanceTo(SHOT.look));
     shadowCenter.set(SHOT.eye.x + (_dir.x / l) * reach, 0, SHOT.eye.z + (_dir.z / l) * reach);
-  } else if (onFoot) shadowCenter.set(px + (_dir.x / l) * 22, 0, pz + (_dir.z / l) * 22);
+  } else if (onFoot || boating) shadowCenter.set(px + (_dir.x / l) * 22, 0, pz + (_dir.z / l) * 22);
   else shadowCenter.set(ctl.x - Math.sin(ctl.yaw) * 30, 0, ctl.z - Math.cos(ctl.yaw) * 30);
   renderer.info.reset();
   shadow.update(renderer, scene, shadowCenter);
@@ -323,7 +377,7 @@ function frame(now: number) {
   post.render(scene, chase.cam, t);
   prof.poll();
 
-  hud.speed.textContent = onFoot ? "" : `${Math.round(ctl.speed * 3.6)} km/h`;
+  hud.speed.textContent = onFoot ? "" : `${Math.round((boating ? Math.abs(boat.u) : ctl.speed) * 3.6)} km/h`;
   frames++;
   fpsT += dt;
   if (fpsT >= 1) {
@@ -333,7 +387,7 @@ function frame(now: number) {
     frames = 0;
     fpsT = 0;
   }
-  if (started && SHOT && ++shotFrames === 6) {
+  if (started && (SHOT || BOATCAP) && ++shotFrames === 6) {
     post.warmSmaa();
     window.__ready = true;
   }
@@ -357,7 +411,7 @@ function frame(now: number) {
       return;
     }
   }
-  if (SHOT && window.__ready && CAP.time !== null) {
+  if ((SHOT || BOATCAP) && window.__ready && CAP.time !== null) {
     // Frozen capture: nothing changes any more, so stop drawing (keeps the GPU idle).
     return;
   }
@@ -434,6 +488,17 @@ window.__ride = {
   },
   get ctl() {
     return { x: ctl.x, z: ctl.z, u: ctl.x - roadX(ctl.z), yaw: ctl.yaw, speed: ctl.speed };
+  },
+  /** On foot: stand at world (x, z) (test hook). */
+  standAt(x: number, z: number, yaw?: number) {
+    explore.standAt(x, z, yaw);
+  },
+  get footMode() {
+    return explore.mode;
+  },
+  /** The skiff: pose, speed, mode; and where it is moored. */
+  get boat() {
+    return { x: boat.x, z: boat.z, y: boat.y, yaw: boat.yaw, speed: boat.u, slip: boat.v, pitch: boat.pitch, roll: boat.roll, throttle: boat.throttle, mode: boat.mode, aboard: explore.inBoat, berth: BERTH };
   },
   stats() {
     return {

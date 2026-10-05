@@ -7,6 +7,7 @@ import { DEPTH, DEPTH_GLSL } from "./depthMap";
 import { WAVES_GLSL } from "./waves";
 import { SKIRT_MAX, rockSkirts } from "./rocks";
 import { BUOY_MAX, BUOY_U } from "./buoys";
+import { WAKE_FS_GLSL, WAKE_GLSL, WAKE_U } from "./wake";
 
 const OUT = /* glsl */ `
 layout(location = 0) out vec4 gColor;
@@ -44,6 +45,7 @@ const VS = /* glsl */ `
   ${COMMON}
   ${DEPTH_GLSL}
   ${WAVES_GLSL}
+  ${WAKE_GLSL}
   uniform vec2 uGridO;
   out vec3 vWPos;
   out vec2 vFoc;
@@ -66,6 +68,9 @@ const VS = /* glsl */ `
 #else
     if (camK > 0.0) wp.y += wEta(wp.xz, uTime) * camK * smoothstep(0.0, 0.8, hv);
 #endif
+    // The boat's wake lifts the surface a little near the eye.
+    float cd = length(wp.xz - cameraPosition.xz);
+    if (cd < 260.0) wp.y += wakeHeight(wp.xz, max(0.02, cd * 0.0009)) * (1.0 - smoothstep(150.0, 260.0, cd)) * smoothstep(0.3, 1.5, hv);
     vWPos = wp.xyz;
     vFoc = vec2(projectionMatrix[0][0], projectionMatrix[1][1]);
     gl_Position = projectionMatrix * viewMatrix * wp;
@@ -76,6 +81,8 @@ const FS = /* glsl */ `
   ${OUT}
   ${DEPTH_GLSL}
   ${WAVES_GLSL}
+  ${WAKE_GLSL}
+  ${WAKE_FS_GLSL}
   ${COAST_GLSL}
   uniform sampler2D uRefl;
   uniform mat4 uReflMat;
@@ -337,6 +344,7 @@ const FS = /* glsl */ `
     vec2 dqx = dFdx(q), dqy = dFdy(q);
     float px = sqrt(length(dqx) * length(dqy));
     float pxM = max(length(dqx), length(dqy));
+    Wake wk = wakeShade(q, px, pxM);
     WSurf s = wSurface(q, uTime, px);
     vec3 cW = wCool(uWaterShallow);
     vec2 fwd = normalize(V.xz + 1e-5);
@@ -366,14 +374,14 @@ const FS = /* glsl */ `
     vec2 r1 = vec2(vnoise(q * 0.31 + vec2(uTime * 0.21, uTime * 0.08)), vnoise(q * 0.27 - vec2(uTime * 0.15, -uTime * 0.19) + 7.0)) - 0.5;
     vec2 r2 = vec2(vnoise(q * 1.2 + uTime * 0.45), vnoise(q * 1.05 - uTime * 0.38 + 3.0)) - 0.5;
     vec2 rip = (r1 * (0.06 + 0.1 * near) + r2 * 0.08 * near * near) * (1.0 - 0.6 * s.foam) * (1.0 - 0.8 * deepK);
-    vec2 sl = s.grad * (1.0 - smoothstep(150.0, 900.0, dist) * 0.7);
+    vec2 sl = s.grad * (1.0 - smoothstep(150.0, 900.0, dist) * 0.7) + wk.grad;
     // Painted chop: the slope toward the viewer is flattened into three tones with soft clean
     // edges, so the facets read as brushed strokes rather than a noisy normal map.
     float tv = dot(gC, fwd) / max(sigR, 0.004);
     float aw = fwidth(tv) * 1.5 + 0.1;
     // Tones wider than the filter can hold fade to flat instead of shimmering.
     float tone = (smoothstep(0.55 - aw, 0.55 + aw, tv) - smoothstep(0.55 - aw, 0.55 + aw, -tv)) * (1.0 - smoothstep(0.6, 1.4, aw)) * (1.0 - farK);
-    vec2 gU = mix(gC, fwd * tone * sigR * 1.3 + side * dot(gC, side) * 0.6, 0.7) * (1.0 - farK);
+    vec2 gU = mix(gC, fwd * tone * sigR * 1.3 + side * dot(gC, side) * 0.6, 0.7) * (1.0 - farK) * (1.0 - 0.75 * wk.slick);
     // Near the eye, short horizontal ripple bands break the mirrored sky into strokes.
     float band = 0.0;
     // Faded before its rows (~0.6 m) get thinner than a pixel, or they alias into hairlines.
@@ -395,7 +403,7 @@ const FS = /* glsl */ `
       // The rows wander (a warp continuous round the viewer), so the marks never sit on a grid.
       vec2 vd = V.xz / max(length(V.xz), 1e-4);
       vec2 fw = fanD + vec2(0.006 * (sin(vd.x * 23.0 + fanD.x * 41.0) + sin(vd.y * 37.0 - fanD.x * 67.0 + 1.3)), 0.0);
-      dabs = oFanDabs(fw, uTime, gust) * dabK * crestK;
+      dabs = oFanDabs(fw, uTime, gust) * dabK * crestK * (1.0 - wk.slick);
     }
     gU += fwd * dabs * 0.06;
     // Near the eye the chop is painted as readable strokes, so the water never reads as glass.
@@ -403,7 +411,7 @@ const FS = /* glsl */ `
     // The bay in front of the beach is chopped too once it is past the surf.
     float stC = max(chopK, smoothstep(1.5, 4.0, s.h) * (1.0 - smoothstep(0.05, 0.3, s.brk + s.foam)) * 0.85);
     float stK = stC * (1.0 - smoothstep(90.0, 260.0, dist)) * smoothstep(0.02, 0.05, -V.y) * (1.0 - 0.4 * uNight);
-    if (stK > 0.01) strokes = oStrokes(V, uTime, gust) * stK * crestK;
+    if (stK > 0.01) strokes = oStrokes(V, uTime, gust) * stK * crestK * (1.0 - wk.slick);
     gU += fwd * strokes * 0.05;
     // Break bands across the mirror (open water only), animated with the swell.
     // Only where the mirror shows at a grazing angle; looking steeply down it is not seen.
@@ -495,6 +503,8 @@ const FS = /* glsl */ `
     seen = mix(vec3(dot(seen, vec3(0.2126, 0.7152, 0.0722))), seen, 0.85);
     float clarity = exp(-hd * 0.38) * seeBed;
     vec3 col = mix(bodyCol, seen, clarity);
+    // Aerated water under the propeller trail reads as a paler band of the shallow colour.
+    col = mix(col, max(col, cW * 1.05 + 0.02), wk.aer * 0.5);
     // Wave faces turned to the light read a shade lighter, backs a shade darker.
     vec2 Ls = normalize(uSunDir.xz + 1e-5);
     col *= 1.0 + clamp(dot(-sl, Ls) * 2.0, -0.16, 0.16) * (1.0 - uNight * 0.5);
@@ -889,6 +899,9 @@ const FS = /* glsl */ `
       foam = mix(sw.foam, foam, max(smoothstep(0.15, 0.6, hA), smoothstep(0.0, 0.2, s.rock)));
     }
 #endif
+    // The wake: painted crest tone, the dark water against the hull, then its foam.
+    col *= (1.0 + 0.1 * wk.crest * (1.0 - farK)) * (1.0 - 0.3 * wk.contact);
+    foam = max(foam, wk.foam);
     if (foam > 0.002) {
       vec3 Nf = normalize(Nw + vec3(0.0, 1.2, 0.0));
       col = mix(col, wFoamColor(normalize(Nf - vec3(0.0, 0.3 * s.crest, 0.0)), q, col, path), foam);
@@ -937,7 +950,7 @@ const SKIRTS = { value: rockSkirts() };
 function material(defines: Record<string, string>): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...G, ...DEPTH, ...REFL, uRocks: SKIRTS, uBuoys: BUOY_U, uGridO: GRID_UNIFORM, uId: { value: ID.water }, uMask: { value: 0 } },
+    uniforms: { ...G, ...DEPTH, ...REFL, ...WAKE_U, uRocks: SKIRTS, uBuoys: BUOY_U, uGridO: GRID_UNIFORM, uId: { value: ID.water }, uMask: { value: 0 } },
     defines,
     vertexShader: VS,
     fragmentShader: FS,

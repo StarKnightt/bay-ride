@@ -17,6 +17,9 @@ const SPOTS: [number, number, number][] = [
   [-100, 112, 2],
 ];
 
+/** Buoy positions (x, z), for anything that must steer clear of them. */
+export const BUOY_XZ: readonly [number, number][] = SPOTS.map(([x, z]) => [x, z]);
+
 /** (x, z, waterline radius, heave speed) per buoy, for foam rings in the sea shader. */
 export const BUOY_U = { value: Array.from({ length: BUOY_MAX }, () => new THREE.Vector4(1e5, 1e5, 0, 0)) };
 

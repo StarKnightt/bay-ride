@@ -557,6 +557,12 @@ export interface FootState {
   look: number;
   lookUp: number;
   time: number;
+  /** 0 standing … 1 seated in the boat (walker origin on the floor under the bench, facing forward). */
+  seat?: number;
+  /** Tiller grip for the left hand, in walker space. */
+  grip?: THREE.Vector3;
+  /** Apparent wind (m/s) on the water: lifts the ponytail. */
+  wind?: number;
 }
 
 /** Joint targets for one frame, in the body's parent frame (bike lean space or walker space). */
@@ -596,6 +602,27 @@ const newPose = (): Pose => ({
   elbowPole: [new THREE.Vector3(), new THREE.Vector3()],
   armL: [[0.27, 0.26], [0.27, 0.26]],
 });
+
+/** A ← mix(A, B, w), joint by joint. */
+function blendPose(A: Pose, B: Pose, w: number): void {
+  A.torsoP.lerp(B.torsoP, w);
+  A.torsoQ.slerp(B.torsoQ, w);
+  A.head.lerp(B.head, w);
+  for (let i = 0; i < A.ponyX.length; i++) {
+    A.ponyX[i] += (B.ponyX[i] - A.ponyX[i]) * w;
+    A.ponyZ[i] += (B.ponyZ[i] - A.ponyZ[i]) * w;
+  }
+  for (let k = 0; k < 2; k++) A.legL[k] += (B.legL[k] - A.legL[k]) * w;
+  for (let i = 0; i < 2; i++) {
+    A.hip[i].lerp(B.hip[i], w);
+    A.ankle[i].lerp(B.ankle[i], w);
+    A.kneePole[i].lerp(B.kneePole[i], w).normalize();
+    A.footQ[i].slerp(B.footQ[i], w);
+    A.wrist[i].lerp(B.wrist[i], w);
+    A.elbowPole[i].lerp(B.elbowPole[i], w).normalize();
+    for (let k = 0; k < 2; k++) A.armL[i][k] += (B.armL[i][k] - A.armL[i][k]) * w;
+  }
+}
 
 const SHOULDER = (side: number) => V(side * 0.158, 0.425, -0.006);
 /** Walking leg: thigh + shin (slightly shorter than the pedalling IK so she stands nearly straight). */
@@ -721,6 +748,7 @@ export class Rider {
   private onFoot = false;
   private poseA = newPose();
   private poseB = newPose();
+  private poseC = newPose();
   private standK = 0;
   /** The bicycle (frame, wheels, crank, steer + basket). */
   readonly bike = new Bike();
@@ -1942,6 +1970,11 @@ export class Rider {
       }
       const W = this.poseB;
       this.walkPose(f, W);
+      const seat = Math.min(1, Math.max(0, f.seat ?? 0));
+      if (seat > 0) {
+        this.seatPose(f, this.poseC);
+        blendPose(W, this.poseC, smooth(0, 1, seat));
+      }
       const near = f.side > 0 ? 1 : 0;
       const wNear = smooth(0, 0.45, fb), wFar = smooth(0.35, 1, fb), wBody = smooth(0.12, 0.82, fb), wArm = smooth(0.05, 0.62, fb);
       P.torsoP.lerp(W.torsoP, wBody);
@@ -1972,8 +2005,9 @@ export class Rider {
         P.elbowPole[i].lerp(W.elbowPole[i], wArm).normalize();
         for (let k = 0; k < 2; k++) P.armL[i][k] += (W.armL[i][k] - P.armL[i][k]) * wArm;
       }
-      stand = wBody;
-      gait = [Math.min(1, f.speed / 1.1), f.phase, f.run];
+      const seated = Math.min(1, Math.max(0, f.seat ?? 0));
+      stand = wBody * (1 - seated);
+      gait = [Math.min(1, f.speed / 1.1) * (1 - seated), f.phase, f.run];
     }
     this.standK = stand;
     this.springPony(P, dt);
@@ -2131,6 +2165,41 @@ export class Rider {
       P.elbowPole[i].set(side * (0.3 + 0.2 * run), -0.2 * run, 1).normalize();
       P.armL[i][0] = 0.27;
       P.armL[i][1] = 0.255;
+    }
+  }
+
+  /**
+   * Seated on the skiff's stern bench (walker space: floor at y = 0, facing -Z): feet planted
+   * forward on the floorboards, knees up, leaning a little forward, left hand on the tiller and the
+   * right resting on her knee; the ponytail streams back in the apparent wind.
+   */
+  private seatPose(f: FootState, P: Pose): void {
+    const t = f.time, wind = Math.min((f.wind ?? 0) / 8, 1.2);
+    const pitch = -0.1 - 0.04 * wind;
+    const roll = Math.max(-0.08, Math.min(0.08, -f.turn * 0.12));
+    P.torsoP.set(0, 0.43 + Math.sin(t * 1.7) * 0.003, 0.02);
+    P.torsoQ.setFromEuler(_e1.set(pitch, 0.12, roll, "YXZ"));
+    P.head.set(-pitch * 0.7 - 0.02 + f.lookUp, f.look - 0.14 + Math.sin(t * 0.23) * 0.08, -roll * 0.5);
+    for (let i = 0; i < P.ponyX.length; i++) {
+      const wave = Math.sin(t * (2.2 + 2.4 * wind) - i * 0.9) * (0.03 + 0.06 * wind);
+      P.ponyX[i] = (i === 0 ? -(pitch + P.head.x) - 0.16 - 0.32 * wind : -0.03 - 0.1 * wind) + wave;
+      P.ponyZ[i] = Math.sin(t * 2.7 - i * 1.1) * (0.03 + 0.05 * wind);
+    }
+    P.legL[0] = WALK_LEG[0];
+    P.legL[1] = WALK_LEG[1];
+    for (let i = 0; i < 2; i++) {
+      const side = i === 0 ? 1 : -1;
+      P.hip[i].copy(P.torsoP).add(_v1.set(side * 0.085, -0.065, 0));
+      P.ankle[i].set(side * 0.13, 0.07, -0.4 + (i === 0 ? -0.04 : 0.03));
+      P.kneePole[i].set(side * 0.12, 0.7, -1).normalize();
+      P.footQ[i].setFromEuler(_e1.set(0, side * 0.1, 0, "YXZ"));
+      const shoulder = SHOULDER(side).applyQuaternion(P.torsoQ).add(P.torsoP);
+      if (i === 1 && f.grip) P.wrist[i].copy(f.grip);
+      else P.wrist[i].set(side * 0.13, 0.5, -0.27);
+      const reach = Math.min(shoulder.distanceTo(P.wrist[i]) / (2 * Math.cos((12 * Math.PI) / 180)), 0.285);
+      P.armL[i][0] = Math.max(reach, 0.2) * 1.04;
+      P.armL[i][1] = Math.max(reach, 0.2) * 0.96;
+      P.elbowPole[i].set(side * 0.55, -0.6, 0.25).normalize();
     }
   }
 
