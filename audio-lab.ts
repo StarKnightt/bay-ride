@@ -1,7 +1,7 @@
 // Standalone measurement page for the bay audio (not part of the game build): renders scenarios with an
 // OfflineAudioContext, driving the engine like a frame loop, and analyses level, spectrum and attacks.
-import { SoundEngine, type EngineInput, type LayerName, type MoodName } from "./src/sound/engine";
-import type { StepSurface } from "./src/sound/steps";
+import { SoundEngine, type EngineInput, type GullPlace, type LayerName, type MoodName, type Place } from "./src/sound/engine";
+import { STEP_SURFACES, type StepSurface } from "./src/sound/steps";
 
 const SR = 48000;
 const QUANTUM_STEP = 128 * 19; // engine tick every ~50 ms of audio, on render-quantum boundaries
@@ -13,26 +13,51 @@ interface Scenario {
   music?: MoodName;
   musicDelay?: number;
   input: (t: number) => Partial<EngineInput>;
-  steps?: { every: number; surface: (t: number) => StepSurface; strength?: number };
-  events?: [number, "gull" | "slap" | "bell"][];
+  steps?: { every: number; surface: (t: number) => StepSurface; strength?: number; depth?: (t: number) => number };
+  events?: [number, "gull" | "slap"][];
+  /** Engine calls at scenario times (shore events, placed sounds, landings). */
+  calls?: [number, (eng: SoundEngine, when: number) => void][];
+  /** Where placed gull calls come from (the game passes its real gulls). */
+  gullAt?: (t: number, out: GullPlace) => boolean;
   wav?: boolean;
   seed?: number;
 }
 
-const WHEEL_C = 2 * Math.PI * 0.34;
-function ride(t: number): Partial<EngineInput> {
-  const seg: [number, number, number, number][] = [
-    [4, 6, 1, 0],
-    [9, 6.5, 1, 0],
-    [13, 5.5, 0, 0],
-    [16, 8, 1, 0],
-    [18, 2, 0, 1],
-    [1e9, 5, 1, 0],
-  ];
-  const [, target, pedal, brake] = seg.find((s) => t < s[0])!;
-  const speed = Math.min(target, 1 + t * 1.5);
-  const wheel = speed / WHEEL_C;
-  return { speed, wheel, crank: wheel / 2.3, pedal, brake, shore: 25, shorePan: -0.8 };
+const at = (pan: number, dist: number, panTo = NaN, distTo = NaN, back = 0): Place => ({ pan, dist, back, panTo, distTo });
+
+/** The shoreline's events for a run of waves on the main swell (break offshore, run-up ~2.6 s later). */
+function shoreRun(t0: number, sizes: number[]): [number, (eng: SoundEngine, when: number) => void][] {
+  const out: [number, (eng: SoundEngine, when: number) => void][] = [];
+  sizes.forEach((s, i) => {
+    const t = t0 + i * 7.4 + (i % 2 ? 0.9 : -0.4);
+    out.push([t, (e, w) => e.shoreWave(w, "break", s, i)], [t + 2.6, (e, w) => e.shoreWave(w, "runup", s, i)]);
+  });
+  return out;
+}
+
+/** A boat run: idle, open to full, past full (Shift), back to full, ease off; speed follows the throttle. */
+function boatRun(t: number): Partial<EngineInput> {
+  const th = t < 2 ? 0 : t < 10 ? (t - 2) / 8 : t < 12 ? 1 : t < 13 ? 1 + 0.35 * (t - 12) : t < 21 ? 1.35 : t < 23 ? 1.35 - 0.35 * ((t - 21) / 2) : Math.max(0, 1 - (t - 23) / 5);
+  return { boat: 1, throttle: th, boatSpeed: Math.min(10.1, 8.5 * Math.min(1, th) + 4.5 * Math.max(0, th - 1)), sea: 1, move: 7 * Math.min(1, th) };
+}
+
+/** Reverse: ahead at half throttle, brake with the prop reversed, back astern to ~3.8 m/s, idle. */
+function reverseRun(t: number): Partial<EngineInput> {
+  if (t < 5) return { boat: 1, throttle: 0.6, boatSpeed: 5, sea: 1 };
+  if (t < 8) return { boat: 1, throttle: -1, boatSpeed: Math.max(0, 5 - (t - 5) * 1.7), sea: 1 };
+  if (t < 18) return { boat: 1, throttle: -1, boatSpeed: Math.min(3.8, (t - 8) * 0.5), sea: 1 };
+  return { boat: 1, throttle: 0, boatSpeed: Math.max(0, 3.8 - (t - 18) * 0.8), sea: 1 };
+}
+
+/** Placed gulls for the lab: a perched one close by, a flock bird crossing 40→60 m, one far out at 150 m. */
+function labGull(t: number, out: GullPlace): boolean {
+  const k = Math.floor(t / 4) % 3;
+  out.back = 0;
+  out.perched = k === 0;
+  if (k === 0) Object.assign(out, { pan: 0.4, dist: 9, panTo: NaN, distTo: NaN });
+  else if (k === 1) Object.assign(out, { pan: -0.7, dist: 40, panTo: 0.3, distTo: 60 });
+  else Object.assign(out, { pan: 0.2, dist: 150, panTo: 0.1, distTo: 160 });
+  return true;
 }
 
 const SCENARIOS: Scenario[] = [
@@ -49,16 +74,65 @@ const SCENARIOS: Scenario[] = [
       return { boat: 1, throttle: th, boatSpeed: 7 * th, sea: 1 };
     },
   },
-  { name: "bike-ride", secs: 20, solo: ["bike", "wind"], input: ride, events: [[6.5, "bell"]] },
+  { name: "boat-boost", secs: 30, solo: ["boat", "lap", "wind"], input: boatRun, wav: true },
+  { name: "boat-reverse", secs: 24, solo: ["boat", "lap"], input: reverseRun, wav: true },
   { name: "wind-fast", secs: 15, solo: ["wind"], input: () => ({ move: 11, speed: 0 }) },
   {
     name: "footsteps",
-    secs: 18,
+    secs: 24,
     solo: [],
     input: () => ({}),
-    steps: { every: 0.5, surface: (t) => (["wood", "sand", "wetsand", "asphalt", "grass", "dirt"] as StepSurface[])[Math.floor(t / 3) % 6], strength: 1 },
+    steps: { every: 0.5, surface: (t) => STEP_SURFACES[Math.floor(t / 3) % STEP_SURFACES.length], strength: 1, depth: () => 0.06 },
   },
+  { name: "footsteps-wading", secs: 12, solo: [], input: () => ({}), steps: { every: 0.55, surface: () => "water", strength: 0.9, depth: (t) => (t < 6 ? 0.05 : 0.35) }, wav: true },
+  {
+    // a jump on every surface: push-off, 0.5 s aloft, landing (both feet), then a step away
+    name: "jumps",
+    secs: 26,
+    solo: [],
+    input: () => ({}),
+    calls: STEP_SURFACES.flatMap((s, i): [number, (eng: SoundEngine, when: number) => void][] => [
+      [0.5 + i * 3, (e, w) => e.takeoff(w, s, 0.82, 0.3)],
+      [1.0 + i * 3, (e, w) => e.land(w, s, 0.52, 0.3)],
+      [1.06 + i * 3, (e, w) => e.footstep(w, s, 0.3 * 0.45, 0.3)],
+      [1.6 + i * 3, (e, w) => e.footstep(w, s, 0.8, 0.3)],
+    ]),
+    wav: true,
+  },
+  { name: "shore-events", secs: 45, solo: ["shore"], input: () => ({ shore: 4, shorePan: -0.5 }), calls: shoreRun(1, [0.35, 0.8, 1.2, 0.9, 0.5, 0.2]), wav: true },
   { name: "gulls", secs: 22, solo: ["gulls"], input: () => ({ shore: 10, sea: 0.5 }), events: [[0.5, "gull"], [6, "gull"], [12, "gull"], [17, "gull"]] },
+  {
+    name: "gulls-placed",
+    secs: 26,
+    solo: ["gulls"],
+    input: () => ({ shore: 10, sea: 0.5 }),
+    gullAt: labGull,
+    events: [[0.5, "gull"], [4.5, "gull"], [8.5, "gull"], [12.5, "gull"], [16.5, "gull"], [20.5, "gull"]],
+    calls: [
+      [2.5, (e, w) => e.gullTakeoff(w, at(-0.3, 3.6))],
+      [14.5, (e, w) => e.gullTakeoff(w, at(0.5, 6))],
+    ],
+    wav: true,
+  },
+  {
+    name: "fish",
+    secs: 20,
+    solo: ["fish"],
+    input: () => ({ sea: 0.6 }),
+    calls: [
+      [0.5, (e, w) => e.fishSplash(w, false, at(0.3, 12), 1.3)],
+      [1.5, (e, w) => e.fishSplash(w, true, at(0.32, 12.5), 1.3)],
+      [5, (e, w) => e.fishSplash(w, false, at(-0.5, 30), 0.9)],
+      [5.9, (e, w) => e.fishSplash(w, true, at(-0.48, 30.6), 0.9)],
+      [10, (e, w) => e.fishSplash(w, false, at(0.1, 55), 1)],
+      [11, (e, w) => e.fishSplash(w, true, at(0.12, 56), 1)],
+      // a burst: more cues than voices (only three may sound)
+      ...[14, 14.1, 14.2, 14.3, 14.4, 14.5].map((t, i): [number, (eng: SoundEngine, when: number) => void] => [t, (e, w) => e.fishSplash(w, i % 2 === 1, at(-0.6 + 0.24 * i, 14), 1)]),
+    ],
+    wav: true,
+  },
+  { name: "night-insects", secs: 30, solo: ["insects"], input: () => ({ night: 1, grass: 1, sea: 0 }), wav: true },
+  { name: "night-insects-beach", secs: 12, solo: ["insects"], input: () => ({ night: 1, grass: 0, sea: 0 }) },
   { name: "hull-slaps", secs: 10, solo: ["boat"], input: () => ({ boat: 1, throttle: 0.6, boatSpeed: 5, sea: 1 }), events: [[1, "slap"], [3, "slap"], [5, "slap"], [7, "slap"]] },
   { name: "music-morning", secs: 60, solo: "music", music: "morning", input: () => ({}), seed: 3 },
   { name: "music-golden", secs: 90, solo: "music", music: "golden", input: () => ({}), wav: true, seed: 11 },
@@ -86,12 +160,26 @@ const SCENARIOS: Scenario[] = [
     seed: 21,
   },
   {
-    name: "mix-ride-noon",
+    name: "mix-boat-noon",
     secs: 40,
     solo: null,
     music: "noon",
     musicDelay: 2,
-    input: (t) => ({ ...ride(t % 20), evening: 0 }),
+    input: (t) => ({ ...boatRun(t % 30), shore: 120, shorePan: 0.6, evening: 0 }),
+    events: [[9, "slap"], [15, "slap"], [16.2, "slap"], [24, "slap"]],
+  },
+  {
+    // the beach at night: waves from the shoreline's events, a fish, faint insects up the verge behind
+    name: "mix-night-shore",
+    secs: 45,
+    solo: null,
+    music: "night",
+    musicDelay: 2,
+    input: () => ({ shore: 9, shorePan: -0.6, night: 1, evening: 1, grass: 0.35 }),
+    steps: { every: 0.6, surface: (t) => (t % 20 < 10 ? "sand" : "wetsand"), strength: 0.7 },
+    calls: [...shoreRun(1, [0.5, 0.9, 0.7, 0.4, 1, 0.6]), [17, (e, w) => e.fishSplash(w, false, at(-0.4, 25), 1)], [17.9, (e, w) => e.fishSplash(w, true, at(-0.38, 25.6), 1)]],
+    wav: true,
+    seed: 9,
   },
 ];
 
@@ -293,14 +381,21 @@ async function render(sc: Scenario): Promise<{ m: Metrics; wav?: string }> {
   }
   const dt = QUANTUM_STEP / SR;
   const ev = [...(sc.events ?? [])];
+  const calls = [...(sc.calls ?? [])].sort((a, b) => a[0] - b[0]);
+  const gullAt = sc.gullAt;
+  if (gullAt) eng.gullPlacer = (_dur, out) => gullAt(ctx.currentTime, out);
   let nextStep = 0.3;
   const tick = () => {
     const t = ctx.currentTime;
-    const inp = { speed: 0, crank: 0, wheel: 0, pedal: 0, brake: 0, ...sc.input(t) } as EngineInput;
+    const inp: EngineInput = { speed: 0, ...sc.input(t) };
     eng.tick(t, dt, inp);
     while (ev.length && ev[0][0] <= t) eng.trigger(ev.shift()![1], t + 0.02);
+    while (calls.length && calls[0][0] <= t + dt) {
+      const [when, fn] = calls.shift()!;
+      fn(eng, Math.max(t + 0.02, when + 0.02));
+    }
     if (sc.steps) while (nextStep <= t + dt) {
-      eng.footstep(nextStep + 0.02, sc.steps.surface(nextStep), sc.steps.strength ?? 0.8);
+      eng.footstep(nextStep + 0.02, sc.steps.surface(nextStep), sc.steps.strength ?? 0.8, sc.steps.depth?.(nextStep) ?? 0);
       nextStep += sc.steps.every * (0.95 + 0.1 * Math.random());
     }
   };
@@ -324,7 +419,7 @@ function voices(): Record<string, unknown>[] {
   const ctx = new OfflineAudioContext(2, SR, SR);
   const eng = new SoundEngine(ctx, ctx.destination, { seed: 5 });
   const out: Record<string, unknown>[] = [];
-  const names = ["fw", "chain", "chainAcc", "rattle", "bell", "hull", "plop", "gull", "step-wood", "step-sand", "step-wetsand", "step-asphalt", "step-grass", "step-dirt"];
+  const names = ["hull", "plop", "gull", "flutter", "fish-out", "fish-in", "crickets", "land", "step-wade", ...STEP_SURFACES.map((s) => `step-${s}`)];
   const measure = (name: string, bufs: AudioBuffer[]) => {
     let worst = 1e9, above = -999;
     for (const b of bufs) {
