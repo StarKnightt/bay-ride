@@ -10,6 +10,9 @@ from .common import COLL, scene
 
 def export(path, meta=None):
     sc = scene()
+    # Keyframe times are frame / scene fps: the clips are authored at anim.FPS (Blender's default is 24).
+    from .anim import FPS
+    sc.render.fps, sc.render.fps_base = FPS, 1.0
     col = bpy.data.collections[COLL]
     arm = next(o for o in col.all_objects if o.type == "ARMATURE")
     if meta is not None:
