@@ -399,8 +399,9 @@ function shopFront(c: Ctx, s: HouseSpec, x: number, y: number, z: number): void 
   out.push(xf(box(0.42, 0.05, 1.5, "#8a6f52", M.planks), bn.x, fy + 0.45, bn.z));
   for (const sg of [-0.6, 0.6]) out.push(xf(box(0.36, 0.42, 0.06, "#4a3a2e", M.planks), bn.x, fy + 0.21, bn.z + sg));
   c.colliders.push({ x: bn.x, z: bn.z, r: 0.5, top: fy + 0.5 });
-  // Flat paved forecourt from the road edge to the shop front (walkable: pavedH).
-  const x0 = roadX((FORECOURT.z0 + FORECOURT.z1) / 2) + FORECOURT.u0, x1 = x - s.w / 2;
+  // Flat paved forecourt from the road edge to the shop front (walkable: pavedH). The road runs
+  // askew here, so the slab starts where the verge is narrowest and never reaches the asphalt.
+  const x0 = Math.max(roadX(FORECOURT.z0), roadX(FORECOURT.z1)) + FORECOURT.u0, x1 = x - s.w / 2;
   PADS.push({ x0, x1, z0: FORECOURT.z0, z1: FORECOURT.z1, y: fy + 0.02 });
   out.push(xf(box(x1 - x0, 0.3, FORECOURT.z1 - FORECOURT.z0, "#c9c0ae", M.stone), (x0 + x1) / 2, fy - 0.13, (FORECOURT.z0 + FORECOURT.z1) / 2));
   c.layout.rect(x0 - 0.2, x1, FORECOURT.z0 - 0.2, FORECOURT.z1 + 0.2);
