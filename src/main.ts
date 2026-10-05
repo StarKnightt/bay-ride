@@ -5,8 +5,9 @@ import { LAYER_REFLECT, LAYER_SHADOW, PlanarReflection, SunShadow, onLayers } fr
 import { precompile, warmDraws } from "./render/precompile";
 import { leafAtlas } from "./render/leafAtlas";
 import { Profiler } from "./render/profiler";
-import { Bay, type Contact } from "./world/bay";
-import { ROAD_Z1, SEA_Y, roadX, roadYaw } from "./world/bay/road";
+import { Bay } from "./world/bay";
+import { MooringLines } from "./world/bay/pier";
+import { SEA_Y, roadX } from "./world/bay/road";
 import { Sky } from "./world/sky";
 import { TimeOfDay, parsePreset, type Preset } from "./world/timeofday";
 import { bakeDepth } from "./water/depthMap";
@@ -16,11 +17,11 @@ import { seaHeight, seaNormal, waterSample, type WaterSample } from "./water/que
 import { ShoreEvents, waterAt, waveEta, type WaterAt } from "./water/waves";
 import { terrainH, waterlineU } from "./world/bay/terrain";
 import { Rider } from "./rider/rider";
-import { Controller, START_Z } from "./rider/controller";
 import { ChaseCam, type CamMode, type CamTarget } from "./rider/camera";
 import { Boat } from "./boat/boat";
 import { Spray } from "./boat/spray";
-import { BERTH } from "./boat/berth";
+import { BERTH, SPAWN } from "./boat/berth";
+import { STEM_Z, TRANSOM_Z } from "./boat/model";
 import { Explore } from "./rider/onfoot";
 import { Input } from "./core/input";
 import { RideAudio } from "./audio";
@@ -32,12 +33,13 @@ import { captureParams, poseCamera } from "./capture/shots";
 const params = new URLSearchParams(location.search);
 const CAP = captureParams(params);
 const SHOT = CAP.shot;
+/** ?autoplay=1: she walks off along the pier by herself (frame-rate sampling). */
 const AUTOPLAY = params.has("autoplay") && params.get("autoplay") !== "0";
 /** ?boat=1: she is seated in the skiff running the scripted capture course (a function of t). */
 const BOAT_RUN = params.get("boat") === "1";
 /** A frozen-time boat capture from the ride camera (no fixed shot). */
 const BOATCAP = BOAT_RUN && !SHOT && CAP.time !== null;
-/** Go straight in once built (no "click to start" wait): captures and autoplay. */
+/** Go straight in once built (no click to start): captures and autoplay. */
 const SKIP_INTRO = !!SHOT || (params.has("skipintro") && params.get("skipintro") !== "0");
 /** A frozen-time capture of the opening view (play as it starts, no fixed shot, no boat course). */
 const OPENCAP = !SHOT && !BOAT_RUN && SKIP_INTRO && !AUTOPLAY && CAP.time !== null;
@@ -80,7 +82,7 @@ G.uLeafTex.value = leafAtlas(renderer);
 }
 
 const loader = new Loader(SKIP_INTRO);
-loader.advance(W_BOOT, "the bay");
+loader.advance(W_BOOT);
 const bootLog: [string, number][] = [];
 const bootT0 = performance.now();
 const yieldToPaint = () =>
@@ -92,7 +94,7 @@ async function step<T>(label: string, weight: number, fn: () => T): Promise<T> {
   const s = performance.now();
   const out = fn();
   bootLog.push([label, Math.round(performance.now() - s)]);
-  loader.advance(weight, label);
+  loader.advance(weight);
   await yieldToPaint();
   return out;
 }
@@ -111,20 +113,29 @@ bay.root.add(buoys.group);
 const sky = await step("the sky", W_BUILD * 0.25, () => new Sky());
 scene.add(sky.group, sky.far, sky.motes);
 const rider = await step("the rider", W_BUILD * 0.1, () => new Rider());
-onLayers(rider.lean, LAYER_SHADOW, LAYER_REFLECT);
-scene.add(rider.root, rider.walker);
+onLayers(rider.walker, LAYER_SHADOW, LAYER_REFLECT);
+scene.add(rider.walker);
 const boat = new Boat(bay);
 scene.add(boat.root);
+const moor = new MooringLines();
+scene.add(moor.group);
+const _bow = new THREE.Vector3(), _stern = new THREE.Vector3();
+/** Mooring lines to the stem ring and the pier-side quarter, while she lies at her berth. */
+function updateMooring(): void {
+  boat.model.root.updateMatrixWorld(true);
+  const m = boat.model.root.matrixWorld;
+  _bow.set(0, 0.84, STEM_Z + 0.12).applyMatrix4(m);
+  _stern.set(-0.6, 0.52, TRANSOM_Z - 0.2).applyMatrix4(m);
+  moor.update(_bow, _stern, boat.mode === "idle" && Math.hypot(boat.x - BERTH.x, boat.z - BERTH.z) < 2.5);
+}
 const spray = new Spray(boat);
 scene.add(spray.mesh);
 if (BOAT_RUN) boat.mode = "scripted";
 boat.update(0, CAP.time ?? 0, null);
-if (!params.has("nospec")) for (const o of [bay.root, rider.root, rider.walker, boat.root]) specializeUber(o);
+if (!params.has("nospec")) for (const o of [bay.root, rider.walker, boat.root, moor.group]) specializeUber(o);
 
 const shadow = new SunShadow(2048, 55);
 const reflection = new PlanarReflection(Math.floor(innerWidth * 0.5), Math.floor(innerHeight * 0.5));
-const startParam = params.get("start");
-const ctl = new Controller(AUTOPLAY, startParam !== null && Number.isFinite(Number(startParam)) ? Number(startParam) : START_Z);
 const chase = new ChaseCam(innerWidth / innerHeight);
 const camParam = params.get("cam");
 if (camParam === "fpp") chase.fpp = 1;
@@ -134,14 +145,13 @@ const post = new Post(renderer, innerWidth, innerHeight, { kuwahara: params.get(
 const prof = new Profiler(renderer, params.has("prof"));
 post.prof = prof;
 
-// Time of day: ?tod=morning|noon|golden|sunset|dusk|night (also ?time=); T or the buttons cycle.
+// Time of day: ?tod=morning|noon|golden|sunset|dusk|night (also ?time=); T cycles it.
 const startPreset: Preset = parsePreset(params.get("tod") ?? params.get("time")) ?? "golden";
 const tod = new TimeOfDay(post, shadow, startPreset, params.get("timelapse") === "1");
-const hud = new Hud(tod, CAP.hud && !AUTOPLAY);
+new Hud(tod, !SHOT && CAP.hud);
 
 if (SHOT) {
   poseCamera(chase.cam, SHOT);
-  rider.root.visible = false;
   rider.walker.visible = false;
 }
 
@@ -149,17 +159,17 @@ if (SHOT) {
   const s = performance.now();
   let done = 0;
   await precompile(renderer, scene, chase.cam, post, shadow, (f) => {
-    loader.advance((f - done) * W_COMPILE, "paint");
+    loader.advance((f - done) * W_COMPILE);
     done = f;
   }, yieldToPaint);
   bootLog.push(["compile", Math.round(performance.now() - s)]);
-  const parts = [...bay.root.children, sea, sky.far, sky.group, sky.motes, rider.root, boat.root, spray.mesh];
+  const parts = [...bay.root.children, sea, sky.far, sky.group, sky.motes, rider.walker, boat.root, spray.mesh, moor.group];
   let tp = performance.now();
   await warmDraws(renderer, scene, chase.cam, post, shadow, parts, (i) => {
     const n = performance.now();
     bootLog.push([`draw${i}`, Math.round(n - tp)]);
     tp = n;
-    loader.advance(W_DRAW / parts.length, "paint");
+    loader.advance(W_DRAW / parts.length);
   }, yieldToPaint);
 }
 
@@ -170,25 +180,30 @@ const input = new Input(
     if (!explore.onFoot) chase.toggle();
   },
 );
-// B = bicycle bell, M = music on/off, Shift+M = mute all (each also counts as the first gesture that starts audio).
+// M = music on/off, Shift+M = mute all (each also counts as the first gesture that starts audio).
 audio.bindKeys();
-addEventListener("keydown", (e) => {
-  if (e.code === "KeyB" && !e.repeat) rider.bike.ringBell();
-});
-// F = get off and walk / get back on; C = cinematic ride cameras.
-const explore = new Explore(bay, rider, ctl, chase, audio, renderer.domElement, CAP.hud && !AUTOPLAY);
+// F = into the boat at the pier / back onto the deck; C = boat cameras.
+const explore = new Explore(bay, rider, chase, audio, renderer.domElement);
 chase.clear = explore;
 chase.mouseLook = !AUTOPLAY && !SHOT && !BOAT_RUN;
-explore.lockRiding = !AUTOPLAY && !SHOT && !BOAT_RUN;
+explore.lockAboard = !AUTOPLAY && !SHOT && !BOAT_RUN;
 explore.boat = boat;
+// The opening: standing near the pier end, the skiff tied up beside her, looking out to sea.
+{
+  // Test hooks: ?spawn=x,z,yaw and ?orbit=rel,pitch,dist override the opening.
+  const num = (k: string) => (params.get(k) ?? "").split(",").filter((v) => v.trim() !== "").map(Number).filter(Number.isFinite);
+  const [sx = SPAWN.x, sz = SPAWN.z, sy = SPAWN.yaw] = num("spawn");
+  const [or = SPAWN.orbit[0], op = SPAWN.orbit[1], od = SPAWN.orbit[2]] = num("orbit");
+  explore.spawn(sx, sz, sy, or, op, od);
+}
+if (AUTOPLAY) explore.autoWalk = { dx: 1, dz: 0, run: false };
 boat.onSlap = (s) => audio.boatSlap(s * 0.8);
 if (BOAT_RUN) {
   explore.seatInBoat();
   explore.lookAround = false;
-  rider.root.visible = false;
   rider.walker.visible = true;
 }
-const boatCam: CamTarget & { boat: { y: number; roll: number } } = { x: 0, z: 0, yaw: 0, speed: 0, lean: 0, crank: 0, pedaling: 0, boat: { y: 0, roll: 0 } };
+const boatCam: CamTarget = { x: 0, z: 0, yaw: 0, speed: 0, lean: 0, boat: { y: 0, roll: 0 } };
 const canvasEl = renderer.domElement;
 const lockPointer = () => {
   try {
@@ -224,16 +239,6 @@ const shoreEvents = new ShoreEvents();
 const shadowCenter = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _moon = new THREE.Color();
-/** The bike as three circles: body at the saddle, front wheel + basket ahead, rear wheel behind. */
-function bikeContact(x: number, z: number): Contact {
-  const fx = -Math.sin(ctl.yaw), fz = -Math.cos(ctl.yaw);
-  let best = bay.contact(x, z, 0.35);
-  for (const [d, r] of [[0.75, 0.28], [-0.45, 0.25]]) {
-    const c = bay.contact(x + fx * d, z + fz * d, r);
-    if (c.pen > best.pen) best = c;
-  }
-  return best;
-}
 // Warm-up: a few frames behind the veil with the clock frozen (shadow map filled, programs bound).
 const WARM_FRAMES = 8;
 const FADE = 0.45;
@@ -268,51 +273,14 @@ function frame(now: number) {
   if (!BOAT_RUN) boat.mode = explore.inBoat ? "driven" : "idle";
   boat.update(simDt, t, explore.inBoat ? input : null);
   spray.update(t);
+  updateMooring();
   const boating = BOAT_RUN || explore.inBoat;
   if (SHOT && BOAT_RUN) explore.update(0, input, t);
 
-  if (!SHOT) {
-    if (explore.bikeActive) {
-      // Sub-step so a frame hitch can never tunnel the bike through a thin obstacle.
-      const steps = Math.max(1, Math.ceil((Math.abs(ctl.speed) * simDt) / 0.1));
-      let bumpMax = 0;
-      for (let i = 0; i < steps; i++) {
-        ctl.update(simDt / steps, input, bikeContact);
-        bumpMax = Math.max(bumpMax, ctl.bumpImpulse);
-      }
-      ctl.bumpImpulse = bumpMax;
-    } else ctl.bumpImpulse = 0;
-    explore.update(simDt, input, t);
-    // Autoplay loops the coast road.
-    if (AUTOPLAY && ctl.z < ROAD_Z1 + 12) {
-      ctl.z = START_Z;
-      ctl.x = roadX(START_Z);
-      ctl.yaw = roadYaw(START_Z);
-    }
-  }
+  if (!SHOT) explore.update(simDt, input, t);
   const px = explore.playerX, pz = explore.playerZ;
   const onFoot = explore.onFoot;
-  const offBike = explore.offBike;
-  rider.root.position.set(ctl.x, 0.02, ctl.z);
-  rider.root.rotation.y = ctl.yaw;
-  if (!SHOT || BOAT_RUN) {
-    rider.update(
-      simDt,
-      {
-        speed: ctl.speed,
-        steer: offBike ? ctl.steer * 1.6 * (1 - explore.kick) + explore.parkSteer : ctl.steer * 1.6,
-        lean: offBike ? ctl.lean * (1 - explore.kick) + explore.parkLean : ctl.lean,
-        crank: ctl.crank,
-        wheel: ctl.wheel,
-        pedaling: offBike ? 0 : ctl.pedaling,
-        time: t,
-        kick: explore.kick,
-        sprint: offBike ? 0 : ctl.sprint,
-      },
-      offBike ? explore.foot : undefined,
-    );
-    rider.bike.bump(ctl.bumpImpulse);
-  }
+  if (!SHOT || BOAT_RUN) rider.update(simDt, explore.foot);
   if (boating) {
     boatCam.x = boat.x;
     boatCam.z = boat.z;
@@ -324,13 +292,12 @@ function frame(now: number) {
   }
   if (SHOT) poseCamera(chase.cam, SHOT);
   else if (onFoot && chase.mode !== "custom") explore.updateCamera(simDt, chase.cam);
-  else chase.update(simDt, boating ? boatCam : ctl, t, rider);
+  else chase.update(simDt, boatCam, t, rider);
   sky.follow(chase.cam.position);
   followSea(chase.cam.position);
   buoys.update(t);
   tod.update(dt);
   shoreEvents.update(t, roadX(pz) + waterlineU(pz), pz);
-  rider.bike.setLamp(tod.night);
 
   if (audio.state === "running") {
     chase.cam.getWorldDirection(_dir);
@@ -346,16 +313,16 @@ function frame(now: number) {
       audio.setNearPier(Math.max(0, 1 - Math.hypot(boat.x - BERTH.x, boat.z - BERTH.z) / 18));
     } else {
       audio.setMotion(undefined);
-      // The moored skiff knocking at its lines when she walks or rides past (panned by the camera).
+      // Water lapping at the pier posts and the moored skiff knocking at its lines (panned by the camera).
       const dB = boat.hullDistance(px, pz);
       const d = Math.hypot(boat.x - px, boat.z - pz);
       const pan = d > 0.5 ? Math.max(-1, Math.min(1, ((boat.x - px) * -_dir.z + (boat.z - pz) * _dir.x) / d)) : 0;
-      audio.setNearPier(Math.max(0, 1 - dB / 14), pan);
+      const onPier = bay.overWater(px, pz, 0.5) ? 0.55 : 0;
+      audio.setNearPier(Math.max(onPier, 1 - dB / 14), pan);
     }
-    audio.update(simDt, boating ? 0 : Math.abs(ctl.speed), Math.abs(ctl.cadence), Math.abs(ctl.wheelRate), ctl.pedaling, ctl.brakePressure, {
-      steer: Math.max(-1, Math.min(1, ctl.steer / 0.3)),
-      bump: ctl.bumpImpulse,
-      roughness: 0.25,
+    audio.update(simDt, {
+      speed: boating ? 0 : explore.foot.speed,
+      steer: Math.max(-1, Math.min(1, explore.foot.turn / 2)),
       evening: tod.evening,
       night: tod.night,
     });
@@ -367,8 +334,7 @@ function frame(now: number) {
   if (SHOT) {
     const reach = Math.min(40, SHOT.eye.distanceTo(SHOT.look));
     shadowCenter.set(SHOT.eye.x + (_dir.x / l) * reach, 0, SHOT.eye.z + (_dir.z / l) * reach);
-  } else if (onFoot || boating) shadowCenter.set(px + (_dir.x / l) * 22, 0, pz + (_dir.z / l) * 22);
-  else shadowCenter.set(ctl.x - Math.sin(ctl.yaw) * 30, 0, ctl.z - Math.cos(ctl.yaw) * 30);
+  } else shadowCenter.set(px + (_dir.x / l) * 22, 0, pz + (_dir.z / l) * 22);
   renderer.info.reset();
   shadow.update(renderer, scene, shadowCenter);
   bay.beam.update(t, chase.cam.position);
@@ -389,7 +355,6 @@ function frame(now: number) {
   post.render(scene, chase.cam, t);
   prof.poll();
 
-  hud.speed.textContent = onFoot ? "" : `${Math.round((boating ? Math.abs(boat.u) : ctl.speed) * 3.6)} km/h`;
   frames++;
   fpsT += dt;
   if (fpsT >= 1) {
@@ -493,14 +458,9 @@ window.__ride = {
     chase.fpp = mode === "fpp" ? 1 : 0;
     chase.mode = mode === "fpp" || mode === "tpp" ? "chase" : mode;
   },
-  place(u: number, z: number, speed: number, yawOff = 0) {
-    ctl.x = roadX(z) + u;
-    ctl.z = z;
-    ctl.yaw = roadYaw(z) + yawOff;
-    ctl.speed = speed;
-  },
-  get ctl() {
-    return { x: ctl.x, z: ctl.z, u: ctl.x - roadX(ctl.z), yaw: ctl.yaw, speed: ctl.speed };
+  /** The character: where she is, which way she faces, how fast she moves and what she is doing. */
+  get player() {
+    return { x: explore.x, y: explore.y, z: explore.z, yaw: explore.yaw, speed: explore.speed, mode: explore.mode, spawn: SPAWN };
   },
   /** On foot: stand at world (x, z) (test hook). */
   standAt(x: number, z: number, yaw?: number) {
@@ -515,15 +475,14 @@ window.__ride = {
   },
   /**
    * Capture guard: normalized screen points (0..1, y down) whose view ray reaches open water
-   * (>= 1 m deep) unoccluded by the land, the rider, the boat or the pier.
+   * (>= 1 m deep) unoccluded by the land, the character, the boat or the pier.
    */
   seaProbe(nx = 32, ny = 18): [number, number][] {
     const cam = chase.cam;
     cam.updateMatrixWorld();
     const o = cam.position, d = new THREE.Vector3(), out: [number, number][] = [];
     const avoid: [THREE.Vector3, number][] = [
-      [new THREE.Vector3(explore.playerX, terrainH(explore.playerX, explore.playerZ) + 0.9, explore.playerZ), 1.3],
-      [new THREE.Vector3(ctl.x, 0.8, ctl.z), 1.6],
+      [new THREE.Vector3(explore.playerX, explore.y + 0.9, explore.playerZ), 1.3],
       [boat.root.position.clone(), 3.4],
     ];
     if (explore.inBoat || BOAT_RUN) avoid[0][0].copy(boat.root.position);

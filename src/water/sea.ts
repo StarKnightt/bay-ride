@@ -3,6 +3,7 @@ import { COMMON, G, REFL } from "../render/materials";
 import { ID } from "../world/geo";
 import { SEA_Y, roadX, smooth } from "../world/bay/road";
 import { ISLAND, waterlineU } from "../world/bay/terrain";
+import { PIER, PIER_POSTS } from "../world/bay/pier";
 import { DEPTH, DEPTH_GLSL } from "./depthMap";
 import { WAVES_GLSL } from "./waves";
 import { SKIRT_MAX, rockSkirts } from "./rocks";
@@ -944,6 +945,23 @@ const FS = /* glsl */ `
     if (bf > 0.02) foam = max(foam, max(wLace((q - O_WIND * uTime * 0.25) * 1.7, clamp(bf, 0.0, 1.0), 21.0, px), clamp(bf, 0.0, 1.0) * 0.7 * smoothstep(0.04, 0.15, px)));
     col *= 1.0 - 0.3 * bDark;
     col = mix(col, refl * 1.1 + 0.04, bRing * 0.45 * (1.0 - smoothstep(0.05, 0.25, px)));
+    // Pier posts: a thin broken collar where each stands in the water, swelling as the swell
+    // passes, and the darker wet water hugging it. The bents are evenly spaced, so the nearest
+    // pair is found directly.
+    {
+      vec2 pq = q - vec2(${PIER_POSTS.x0.toFixed(2)}, ${PIER.z.toFixed(2)});
+      if (abs(pq.y) < 3.5 && pq.x > -2.0 && pq.x < ${((PIER_POSTS.n - 1) * PIER_POSTS.step + 2).toFixed(1)} && s.h > 0.05 && px < 0.5) {
+        float k = clamp(floor(pq.x / ${PIER_POSTS.step.toFixed(2)} + 0.5), 0.0, ${(PIER_POSTS.n - 1).toFixed(1)});
+        vec2 d = vec2(pq.x - k * ${PIER_POSTS.step.toFixed(2)}, abs(pq.y) - ${PIER_POSTS.dz.toFixed(2)});
+        float L = length(d) - ${(PIER_POSTS.r * 1.08).toFixed(3)};
+        float an = atan(d.y, d.x);
+        float w = (0.12 + 0.2 * s.pulse) * (0.6 + 0.8 * vnoise(vec2(an * 2.3 + k * 3.7 + sign(pq.y) * 5.0, uTime * 0.7)));
+        float collar = exp(-max(L, 0.0) / w) * smoothstep(-0.04, 0.03, L) * smoothstep(0.05, 0.5, s.h);
+        float fade = 1.0 - smoothstep(0.12, 0.5, px);
+        foam = max(foam, wLace(q * 2.1, clamp(collar * 1.2, 0.0, 1.0), 13.0, px) * 0.85 * fade);
+        col *= 1.0 - 0.28 * exp(-max(L, 0.0) / 0.45) * smoothstep(0.05, 0.5, s.h);
+      }
+    }
     // The last half metre of depth hands over to the beach's swash foam, so the lace carries on
     // across the waterline instead of stopping at it.
 #ifdef BAND_MESH

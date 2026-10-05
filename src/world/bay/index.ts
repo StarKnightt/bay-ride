@@ -7,6 +7,7 @@ import { ISLAND, LIGHTHOUSE, WALL_IN, buildIsland, buildRoadRibbon, buildTerrain
 import type { StepSurface } from "../../sound/steps";
 import { LighthouseBeam } from "./beam";
 import { buildHouses } from "./houses";
+import { buildPier, deckH, inPier, pierBlocks, pierContact, pierGround } from "./pier";
 import { beachMaterial } from "../../water/beach";
 import { ROCKS, buildRocks } from "../../water/rocks";
 
@@ -35,8 +36,8 @@ const WADE = 0.45;
 
 /**
  * The whole bay as one static scene (no streaming): landform, coast road, island, placeholder
- * lighthouse with its night beam, a few placeholder harbour houses, the swash beach and shore
- * rocks. Later systems add the harbour, pier, town and props to `root`.
+ * lighthouse with its night beam, the harbour pier, a few placeholder harbour houses, the swash
+ * beach and shore rocks. Later systems add the town and props to `root`.
  */
 export class Bay {
   readonly root = new THREE.Group();
@@ -54,6 +55,7 @@ export class Bay {
     this.root.add(buildRoadRibbon(ROAD_Z0 + 30, ROAD_Z1 - 30, roadMaterial()));
     this.root.add(this.lighthouse());
     this.root.add(buildHouses(this.colliders));
+    this.root.add(buildPier(this.colliders));
     this.beam = new LighthouseBeam(this.lamp);
     this.root.add(this.beam.group);
   }
@@ -79,9 +81,14 @@ export class Bay {
     return m;
   }
 
-  /** Walkable ground at world (x, z), or null (deep water, off the map). */
-  groundAt(x: number, z: number): Ground | null {
+  /**
+   * Walkable ground at world (x, z), or null (deep water, off the map, a railing). `y` is the walker's
+   * current height: the pier deck is ground from above, the sand under it from below.
+   */
+  groundAt(x: number, z: number, y = Infinity): Ground | null {
     if (Math.abs(z) > 520 || x < -600 || x > 600) return null;
+    const p = pierGround(x, z, y);
+    if (p !== undefined) return p;
     const h = terrainH(x, z);
     if (h < SEA_Y - WADE) return null;
     const u = x - roadX(z);
@@ -99,18 +106,18 @@ export class Bay {
   }
 
   /** Is (x, z) under a structure standing over the water (pier deck), within `pad` m? */
-  overWater(_x: number, _z: number, _pad = 0): boolean {
-    return false;
+  overWater(x: number, z: number, pad = 0): boolean {
+    return inPier(x, z, pad);
   }
 
   /** Is the point (x, y, z) inside a solid structure over the water (pier)? */
-  blocks(_x: number, _y: number, _z: number): boolean {
-    return false;
+  blocks(x: number, y: number, z: number): boolean {
+    return pierBlocks(x, y, z);
   }
 
-  /** Circle (x, z, r) against every collider: deepest penetration. */
+  /** Circle (x, z, r) against every collider and the pier's footprint (hulls): deepest penetration. */
   contact(x: number, z: number, r: number): Contact {
-    const out: Contact = { pen: 0, nx: 0, nz: 0 };
+    const out: Contact = pierContact(x, z, r) ?? { pen: 0, nx: 0, nz: 0 };
     for (const c of this.colliders) {
       const dx = x - c.x, dz = z - c.z, rr = r + c.r;
       const d2 = dx * dx + dz * dz;
@@ -127,7 +134,8 @@ export class Bay {
 
   /** Lowest camera height at (x, z): ground (or the water surface) plus a margin. */
   camFloor(x: number, z: number): number {
-    return Math.max(terrainH(x, z), SEA_Y + 0.15) + 0.3;
+    const g = Math.max(terrainH(x, z), SEA_Y + 0.15, inPier(x, z, 0.3) ? deckH(x) : -Infinity);
+    return g + 0.3;
   }
 
   /** 0…1 closeness to the open water (for the ambience). */

@@ -10,11 +10,14 @@
  * device scale factor (default 1). Files get a _<W>x<H>[@dpr] suffix when more than one is given.
  * --t takes a comma list for a motion sequence (frozen at each time, files suffixed _t<seconds>):
  *   node scripts/shoot.mjs --out=shots/seq --tods=noon --shots=1 --t=10,10.5,11,11.5,12
- *   add --fps to also sample frame rate in a normal (unfrozen) autoplay ride.
+ *   add --fps to also sample frame rate live: the opening with her walking off along the pier
+ *   (autoplay), then a few fixed views over the open water.
  * --extra=boat=1 appends query parameters to every page (the scripted boat course, see SHOTS.md).
+ * --variants="a=1|a=2" captures every shot once per variant query (files suffixed _v<i>), e.g. to
+ *   compare framings of the opening with ?spawn=x,z,yaw and ?orbit=rel,pitch,dist.
  * Shot tokens besides 1..5: cam:<mode> captures the boat course from the ride camera in that mode
  * (implies boat=1); `open` is the game's opening view (where play starts, frozen at t); `intro` is
- * the start screen with its "click to start" prompt.
+ * the start screen waiting for its first click (the opening view behind a breathing dash).
  * Guards (fatal unless --noguard): every capture samples the open sea in the frame and fails if it
  * is near-black at a non-night preset or has pure-black (NaN) patches at any preset; any shader
  * warning or error in the browser console fails the run. Prints the WebGL renderer on every run and
@@ -39,6 +42,7 @@ const FPS = argv.includes("--fps");
 const GUARD = !argv.includes("--noguard");
 const SERVE = arg("serve", "preview");
 const EXTRA = arg("extra", "") ? `&${arg("extra", "")}` : "";
+const VARIANTS = arg("variants", "").split("|").filter(Boolean);
 const RES = arg("res", "1920x1080").split(",").filter(Boolean).map((r) => r.split("x").map(Number));
 const DPRS = arg("dpr", "1").split(",").filter(Boolean).map(Number);
 
@@ -110,19 +114,19 @@ for (const [W, H] of RES) for (const dpr of DPRS) {
   const sfx = (RES.length > 1 || DPRS.length > 1 ? `_${W}x${H}` : "") + (DPRS.length > 1 || dpr !== 1 ? `@${dpr}` : "");
   const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: dpr });
   for (const tod of TODS) {
-    for (const s of SHOTS) for (const T of TS) {
+    for (const s of SHOTS) for (const T of TS) for (const [vi, vq] of (VARIANTS.length ? VARIANTS : [""]).entries()) {
       const cam = s.startsWith("cam:") ? s.slice(4) : null;
       const name = cam ? `cam-${cam}` : s === "open" || s === "intro" ? s : `shot${s}`;
-      const tag = `${name}_${tod}` + (TS.length > 1 ? `_t${T}` : "") + sfx;
+      const tag = `${name}_${tod}` + (TS.length > 1 ? `_t${T}` : "") + (VARIANTS.length ? `_v${vi}` : "") + sfx;
       const page = await ctx.newPage();
       watch(page, tag);
       const t0 = Date.now();
       const q = cam ? `?boat=1&cam=${cam}&skipintro=1&t=${T}` : s === "open" ? `?skipintro=1&t=${T}` : s === "intro" ? `?t=${T}` : `?shot=${s}&t=${T}`;
-      await page.goto(`${URL}${q}&tod=${tod}${s === "open" || s === "intro" ? "" : "&hud=0"}${EXTRA}`, { waitUntil: "load" });
+      await page.goto(`${URL}${q}&tod=${tod}${s === "open" || s === "intro" ? "" : "&hud=0"}${EXTRA}${vq ? `&${vq}` : ""}`, { waitUntil: "load" });
       if (!gpuChecked) { await assertGpu(page); gpuChecked = true; }
       if (s === "intro") {
         await page.waitForFunction(() => window.__ride?.waiting === true, null, { timeout: 120_000, polling: 100 });
-        await page.waitForTimeout(400);
+        await page.waitForTimeout(2200);
       } else await page.waitForFunction(() => window.__ready === true, null, { timeout: 120_000, polling: 100 });
       const png = await page.screenshot({ path: path.join(OUT, `${tag}.png`) });
       const st = await page.evaluate(() => window.__ride.stats());
@@ -149,7 +153,7 @@ if (FPS) {
   const log = await page.evaluate(() => window.__ride.fpsLog);
   const st = await page.evaluate(() => window.__ride.stats());
   console.log(`fps (headless, not vsync-locked): ${log.join(",")}  calls=${st.sceneCalls} tris=${(st.sceneTris / 1e6).toFixed(2)}M`);
-  await page.screenshot({ path: path.join(OUT, "autoplay_golden.png") });
+  await page.screenshot({ path: path.join(OUT, "walk_golden.png") });
   await page.close();
   // Live (unfrozen) fixed views over the open water, where the sea fills most of the frame;
   // `open` is the live opening view (standing on the pier end).
