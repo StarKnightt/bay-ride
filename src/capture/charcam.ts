@@ -51,8 +51,9 @@ export class CharDirector {
     private boat: Boat,
   ) {
     this.angle = (Number(params.get("a") ?? 0) * Math.PI) / 180;
-    this.dist = Number(params.get("d") ?? 3.1);
-    this.aimH = Number(params.get("h") ?? 0.87);
+    // The jump view frames her from the boards to the hat at the apex (0.44 m up).
+    this.dist = Number(params.get("d") ?? (mode === "jump" ? 3.8 : 3.1));
+    this.aimH = Number(params.get("h") ?? (mode === "jump" ? 1.12 : 0.87));
     this.run = params.get("run") === "1" ? 1 : 0;
     if (mode === "wade") rider.settleT = 12;
     if (mode === "walk") rider.settleT = 6;

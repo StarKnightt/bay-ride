@@ -242,6 +242,16 @@ float shadowVis(vec3 wpos, vec3 N){
 float gSoftCast = 0.0;
 // Rider cloth: gentle form shade where the blouse turns away from the camera.
 float gForm = 0.0;
+// 1 on her (rider uber materials and the face): moonlit key and rim at night.
+float gHer = 0.0;
+float gHairCast = 0.0;
+// Her painted shade colours (warm skin, cream shorts) are absolute by day. Under the moon they
+// follow the scene's own shadow level (0.28 = noon's) with a cool moon cast, so her shaded side
+// never glows above her lit side.
+vec3 herShade(vec3 warm){
+  float k = dot(uShadowTint, vec3(0.2126, 0.7152, 0.0722)) / 0.28;
+  return mix(warm, mix(warm * k, uShadowTint, 0.5) * 1.5, uNight);
+}
 vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt, float soft, vec3 shTint){
   float br = brush(wpos, N);
   // Flat ground under a low sun sits inside the light ramp: stroke noise on the terminator would
@@ -250,11 +260,13 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   float t = dot(N, uSunDir) + (br - 0.5) * 0.32 * paint * flatK + jitter;
   float sv = shadowVis(wpos, N);
   // Skin (the only very soft material): cast shadows from hair/cap fall softly, no hard seams.
-  if (soft > 0.12 || gSoftCast > 0.5) sv = mix(sv, 1.0, 0.45);
+  // Her hair too: thin overlapping locks shadowing each other read as crumpled patches.
+  if (soft > 0.12 || gSoftCast > 0.5 || gHairCast > 0.5) sv = mix(sv, 1.0, 0.45);
   float lit = smoothstep(0.02 - soft, 0.06 + soft, t) * sv;
   float mid = smoothstep(-0.5 - soft, -0.44 + soft, t);
   float al = dot(base, vec3(0.2126, 0.7152, 0.0722));
-  vec3 cLit = base * uSunColor;
+  // Moonlight on her is lifted so her face and form read at boat distance.
+  vec3 cLit = base * uSunColor * (1.0 + 0.5 * uNight * gHer);
   // Bright ground (sand, paving) takes a warm sun only partly: keep it under the sky's brightness
   // and let some cool sky ambient through, instead of a flat saturated slab at a low sun.
   float chroma0 = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
@@ -290,6 +302,9 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   // Skin turning away from the camera takes one soft cel shade (far cheek in 3/4, jaw edges).
   if (gSoftCast > 0.5) col = mix(col, cSh, smoothstep(0.46, 0.6, fr) * 0.75);
   if (gForm > 0.0) col = mix(col, cSh, smoothstep(0.42, 0.62, fr) * gForm);
+  // Her moon rim: a soft cool edge on the moon side of her silhouette, over the form shade.
+  float moonRim = smoothstep(0.66, 0.86, fr) * smoothstep(-0.25, 0.35, dot(N, uSunDir)) * uNight * gHer;
+  col += uRimColor * (base * 0.5 + 0.06) * moonRim * 0.75;
   col *= 1.0 + (br - 0.5) * 0.14 * paint;
   // Under the moon whites stay a dim cool grey: the moonlight is far weaker than the sun, and
   // unchecked they read as lit from within against the dark water.
@@ -518,7 +533,9 @@ float aaKeep(float x){ return 1.0 - smoothstep(0.15, 0.45, fwidth(x)); }
 void main(){
   gFoot = max(length(dFdx(vWPos)), length(dFdy(vWPos)));
   vec3 N = normalize(vN);
-  if (!gl_FrontFacing && vMat != 17 && vMat != 21) N = -N;
+  // Her hair locks are thin double-sided tubes shaded on the hair-mass normal (out from the head,
+  // tools/character hair.py), whichever side shows: flipping it per face lit them facet by facet.
+  if (!gl_FrontFacing && vMat != 17 && vMat != 21 && vMat != 15) N = -N;
   vec3 base = vCol;
   float paint = 1.0, rim = 0.55, soft = 0.03, jit = 0.0, leafHi = 0.0;
   bool card = false;
@@ -713,6 +730,13 @@ void main(){
   } else if ((HAS(15) && mt == 15)) {    // hair: strand highlights
     float s = vnoise(vec2(atan(vObj.x, vObj.z) * 9.0, vObj.y * 3.0));
     base *= 0.85 + 0.3 * s;
+    // A mass normal turned away from the eye (the inner side of a lock) lies on the silhouette.
+    vec3 Vh = normalize(cameraPosition - vWPos);
+    float nv = dot(N, Vh);
+    if (nv < 0.2) N = normalize(N + Vh * (0.2 - nv));
+#ifdef RIDER
+    gHairCast = 1.0;
+#endif
     paint = 0.3; rim = 1.4; soft = 0.02;
   } else if ((HAS(16) && mt == 16)) {    // yellow/black pole guard
     float st = aaStep(0.5, fract(vWPos.y * 2.2 + atan(vObj.x, vObj.z) * 0.16));
@@ -761,6 +785,14 @@ void main(){
     // cream, not the cool sky shadow.
     shT = mix(shT, vec3(1.0, 0.78, 0.8) * shL * 1.5, 0.8 * smoothstep(0.08, 0.35, uSunColor.r - uSunColor.b) * (1.0 - uNight));
   }
+#ifdef RIDER
+  gHer = 1.0;
+  if (mt == 7 || mt == 15) shT = herShade(shT);
+  // Cream shorts shade toward tan (not the blue-grey of whites in shade); the coral camisole
+  // toward a soft rose (the ribbon on the same id is teal and keeps the cool shade).
+  if (uId == 23.0) { gWarmShade = 1.0; shT = herShade(vec3(0.8, 0.71, 0.62)); }
+  if (uId == 22.0 && base.r > base.b * 1.4) { gWarmShade = 1.0; shT = herShade(vec3(0.86, 0.66, 0.66)); }
+#endif
   vec3 col = toonT(base, N, vWPos, jit, paint, rim, soft, shT) + emis;
   if ((HAS(1) && mt == 1)) {
     // Canopy palette over the probe's light response: deep blue-green core (#1b3a2a), near-black

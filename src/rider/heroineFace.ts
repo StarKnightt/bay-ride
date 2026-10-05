@@ -211,7 +211,8 @@ void main(){
   if (!gl_FrontFacing) N = -N;
   vec3 base = vCol;
   gSoftCast = 1.0;
-  vec3 shT = vec3(0.9, 0.75, 0.7);
+  gHer = 1.0;
+  vec3 shT = herShade(vec3(0.9, 0.75, 0.7));
   vec3 col = toonT(base, N, vWPos, 0.34, 0.0, 0.5, 0.065, shT);
   vec3 Lgt = col / max(base, vec3(0.02));
   float Lm = max(Lgt.r, max(Lgt.g, Lgt.b));
@@ -291,15 +292,19 @@ void main(){
     vec2 lq;
     float lA = lens(fp, vDirB, pw, lq);
     if (lA > 0.0) {
-      col = mix(col, col * ${lin("#e2c6ae")}, lA * 0.85);
-      // One diagonal stroke across the upper outer part of each lens, tapering at both ends.
-      // Lens x is mirrored per side; the reflection sits on the same screen side in both lenses.
-      float lx = lq.x * (fp.x >= 0.0 ? 1.0 : -1.0);
-      vec2 sq = vec2(lx * 0.62 + lq.y * 0.78, -lx * 0.78 + lq.y * 0.62);
-      float along = 1.0 - smoothstep(0.35, 0.62, abs(sq.y + 0.08));
-      float wdt = 0.075 * along;
-      float streak = cov((abs(sq.x - 0.42) - wdt) * LHH, pw * 0.8) * along;
-      over(col, vec3(1.0) * mix(1.0, 0.55, uNight) * max(Le, vec3(0.6)), streak * 0.8 * lA);
+      // Clear glass with a light, even tint: what is seen through it keeps its value but sheds
+      // part of the scene light's hue, so the lens reads the same at noon, golden and night.
+      float cl = dot(col, vec3(0.2126, 0.7152, 0.0722));
+      vec3 hueFree = col * (dot(Le, vec3(0.2126, 0.7152, 0.0722)) / max(Le, vec3(0.03)));
+      vec3 seen = mix(col, mix(hueFree, vec3(cl), 0.2), 0.45);
+      col = mix(col, seen * ${lin("#f1e3d6")}, lA * 0.8);
+      // One thin reflection along the upper-outer rim of each lens (lens x is mirrored, + = outer):
+      // above the lash line and the iris, tapering at both ends, half transparent.
+      float ang = atan(lq.y, lq.x);
+      float rr = pow(pow(abs(lq.x), LN) + pow(abs(lq.y), LN), 1.0 / LN);
+      float along = smoothstep(0.84, 0.98, ang) * (1.0 - smoothstep(1.22, 1.4, ang));
+      float streak = cov((abs(rr - 0.9) - 0.035 * along) * LHH, pw * 0.8) * along;
+      over(col, vec3(1.0) * mix(1.0, 0.6, uNight) * max(Le, vec3(0.6)), streak * 0.6 * lA);
     }
   }
   col = applyFog(col, vWPos);
