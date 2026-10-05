@@ -10,12 +10,19 @@ const L_SLAP = 0.2;
 const IDLE_HZ = 13; // firing rate at idle (~780 rpm, one cylinder)
 const FULL_HZ = 38;
 
+/** Throttle past full (Shift) tops out here (the boat's BOOST); the motor only rises a little more. */
+const BOOST_MAX = 1.35;
+/** In reverse the little motor turns at most this share of its forward range. */
+const REVERSE_RPM = 0.62;
+
 /**
  * The little outboard and the hull. The motor is a mellow putter: a pulse-like wave with gently falling
  * harmonics at the firing rate, warmed by a low-pass that only opens a little with throttle, plus a
  * breath of exhaust burble pulsing in step. Idle is quiet and low; opening the throttle glides pitch,
- * level and brightness up together. Under way the bow wash rises with speed, and the hull meets the
- * swell with padded thuds and a little spray.
+ * level and brightness up together. Past full (Shift) it rises only a touch more (+7 % pitch, +1 dB),
+ * capped soft. In reverse (and braking with the prop reversed) it turns slower, with the exhaust
+ * gurgling up round the stern and the prop churning against the transom. Under way the bow wash rises
+ * with speed, and the hull meets the swell with padded thuds and a little spray.
  */
 export class BoatLayer extends Layer {
   private motor: Gate;
@@ -23,6 +30,7 @@ export class BoatLayer extends Layer {
   private engLP: BiquadFilterNode;
   private burbleBP: BiquadFilterNode;
   private burble: GainNode;
+  private burbleLvl: GainNode;
   private wobble: GainNode;
   private wash: Gate;
   private washBP: BiquadFilterNode;
@@ -54,7 +62,8 @@ export class BoatLayer extends Layer {
     this.burble = this.gain(0);
     this.eng.connect(this.burble.gain);
     this.burbleBP = this.filter("bandpass", 180, 0.8);
-    kit.loop(kit.pink).connect(this.burbleBP).connect(this.burble).connect(this.filter("lowpass", 700, 0.6)).connect(this.gain(L_BURBLE / L_MOTOR)).connect(this.wobble);
+    this.burbleLvl = this.gain(L_BURBLE / L_MOTOR);
+    kit.loop(kit.pink).connect(this.burbleBP).connect(this.burble).connect(this.filter("lowpass", 700, 0.6)).connect(this.burbleLvl).connect(this.wobble);
 
     this.washBP = this.filter("bandpass", 600, 0.6);
     this.wash = new Gate(this.gain(), this.out);
@@ -81,16 +90,20 @@ export class BoatLayer extends Layer {
   params(now: number, s: RideState): void {
     const on = s.boat;
     // the throttle itself is eased so the putter glides rather than jumps
-    this.thr += (s.throttle - this.thr) * 0.08;
-    const t = this.thr;
-    const hz = (IDLE_HZ + (FULL_HZ - IDLE_HZ) * Math.pow(t, 0.9)) * (1 + 0.015 * (vnoise(now * 0.7, 91) - 0.5));
+    this.thr += (clamp(s.throttle, -1, BOOST_MAX) - this.thr) * 0.08;
+    const fwd = clamp(this.thr, 0, 1);
+    const boost = smoothstep(1, BOOST_MAX, this.thr);
+    const rev = clamp(-this.thr, 0, 1);
+    const t = Math.max(fwd, REVERSE_RPM * rev);
+    const hz = (IDLE_HZ + (FULL_HZ - IDLE_HZ) * Math.pow(t, 0.9)) * (1 + 0.07 * boost) * (1 + 0.015 * (vnoise(now * 0.7, 91) - 0.5));
     glideStep(this.eng.frequency, hz, now, 0.12);
-    glideStep(this.engLP.frequency, 220 + 420 * t, now, 0.2);
-    glideStep(this.burbleBP.frequency, 150 + 200 * t, now, 0.2);
-    this.motor.set(L_MOTOR * on * (0.32 + 0.68 * Math.pow(t, 1.1)), now, 0.25);
+    glideStep(this.engLP.frequency, 220 + 420 * t + 90 * boost, now, 0.2);
+    glideStep(this.burbleBP.frequency, 150 + 200 * t - 40 * rev, now, 0.2);
+    glide(this.burbleLvl.gain, (L_BURBLE / L_MOTOR) * (1 + 0.9 * rev), now, 0.3);
+    this.motor.set(L_MOTOR * on * (0.32 + 0.68 * Math.pow(t, 1.1)) * (1 + 0.12 * boost), now, 0.25);
     const sp = smoothstep(0.5, 7, s.boatSpeed);
-    this.wash.set(L_WASH * on * sp * (0.8 + 0.2 * vnoise(now / 1.7, 92)), now, 0.4);
-    glideStep(this.washBP.frequency, 450 + 500 * sp, now, 0.4);
+    this.wash.set(L_WASH * on * Math.min(1, sp + 0.35 * rev) * (0.8 + 0.2 * vnoise(now / 1.7, 92)), now, 0.4);
+    glideStep(this.washBP.frequency, 450 + 500 * sp - 130 * rev, now, 0.4);
   }
 
   slap(when: number, strength: number): void {
