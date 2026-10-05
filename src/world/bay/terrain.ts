@@ -86,6 +86,41 @@ export function terrainH(x: number, z: number): number {
   return Math.max(coastH(u, z), headlandsH(x, z), islandH(x, z));
 }
 
+/** The coastal grid exactly as drawn: road-relative columns, rows along z, vertex positions. */
+const GRID = { uu: new Float64Array(0), zs: new Float64Array(0), rx: new Float64Array(0), pos: new Float32Array(0), nu: 0 };
+
+/** i with a[i] <= v < a[i + 1] in the sorted array a, clamped to the first and last cell. */
+function cellOf(a: Float64Array, v: number): number {
+  let lo = 0, hi = a.length - 1;
+  if (v <= a[0]) return 0;
+  if (v >= a[hi]) return hi - 1;
+  while (hi - lo > 1) {
+    const m = (lo + hi) >> 1;
+    if (a[m] <= v) lo = m;
+    else hi = m;
+  }
+  return lo;
+}
+
+/**
+ * Height of the coastal terrain mesh at (x, z), on its triangles. The smooth height function sits
+ * up to a metre off the drawn surface where the grid is coarse (the upper hill, the headlands),
+ * which is how she sank into the hill and the camera dipped under it. Island excluded.
+ */
+export function meshH(x: number, z: number): number {
+  const g = GRID;
+  if (!g.nu) return Math.max(coastH(x - roadX(z), z), headlandsH(x, z));
+  const j = cellOf(g.zs, z);
+  const t = Math.min(1, Math.max(0, (z - g.zs[j]) / (g.zs[j + 1] - g.zs[j])));
+  const u = x - (g.rx[j] + (g.rx[j + 1] - g.rx[j]) * t);
+  const i = cellOf(g.uu, u);
+  const s = Math.min(1, Math.max(0, (u - g.uu[i]) / (g.uu[i + 1] - g.uu[i])));
+  const P = g.pos, a = (j * g.nu + i) * 3 + 1, c = a + g.nu * 3;
+  const ha = P[a], hb = P[a + 3], hc = P[c], hd = P[c + 3];
+  // Cells split along b-c, as in buildTerrain: (a, c, b) below the diagonal, (b, c, d) above.
+  return s + t <= 1 ? ha + (hb - ha) * s + (hc - ha) * t : hd + (hc - hd) * (1 - s) + (hb - hd) * (1 - t);
+}
+
 // ------------------------------------------------------------------ meshes
 
 const C = {
@@ -174,6 +209,11 @@ export function buildTerrain(beachMat: THREE.Material): { terrain: THREE.Mesh; b
       pos[k + 2] = z;
     }
   }
+  GRID.uu = Float64Array.from(uu);
+  GRID.zs = Float64Array.from(zs);
+  GRID.rx = Float64Array.from(zs, roadX);
+  GRID.pos = pos;
+  GRID.nu = nu;
   // Beach vertices: sand of the open beach (not under a headland), from 16 m out under the
   // shallows up to the sea wall foot.
   const isBeach = new Uint8Array(nu * nz);

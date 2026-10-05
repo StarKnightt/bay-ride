@@ -27,10 +27,17 @@ const LEAVE_SPEED = 1.3;
 const WALK = 1.3;
 const RUN = 3.0;
 const BODY_R = 0.24;
+/** Steepest ground she walks up (tan 38°) and the highest step she takes in her stride (m). */
+const SLOPE_UP = 0.78;
+const STEP_UP = 0.3;
+/** How far ahead (m) a steep rise stops her: about her body's half width. */
+const LOOK_AHEAD = 0.25;
 /** Orbit pitch limits: never steeper than ~55° looking down or below ~-10° looking up. */
 const PITCH_MIN = -0.17;
 const PITCH_MAX = 0.96;
 const PIVOT_DROP = 0.1;
+/** Turns (rad) tried, in order, to slide a blocked step along what stops it. */
+const SLIDE = [0.5, -0.5, 1.0, -1.0, 1.35, -1.35];
 const wrapA = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export class Explore {
@@ -41,6 +48,8 @@ export class Explore {
   y = 0;
   yaw = 0;
   speed = 0;
+  /** The ground under her (her feet rest on it, y eases toward it). */
+  private gy = 0;
   private run = 0;
   private phase = 0;
   private turn = 0;
@@ -195,7 +204,7 @@ export class Explore {
     this.z = z;
     this.yaw = yaw;
     this.speed = 0;
-    this.y = this.bay.groundAt(x, z)?.h ?? 0;
+    this.y = this.gy = this.bay.groundAt(x, z)?.h ?? 0;
     this.rider.walker.position.set(x, this.y, z);
     this.rider.walker.rotation.set(0, yaw, 0);
     this.setOrbit(rel, pitch, dist);
@@ -257,7 +266,7 @@ export class Explore {
         for (let i = 0; i < 20; i++) {
           const a = (i / 20) * Math.PI * 2;
           const x = b.x + Math.cos(a) * r, z = b.z + Math.sin(a) * r;
-          if (b.hullDistance(x, z) < 0.45 || !this.free(x, z)) continue;
+          if (b.hullDistance(x, z) < 0.45 || !this.standable(x, z)) continue;
           // Prefer the shallowest (closest to dry land).
           const h = -(this.bay.groundAt(x, z)?.h ?? SEA_Y);
           if (h < best) {
@@ -280,25 +289,26 @@ export class Explore {
     this.chase.forceThirdPerson(this.rider);
   }
 
-  /** Circle obstacles (trunks, poles, signs, posts, bollards); houses are boxes, see free(). */
+  /** Circle obstacles (posts, bollards, lamps, shore rocks); houses are boxes, see standable(). */
   private circles(x: number, z: number): { pen: number; nx: number; nz: number } {
-    const out = { pen: 0, nx: 0, nz: 0 };
-    const test = (cx: number, cz: number, r: number) => {
-      const dx = x - cx, dz = z - cz;
-      const rr = r + BODY_R;
+    const out = this._pen;
+    out.pen = out.nx = out.nz = 0;
+    for (const k of this.bay.colliders) {
+      if (k.kind === "house") continue;
+      const dx = x - k.x, dz = z - k.z, rr = k.r + BODY_R;
+      if (Math.abs(dx) >= rr || Math.abs(dz) >= rr) continue;
       const d2 = dx * dx + dz * dz;
-      if (d2 < rr * rr) {
-        const d = Math.sqrt(d2);
-        if (rr - d > out.pen) {
-          out.pen = rr - d;
-          out.nx = d > 1e-5 ? dx / d : 1;
-          out.nz = d > 1e-5 ? dz / d : 0;
-        }
+      if (d2 >= rr * rr) continue;
+      const d = Math.sqrt(d2);
+      if (rr - d > out.pen) {
+        out.pen = rr - d;
+        out.nx = d > 1e-5 ? dx / d : 1;
+        out.nz = d > 1e-5 ? dz / d : 0;
       }
-    };
-    for (const k of this.bay.colliders) if (k.r <= 1.2 && Math.abs(k.z - z) < 3 && Math.abs(k.x - x) < 3) test(k.x, k.z, k.r);
+    }
     return out;
   }
+  private readonly _pen = { pen: 0, nx: 0, nz: 0 };
 
   /**
    * Camera clearance: march from `pivot` along unit `dir` up to `dist`, stopping short of houses,
@@ -313,7 +323,7 @@ export class Explore {
       let hit = (roof > 0 && p.y < roof) || p.y < this.bay.camFloor(p.x, p.z) - 0.05;
       if (!hit && p.y < 3.2) {
         for (const k of this.bay.colliders)
-          if (k.r >= 0.35 && k.r <= 1.2 && Math.hypot(p.x - k.x, p.z - k.z) < k.r * 0.7 + 0.2) {
+          if (!k.kind && k.r >= 0.35 && k.r <= 1.2 && Math.hypot(p.x - k.x, p.z - k.z) < k.r * 0.7 + 0.2) {
             hit = true;
             break;
           }
@@ -329,8 +339,28 @@ export class Explore {
     return this.bay.camFloor(x, z);
   }
 
-  private free(x: number, z: number): boolean {
+  /** Lowest camera height over land, rocks and the deck (the boat camera may skim the water). */
+  landFloor(x: number, z: number): number {
+    return this.bay.landFloor(x, z);
+  }
+
+  /** Somewhere she can stand: walkable ground (not deep water, not off the map), not in a house. */
+  private standable(x: number, z: number): boolean {
     return this.bay.groundAt(x, z, this.y) !== null && this.bay.roofAt(x, z, BODY_R) === 0;
+  }
+
+  /**
+   * Can she step from where she stands to (x, z)? Not into a house or deep water, not up a step
+   * higher than STEP_UP, and not toward ground rising steeper than SLOPE_UP just beyond the step
+   * (so she stops at the foot of a face instead of creeping up it). Downhill anything goes.
+   */
+  private passable(x: number, z: number): boolean {
+    const g = this.bay.groundAt(x, z, this.y);
+    if (!g || this.bay.roofAt(x, z, BODY_R) > 0) return false;
+    if (g.h - this.gy > STEP_UP) return false;
+    const dx = x - this.x, dz = z - this.z, d = Math.hypot(dx, dz) || 1;
+    const a = this.bay.groundAt(x + (dx / d) * LOOK_AHEAD, z + (dz / d) * LOOK_AHEAD, g.h);
+    return !a || a.h - this.gy < 0.05 || (a.h - g.h) / LOOK_AHEAD <= SLOPE_UP;
   }
 
   private move(dx: number, dz: number): void {
@@ -341,23 +371,33 @@ export class Explore {
       nx += c.nx * c.pen;
       nz += c.nz * c.pen;
     }
-    // Stuck somewhere odd (teleport): let her walk out.
-    if (this.free(nx, nz) || !this.free(this.x, this.z)) {
+    // Stuck somewhere odd (teleport, set down on a steep face): let her walk out.
+    if (this.passable(nx, nz) || !this.standable(this.x, this.z)) {
       this.x = nx;
       this.z = nz;
       return;
     }
-    // Slide along walls and bank edges: keep the road-relative lateral fixed, or keep z fixed.
-    const u0 = this.x - roadX(this.z);
-    const tries: [number, number][] = [[roadX(this.z + dz) + u0, this.z + dz], [this.x + dx, this.z], [this.x, this.z + dz]];
-    for (const [tx, tz] of tries) {
-      if (this.free(tx, tz) && this.circles(tx, tz).pen < 0.002) {
+    // Slide along whatever stops her (a wall, a slope, the deep water, a house): the step turned
+    // toward its edge, shorter the further it turns.
+    for (const a of SLIDE) {
+      const c = Math.cos(a), s = Math.sin(a);
+      const tx = this.x + (dx * c - dz * s) * c, tz = this.z + (dx * s + dz * c) * c;
+      if (this.circles(tx, tz).pen < 0.002 && this.passable(tx, tz)) {
         this.x = tx;
         this.z = tz;
         return;
       }
     }
     this.speed *= 0.6;
+  }
+
+  /** Her feet on the ground under her: smoothed over facets and small steps, never sunk into it. */
+  private followGround(dt: number): void {
+    const g = this.bay.groundAt(this.x, this.z, this.y);
+    if (!g) return;
+    this.gy = g.h;
+    this.surface = g.kind;
+    this.y = Math.max(g.h - 0.04, damp(this.y, g.h, 14, dt));
   }
 
   update(dt: number, input: Input, time: number): void {
@@ -379,7 +419,7 @@ export class Explore {
           this.mode = "walk";
           this.x = this.shore.x;
           this.z = this.shore.z;
-          this.y = this.shore.y;
+          this.y = this.gy = this.shore.y;
         }
         break;
     }
@@ -407,11 +447,7 @@ export class Explore {
       if (this.mode !== "boat") this.advancePhase(dt);
       this.idleLook(dt);
     } else if (onFoot) {
-      const g = this.bay.groundAt(this.x, this.z, this.y);
-      if (g) {
-        this.y = damp(this.y, g.h, 12, dt);
-        this.surface = g.kind;
-      }
+      this.followGround(dt);
       this.rider.walker.position.set(this.x, this.y, this.z);
       this.rider.walker.rotation.set(0, this.yaw, 0);
       this.idleLook(dt);
@@ -540,7 +576,7 @@ export class Explore {
     this.turn = 0;
     const g = this.bay.groundAt(x, z, this.y);
     if (g) {
-      this.y = g.h;
+      this.y = this.gy = g.h;
       this.surface = g.kind;
     }
     this.rider.walker.position.set(x, this.y, z);
@@ -567,7 +603,7 @@ export class Explore {
     this.x = x;
     this.z = z;
     this.yaw = yaw;
-    this.y = this.bay.groundAt(x, z)?.h ?? this.y;
+    this.y = this.gy = this.bay.groundAt(x, z)?.h ?? this.y;
     this.speed = 0;
   }
 
@@ -576,7 +612,7 @@ export class Explore {
     this.x = roadX(z) + u;
     this.z = z;
     this.yaw = yaw;
-    this.y = this.bay.groundAt(this.x, z)?.h ?? 0;
+    this.y = this.gy = this.bay.groundAt(this.x, z)?.h ?? 0;
     this.speed = 0;
     this.rider.headWorld(this.pivot);
   }
@@ -593,6 +629,8 @@ export class Explore {
     const lim = this.obstruct(this.pivot, dir, this.oDist);
     this.dCur = lim < this.dCur ? lim : damp(this.dCur, lim, 2.5, dt);
     cam.position.copy(this.pivot).addScaledVector(dir, this.dCur);
+    // Pulled in to its minimum it can still sit in a slope: never below the ground.
+    cam.position.y = Math.max(cam.position.y, this.bay.camFloor(cam.position.x, cam.position.z));
     cam.fov = 45;
     cam.near = 0.1;
     cam.updateProjectionMatrix();

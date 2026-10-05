@@ -3,14 +3,15 @@ import { ID, M, cyl, merge, xf } from "../geo";
 import { roadMaterial, uber } from "../../render/materials";
 import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../../render/lightpasses";
 import { ROAD_HALF, ROAD_Z0, ROAD_Z1, RIBBON_HALF, SEA_Y, roadX } from "./road";
-import { ISLAND, LIGHTHOUSE, WALL_IN, buildIsland, buildRoadRibbon, buildTerrain, islandH, terrainH } from "./terrain";
+import { ISLAND, LIGHTHOUSE, WALL_IN, buildIsland, buildRoadRibbon, buildTerrain, islandH, meshH } from "./terrain";
 import type { StepSurface } from "../../sound/steps";
 import { LighthouseBeam } from "./beam";
 import { buildHouses } from "./houses";
 import { buildDuneGrass } from "./dunegrass";
 import { buildPier, deckH, inPier, pierBlocks, pierContact, pierGround } from "./pier";
 import { beachMaterial } from "../../water/beach";
-import { ROCKS, buildRocks } from "../../water/rocks";
+import { ROCKS, buildRocks, rockTop } from "../../water/rocks";
+import { buildSlipways, rampH } from "./slipway";
 
 /** Collision answer for a circle at (x, z): penetration depth and push-out normal. */
 export interface Contact {
@@ -19,11 +20,22 @@ export interface Contact {
   nz: number;
 }
 
-/** A circular obstacle (posts, bollards, trunks), world space. */
+/** A circular obstacle, world space: posts, bollards, lamps; shore rocks; a house's keep-out circle. */
 export interface Collider {
   x: number;
   z: number;
   r: number;
+  /** Rocks stop her but not the camera (it clears them by height); houses only keep grass out. */
+  kind?: "rock" | "house";
+}
+
+/** A building's footprint (world AABB) and its ridge height: she can't walk in, the camera stays out. */
+export interface Box {
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+  top: number;
 }
 
 /** Walkable surface: height and footstep surface. */
@@ -43,6 +55,7 @@ const WADE = 0.45;
 export class Bay {
   readonly root = new THREE.Group();
   readonly colliders: Collider[] = [];
+  readonly boxes: Box[] = [];
   /** Lighthouse lamp centre. */
   readonly lamp = new THREE.Vector3();
   /** Turning lighthouse beams and lamp halo (dusk and night). */
@@ -50,12 +63,12 @@ export class Bay {
 
   constructor() {
     const { terrain, beach } = buildTerrain(beachMaterial());
-    this.root.add(terrain, beach, buildRocks());
-    for (const r of ROCKS) if (r.top > SEA_Y - 0.2) this.colliders.push({ x: r.x, z: r.z, r: r.r * 0.85 });
+    this.root.add(terrain, beach, buildRocks(), buildSlipways());
+    for (const r of ROCKS) if (r.top > SEA_Y - 0.2) this.colliders.push({ x: r.x, z: r.z, r: r.r * 0.85, kind: "rock" });
     this.root.add(buildIsland());
     this.root.add(buildRoadRibbon(ROAD_Z0 + 30, ROAD_Z1 - 30, roadMaterial()));
     this.root.add(this.lighthouse());
-    this.root.add(buildHouses(this.colliders));
+    this.root.add(buildHouses(this.colliders, this.boxes));
     this.root.add(buildPier(this.colliders));
     this.root.add(buildDuneGrass(this.colliders));
     this.beam = new LighthouseBeam(this.lamp);
@@ -91,19 +104,28 @@ export class Bay {
     if (Math.abs(z) > 520 || x < -600 || x > 600) return null;
     const p = pierGround(x, z, y);
     if (p !== undefined) return p;
-    const h = terrainH(x, z);
+    const h = this.surfaceH(x, z);
     if (h < SEA_Y - WADE) return null;
     const u = x - roadX(z);
     const onRoadZ = z < ROAD_Z0 + 30 && z > ROAD_Z1 - 30;
     let kind: StepSurface = "grass";
-    if (onRoadZ && Math.abs(u) < ROAD_HALF) kind = "asphalt";
+    if ((onRoadZ && Math.abs(u) < ROAD_HALF) || rampH(x, z) >= h - 1e-3) kind = "asphalt";
     else if (onRoadZ && u >= WALL_IN && u < RIBBON_HALF + 0.4) kind = "dirt";
     else if (h < 0.1 && u < WALL_IN) kind = h < SEA_Y + 0.35 ? "wetsand" : "sand";
     return { h: Math.max(h, SEA_Y - WADE), kind };
   }
 
-  /** Inside a building footprint? Returns its roof height (none yet). */
-  roofAt(_x: number, _z: number, _pad: number): number {
+  /** The land as drawn, without the pier: the terrain mesh's triangles, the road ribbon and slipways on them. */
+  surfaceH(x: number, z: number): number {
+    const h = meshH(x, z);
+    const u = x - roadX(z);
+    const road = Math.abs(u) < RIBBON_HALF && z < ROAD_Z0 + 30 && z > ROAD_Z1 - 30 ? 0.02 : -Infinity;
+    return Math.max(h, road, rampH(x, z));
+  }
+
+  /** Inside a building footprint grown by `pad` m? Returns its ridge height, or 0. */
+  roofAt(x: number, z: number, pad: number): number {
+    for (const b of this.boxes) if (x > b.x0 - pad && x < b.x1 + pad && z > b.z0 - pad && z < b.z1 + pad) return b.top;
     return 0;
   }
 
@@ -134,10 +156,14 @@ export class Bay {
     return out;
   }
 
-  /** Lowest camera height at (x, z): ground (or the water surface) plus a margin. */
+  /** Lowest camera height at (x, z) over solid things: the drawn ground, a rock or the deck, plus a margin. */
+  landFloor(x: number, z: number): number {
+    return Math.max(this.surfaceH(x, z), islandH(x, z), rockTop(x, z), inPier(x, z, 0.3) ? deckH(x) : -Infinity) + 0.3;
+  }
+
+  /** Lowest camera height at (x, z) for the walking camera: as landFloor, or just above the water. */
   camFloor(x: number, z: number): number {
-    const g = Math.max(terrainH(x, z), SEA_Y + 0.15, inPier(x, z, 0.3) ? deckH(x) : -Infinity);
-    return g + 0.3;
+    return Math.max(this.landFloor(x, z), SEA_Y + 0.45);
   }
 
   /** 0…1 closeness to the open water (for the ambience). */

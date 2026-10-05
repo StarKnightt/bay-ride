@@ -5,6 +5,7 @@ import { uber } from "../../render/materials";
 import { RIBBON_HALF, ROAD_Z0, ROAD_Z1, pnoise, roadX, smooth } from "./road";
 import { WALL_OUT, terrainH } from "./terrain";
 import { PIER } from "./pier";
+import { rampH } from "./slipway";
 import type { Collider } from "./index";
 
 /**
@@ -96,6 +97,7 @@ export function buildDuneGrass(colliders: readonly Collider[]): THREE.Group {
   const mat = uber(ID.grass, 0, THREE.DoubleSide);
   const free = (x: number, z: number) => {
     if (Math.abs(z - PIER.z) < PIER.half + 2.5 && x < PIER.x0 + 6) return false;
+    if (rampH(x, z, 0.8) > -Infinity) return false;
     for (const c of colliders) if ((x - c.x) ** 2 + (z - c.z) ** 2 < (c.r + 0.9) ** 2) return false;
     return true;
   };

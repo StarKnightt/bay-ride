@@ -74,6 +74,18 @@ export function rockAt(x: number, z: number): { y: number; cover: number } {
   return { y, cover: Math.max(0, cover) };
 }
 
+/** Height of the rock tops at (x, z), −Infinity outside every footprint (per-frame safe: no allocation). */
+export function rockTop(x: number, z: number): number {
+  let y = -Infinity;
+  for (const r of ROCKS) {
+    const dx = x - r.x, dz = z - r.z;
+    if (Math.abs(dx) > r.r || Math.abs(dz) > r.r) continue;
+    const d2 = (dx * dx + dz * dz) / (r.r * r.r);
+    if (d2 < 1) y = Math.max(y, r.top - r.r * r.sy * (1 - Math.sqrt(1 - d2)));
+  }
+  return y;
+}
+
 /** Max rocks that get surf foam in the water shader (the uniform array size). */
 export const SKIRT_MAX = 16;
 

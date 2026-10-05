@@ -59,7 +59,11 @@ const _dir = new THREE.Vector3();
 
 export class ChaseCam {
   /** Clearance queries for the mouse-look orbit (the on-foot explorer provides them). */
-  clear: { obstruct(p: THREE.Vector3, dir: THREE.Vector3, dist: number): number; camFloor(x: number, z: number): number } | null = null;
+  clear: {
+    obstruct(p: THREE.Vector3, dir: THREE.Vector3, dist: number): number;
+    camFloor(x: number, z: number): number;
+    landFloor(x: number, z: number): number;
+  } | null = null;
   private capD = 1e9;
   private fast = 0;
   readonly cam: THREE.PerspectiveCamera;
@@ -404,6 +408,8 @@ export class ChaseCam {
     this.cam.position.lerpVectors(pT, this.eye, e);
     // Arc up over her head mid-blend rather than flying through her back.
     this.cam.position.y += Math.sin(Math.PI * e) * 0.45;
+    // Never into the beach, a rock or the pier (in toward the shore or past the berth).
+    if (this.clear && e < 0.5) this.cam.position.y = Math.max(this.cam.position.y, this.clear.landFloor(this.cam.position.x, this.cam.position.z));
     this.cam.quaternion.slerpQuaternions(this.qT, this.qF, e);
     this.cam.fov = fov + (FPP_FOV - fov) * e;
     this.cam.near = TPP_NEAR + (FPP_NEAR - TPP_NEAR) * e;

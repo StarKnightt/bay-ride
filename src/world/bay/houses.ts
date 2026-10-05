@@ -6,7 +6,7 @@ import { uber } from "../../render/materials";
 import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../../render/lightpasses";
 import { roadX } from "./road";
 import { terrainH } from "./terrain";
-import type { Collider } from "./index";
+import type { Box, Collider } from "./index";
 
 /** Placeholder harbour houses on the hill above the road (u metres inland of the road, z). */
 const SPOTS: [number, number, number][] = [
@@ -20,7 +20,7 @@ const ROOFS = ["#a05a43", "#8c4c3c", "#5f7184", "#b06a4a"];
  * Simple pitched-roof houses so the harbour hillside has lived-in windows after dark until the
  * town system replaces them. Fronts face the sea (-x); windows light warm at dusk and night.
  */
-export function buildHouses(colliders: Collider[]): THREE.Mesh {
+export function buildHouses(colliders: Collider[], boxes: Box[]): THREE.Mesh {
   const parts: Geo[] = [];
   for (const [u, z, k] of SPOTS) {
     const x = roadX(z) + u;
@@ -48,7 +48,9 @@ export function buildHouses(colliders: Collider[]): THREE.Mesh {
       hp.push(xf(box(1.0, 1.2, 0.08, "#20262c", M.glass), 0, wy, -d / 2 - 0.04));
     }
     for (const g of hp) parts.push(xf(g, x, 0, z));
-    colliders.push({ x, z, r: Math.min(w, d) / 2 + 0.3 });
+    colliders.push({ x, z, r: Math.min(w, d) / 2 + 0.3, kind: "house" });
+    // Walls, plus the eaves and the door frame standing proud of them.
+    boxes.push({ x0: x - w / 2 - 0.1, x1: x + w / 2 + 0.1, z0: z - d / 2 - 0.1, z1: z + d / 2 + 0.1, top: ridge });
   }
   const m = new THREE.Mesh(merge(parts), uber(ID.house, 2));
   onLayers(m, LAYER_SHADOW, LAYER_REFLECT);
