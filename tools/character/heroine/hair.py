@@ -16,7 +16,7 @@ from .common import (assign_material, frames_along, gauss, hash1, make_mesh, mat
 HC = head.HC
 PART_X = -0.030           # side part on her right (x < 0), the fringe sweeps to her left
 CAP = 0.0045              # scalp cap above the skin
-NR = 10                   # vertices round each lock
+NR = 16                   # vertices round each lock (round enough that cel bands follow the lock)
 HAIR = "#6f4630"
 HAIR_LT = "#9e6c48"
 HAIR_DK = "#3e2517"
@@ -88,7 +88,7 @@ def cap_mesh():
 
 def grow(root, comb, length, layer_off, fall_z, out_k=0.27, steps=None, wave=(0.010, 0.006, 0.075, 0.0), flick=0.016, seed=0.0, lift=0.0):
     """March a strand from root: along the skull toward comb, then down; returns (n,3) points."""
-    n = steps or max(12, int(length / 0.0125))
+    n = steps or max(16, int(length / 0.009))
     ds = length / (n - 1)
     p = np.array(root, float)
     d = norm(np.asarray(comb, float))
@@ -249,7 +249,7 @@ FRINGE = [
 ]
 
 
-def fringe_path(root, ctrl, tip, n=16, lift=0.0042):
+def fringe_path(root, ctrl, tip, n=22, lift=0.0042):
     """A fringe lock on the forehead shell: quadratic Bezier in (x, z), projected out from the
     skull centre onto the skin plus its cap and a little loft in the middle."""
     t = np.linspace(0, 1, n)
@@ -324,7 +324,8 @@ def build(col):
     V = np.vstack(allV)
     C = np.vstack(allC)
     ob = make_mesh("hair", V, allF, col)
-    # Shaped normals: mostly the hair mass (a soft volume round the head), a little of the clump.
+    # Shaped normals: mostly the hair mass (a soft volume round the head), a little of the clump,
+    # so the cel step runs in smooth bands across the mass; locks separate by ink and colour.
     me = ob.data
     n = np.zeros(len(me.vertices) * 3)
     me.vertices.foreach_get("normal", n)
@@ -333,7 +334,7 @@ def build(col):
     Nv = norm(V - axis + np.array([0, 0, 0.0]) + (V[:, 2:3] > HC[2] + 0.02) * (V - HC) * 0.0)
     Nv[:, 2] += 0.25 * smooth(HC[2] - 0.1, HC[2] + 0.06, V[:, 2])
     Nv = norm(Nv)
-    set_normals(ob, norm(Nv * 0.68 + Ng * 0.32))
+    set_normals(ob, norm(Nv * 0.84 + Ng * 0.16))
     set_colors(ob, C)
     set_float(ob, "_wind", np.concatenate(allW))
     ob["part"] = "hair"

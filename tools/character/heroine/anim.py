@@ -503,27 +503,30 @@ def jump_pose(fk, body, t):
     delta, absr, local, loc = {}, {}, {}, {}
     # Crouch depth over time and the airborne window.
     T_TAKE, T_LAND = 0.40, 0.85
-    crouch = 0.13 * smooth(0.0, 0.26, t) * (1 - smooth(0.28, 0.40, t)) + 0.11 * smooth(0.85, 0.93, t) * (1 - smooth(0.98, 1.2, t))
+    # A deep anticipation crouch, and a soft landing absorb that sinks and rises back slowly. The
+    # game plays its short crouch from 0.27 (the bottom), so the bottom holds to 0.31.
+    crouch = 0.23 * smooth(0.0, 0.25, t) * (1 - smooth(0.31, 0.40, t)) + 0.16 * smooth(0.85, 0.94, t) * (1 - smooth(0.97, 1.2, t))
     air = smooth(0.36, 0.46, t) * (1 - smooth(0.78, 0.86, t))
-    tuck = 0.16 * air
-    lean = 16.0 * smooth(0.05, 0.26, t) * (1 - smooth(0.30, 0.42, t)) + 6.0 * air + 10.0 * smooth(0.85, 0.92, t) * (1 - smooth(0.95, 1.2, t))
+    lean = 24.0 * smooth(0.05, 0.25, t) * (1 - smooth(0.30, 0.42, t)) + 5.0 * air + 14.0 * smooth(0.85, 0.93, t) * (1 - smooth(0.97, 1.2, t))
     loc["hips"] = np.array([0.0, 0.01 * lean / 16.0, -crouch])
     delta["hips"] = rot(X, -lean * 0.35)
     delta["spine"] = rot(X, -lean * 0.3)
     delta["spine1"] = rot(X, -lean * 0.25)
     delta["spine2"] = rot(X, -lean * 0.15)
     delta["head"] = rot(X, lean * 0.4)
-    # Arms: back in the crouch, up and forward on take-off, out in the air, forward on landing.
-    back = smooth(0.05, 0.26, t) * (1 - smooth(0.28, 0.38, t))
-    up = smooth(0.30, 0.42, t) * (1 - smooth(0.55, 0.8, t))
-    out = air
+    # Arms: swung back behind the hips in the crouch, driven up and out on take-off, relaxed and
+    # asymmetric (bent elbows, the left a little higher) in the air, forward to absorb the landing.
+    back = smooth(0.04, 0.24, t) * (1 - smooth(0.31, 0.37, t))
+    up = smooth(0.32, 0.42, t) * (1 - smooth(0.48, 0.64, t))
+    apex = smooth(0.42, 0.58, t) * (1 - smooth(0.80, 0.92, t))
     fwd_land = smooth(0.82, 0.9, t) * (1 - smooth(0.98, 1.2, t))
     for s in (1, -1):
         sf = "L" if s > 0 else "R"
-        flex = 38.0 * back * -1.0 + 70.0 * up + 25.0 * fwd_land
-        add = 17.0 - 30.0 * out
-        delta.update(arms_down(s, adduct=add, flex=flex, elbow=16.0 + 20.0 * up + 25.0 * fwd_land))
-        local.update(hand_relax(s, 1.0 - 0.4 * up))
+        flex = -58.0 * back + 120.0 * up + (24.0 + 12.0 * s) * apex * (1 - up) + 30.0 * fwd_land
+        add = 15.0 - 8.0 * back - 24.0 * up - (42.0 + 10.0 * s) * apex
+        elbow = 16.0 + 10.0 * back + 18.0 * up + (38.0 - 12.0 * s) * apex + 28.0 * fwd_land
+        delta.update(arms_down(s, adduct=add, flex=flex, elbow=elbow))
+        local.update(hand_relax(s, 1.0 - 0.35 * up))
     pose, _ = fk.solve(delta, absr, local, loc)
     for sf in ("L", "R"):
         A0, heel, ball = body.foot_points(sf)
@@ -532,7 +535,9 @@ def jump_pose(fk, body, t):
         if air > 0.02 or push > 0.02:
             pitch = -35.0 * push * (1 - air) - 20.0 * air
             ankle, Rf = body.foot_pose(sf, "ball", ball, pitch, 0.0)
-            ankle = ankle + np.array([0, 0.03 * air, tuck - crouch * 0.0])
+            # One knee higher than the other in the air.
+            tuck = (0.2 if sf == "L" else 0.12) * air
+            ankle = ankle + np.array([0, 0.03 * air, tuck])
             # Toes stay flat on the boards through the push, then follow the foot in the air.
             Rtoe = Rf @ rot(X, pitch * (1 - smooth(0.0, 0.6, air)))
         else:

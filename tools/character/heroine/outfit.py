@@ -171,13 +171,13 @@ def shorts(col):
             P = body.leg_clear(s, P, 0.008)
             # The inner side of each leg hangs flat against the midline (a seam, no open slot whose
             # shaded inner walls read as a dark gap from the front). This moves cloth away from
-            # the thigh, never into it.
-            if f > 0.05:
-                xi = P[:, 0] * s
-                inner = smooth(0.06, 0.010, xi) * f
-                P[:, 0] = s * (xi * (1 - inner) + 0.0012 * inner)
+            # the thigh, never into it. It starts right under the crotch seam (a weaker pull there
+            # had left a slot just below it, dark from the front and back).
+            xi = P[:, 0] * s
+            inner = smooth(0.06, 0.010, xi) * min(1.0, 0.7 + f)
+            P[:, 0] = s * (xi * (1 - inner) + 0.0012 * inner)
             # The two legs never cross the middle.
-            P[:, 0] = np.where(P[:, 0] * s < 0.0012, s * 0.0012, P[:, 0]) if f > 0.05 else P[:, 0]
+            P[:, 0] = np.where(P[:, 0] * s < 0.0012, s * 0.0012, P[:, 0])
             rings.append(P)
         leg_rings[s] = np.stack(rings)
         R = np.stack(rings[1:])
