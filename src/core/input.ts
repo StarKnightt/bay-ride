@@ -3,6 +3,10 @@ export class Input {
   down = false;
   left = false;
   right = false;
+  /** Shift held: jog on foot, open the throttle past full in the boat. */
+  shift = false;
+  /** Presses of Space so far (on foot: jump). Readers keep their own count of what they handled. */
+  jumps = 0;
 
   constructor(onFirst: () => void, onToggleView: () => void = () => {}) {
     const set = (code: string, v: boolean) => {
@@ -23,12 +27,20 @@ export class Input {
         case "ArrowRight":
           this.right = v;
           return true;
+        case "ShiftLeft":
+        case "ShiftRight":
+          this.shift = v;
+          return false;
       }
       return false;
     };
     addEventListener("keydown", (e) => {
       onFirst();
       if (e.code === "KeyV" && !e.repeat) onToggleView();
+      if (e.code === "Space") {
+        e.preventDefault();
+        if (!e.repeat) this.jumps++;
+      }
       if (set(e.code, true)) e.preventDefault();
     });
     addEventListener("keyup", (e) => {
@@ -36,7 +48,7 @@ export class Input {
     });
     addEventListener("pointerdown", onFirst);
     addEventListener("blur", () => {
-      this.up = this.down = this.left = this.right = false;
+      this.up = this.down = this.left = this.right = this.shift = false;
     });
   }
 }

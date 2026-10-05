@@ -25,8 +25,16 @@ const BOARD_T = 1.5;
 const LEAVE_SPEED = 1.3;
 
 const WALK = 1.3;
-const RUN = 3.0;
+/** Shift: an easy run (stride lengthens with speed, see gaitA). */
+const RUN = 3.4;
 const BODY_R = 0.24;
+/** Jump: gravity (a little over g, a lighter hop), take-off speed (~0.45 m up, ~0.5 s aloft),
+ * the anticipation crouch and the landing squash (s), and the drop under her that makes a fall. */
+const GRAV = 13;
+const JUMP_V = 3.4;
+const CROUCH_T = 0.13;
+const LAND_T = 0.26;
+const DROP_FALL = 0.3;
 /** Steepest ground she walks up (tan 38°) and the highest step she takes in her stride (m). */
 const SLOPE_UP = 0.78;
 const STEP_UP = 0.3;
@@ -50,11 +58,22 @@ export class Explore {
   speed = 0;
   /** The ground under her (her feet rest on it, y eases toward it). */
   private gy = 0;
+  /** Airborne (jumped or stepped off an edge), vertical speed, time aloft, ground she left. */
+  private air = false;
+  private vy = 0;
+  private airT = 0;
+  private takeoffY = 0;
+  /** Jump anticipation timer (< 0: not crouching), time since landing and how hard it was. */
+  private crouchT = -1;
+  private landT = 1;
+  private landK = 0;
+  /** A Space press waits this long (s) for her to be ready; presses already handled. */
+  private jumpBuf = 0;
+  private jumpsSeen = 0;
   private run = 0;
   private phase = 0;
   private turn = 0;
   private k = 0;
-  private shiftKey = false;
   private look = 0;
   private lookUp = 0;
   private lookT = 0;
@@ -101,16 +120,11 @@ export class Explore {
   ) {
     addEventListener("keydown", (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.code === "ShiftLeft" || e.code === "ShiftRight") this.shiftKey = true;
       if (e.repeat || !this.enabled) return;
       if (e.code === "KeyF") this.pressF();
       else if (e.code === "KeyC" && this.mode === "boat") this.chase.cycle();
     });
-    addEventListener("keyup", (e) => {
-      if (e.code === "ShiftLeft" || e.code === "ShiftRight") this.shiftKey = false;
-    });
     addEventListener("blur", () => {
-      this.shiftKey = false;
       this.dragging = false;
     });
     canvas.addEventListener("pointerdown", (e) => {
@@ -189,7 +203,7 @@ export class Explore {
   }
 
   pressF(): void {
-    if (this.mode === "walk" && this.nearBoat) this.startBoard();
+    if (this.mode === "walk" && !this.air && this.crouchT < 0 && this.nearBoat) this.startBoard();
     else if (this.mode === "boat") this.tryLeave();
   }
 
@@ -200,6 +214,7 @@ export class Explore {
   spawn(x: number, z: number, yaw: number, rel = 0, pitch = 0.12, dist = 3.6): void {
     this.mode = "walk";
     this.k = 0;
+    this.onGround();
     this.x = x;
     this.z = z;
     this.yaw = yaw;
@@ -230,10 +245,21 @@ export class Explore {
   seatInBoat(): void {
     const b = this.boat;
     if (!b) return;
+    this.onGround();
     this.shore.set(b.x, b.y, b.z);
     this.shoreYaw = b.yaw;
     this.mode = "boat";
     this.k = 1;
+  }
+
+  /** Feet on the ground, no jump under way. */
+  private onGround(): void {
+    this.air = false;
+    this.vy = 0;
+    this.crouchT = -1;
+    this.landT = 1;
+    this.landK = 0;
+    this.jumpBuf = 0;
   }
 
   private startBoard(): void {
@@ -358,6 +384,9 @@ export class Explore {
   private passable(x: number, z: number): boolean {
     const g = this.bay.groundAt(x, z, this.y);
     if (!g || this.bay.roofAt(x, z, BODY_R) > 0) return false;
+    // Aloft she clears anything below her feet and lands on it; anything higher stops her, and so
+    // does a steep face rising ahead (no hopping up the sea wall a jump at a time).
+    if (this.air) return g.h <= this.y + 0.05 && (g.h <= this.takeoffY + 0.05 || this.steepness(x, z, g.h) <= SLOPE_UP);
     const rise = g.h - this.gy;
     if (rise > STEP_UP || (rise > 0 && this.steepness(x, z, g.h) > SLOPE_UP)) return false;
     const dx = x - this.x, dz = z - this.z, d = Math.hypot(dx, dz) || 1;
@@ -401,18 +430,69 @@ export class Explore {
     this.speed *= 0.6;
   }
 
-  /** Her feet on the ground under her: smoothed over facets and small steps, never sunk into it. */
-  private followGround(dt: number): void {
+  /**
+   * Her height. On the ground: eased over facets and small steps, never sunk into it. After the
+   * take-off or off an edge: airborne under gravity until her feet meet the ground again.
+   */
+  private vertical(dt: number): void {
+    if (this.crouchT >= 0) {
+      this.crouchT += dt;
+      if (this.crouchT >= CROUCH_T) {
+        this.crouchT = -1;
+        this.air = true;
+        this.vy = JUMP_V;
+        this.airT = 0;
+        this.takeoffY = this.gy;
+      }
+    }
     const g = this.bay.groundAt(this.x, this.z, this.y);
+    if (g) {
+      this.gy = g.h;
+      this.surface = g.kind;
+    }
+    if (this.air) {
+      this.airT += dt;
+      this.vy -= GRAV * dt;
+      this.y += this.vy * dt;
+      if ((g && this.vy <= 0 && this.y <= g.h) || this.airT > 3) {
+        this.landK = clamp(-this.vy / 5.5, 0.3, 1);
+        this.landT = 0;
+        this.air = false;
+        this.y = this.gy;
+        this.vy = 0;
+      }
+      return;
+    }
     if (!g) return;
-    this.gy = g.h;
-    this.surface = g.kind;
+    this.landT += dt;
+    if (g.h < this.y - DROP_FALL) {
+      // Off an edge (the side of a slipway, a rock): she drops.
+      this.air = true;
+      this.vy = 0;
+      this.airT = 0;
+      this.takeoffY = this.y;
+      return;
+    }
     this.y = Math.max(g.h - 0.04, damp(this.y, g.h, 14, dt));
+  }
+
+  /** Space: a short anticipation crouch, then the take-off (on foot, ready, not aloft). */
+  private jumpInput(dt: number, input: Input): void {
+    if (input.jumps !== this.jumpsSeen) {
+      this.jumpsSeen = input.jumps;
+      if (this.enabled) this.jumpBuf = 0.15;
+    }
+    this.jumpBuf = Math.max(0, this.jumpBuf - dt);
+    if (this.jumpBuf > 0 && !this.air && this.crouchT < 0 && this.landT > 0.12) {
+      this.jumpBuf = 0;
+      this.crouchT = 0;
+    }
   }
 
   update(dt: number, input: Input, time: number): void {
     switch (this.mode) {
       case "walk":
+        this.jumpInput(dt, input);
         this.locomotion(dt, input);
         break;
       case "board":
@@ -430,6 +510,7 @@ export class Explore {
           this.x = this.shore.x;
           this.z = this.shore.z;
           this.y = this.gy = this.shore.y;
+          this.onGround();
         }
         break;
     }
@@ -457,7 +538,7 @@ export class Explore {
       if (this.mode !== "boat") this.advancePhase(dt);
       this.idleLook(dt);
     } else if (onFoot) {
-      this.followGround(dt);
+      this.vertical(dt);
       this.rider.walker.position.set(this.x, this.y, this.z);
       this.rider.walker.rotation.set(0, this.yaw, 0);
       this.idleLook(dt);
@@ -475,7 +556,14 @@ export class Explore {
     f.look = this.look;
     f.lookUp = this.lookUp;
     f.time = time;
-    G.uPush.value.set(this.x, this.z, 0.85, onFoot && !boating ? 1 : 0);
+    // Jump: the crouch before take-off, then a squash on landing that comes in fast and eases out.
+    const walking = onFoot && !boating;
+    const antic = this.crouchT >= 0 ? smooth01(this.crouchT / CROUCH_T) : 0;
+    const squash = this.landK * smooth01(this.landT / 0.05) * (1 - smooth01((this.landT - 0.05) / (LAND_T - 0.05)));
+    f.air = walking && this.air ? 1 : 0;
+    f.crouch = walking ? Math.max(antic * 0.8, squash) : 0;
+    f.vy = this.vy;
+    G.uPush.value.set(this.x, this.z, 0.85, walking && !this.air ? 1 : 0);
   }
 
   private steerToward(target: number, dt: number, rate: number): number {
@@ -504,7 +592,7 @@ export class Explore {
     const sy = Math.sin(this.oYaw), cy = Math.cos(this.oYaw);
     let wx = -sy * fwd + cy * str;
     let wz = -cy * fwd - sy * str;
-    let runKey = this.shiftKey;
+    let runKey = input.shift;
     if (this.autoWalk) {
       wx = this.autoWalk.dx;
       wz = this.autoWalk.dz;
@@ -513,6 +601,12 @@ export class Explore {
       str = 0;
     }
     const len = Math.hypot(wx, wz);
+    if (this.air) {
+      // Aloft: her momentum carries her, with a little steering; the stride waits for the landing.
+      if (len > 0.01) this.steerToward(Math.atan2(-wx / len, -wz / len), dt, 1.5);
+      if (this.speed > 1e-3) this.move(-Math.sin(this.yaw) * this.speed * dt, -Math.cos(this.yaw) * this.speed * dt);
+      return;
+    }
     let want = 0;
     if (len > 0.01) {
       wx /= len;
@@ -581,6 +675,7 @@ export class Explore {
   drive(x: number, z: number, yaw: number, speed: number, phase: number, time: number): void {
     this.mode = "walk";
     this.k = 0;
+    this.onGround();
     this.x = x;
     this.z = z;
     this.yaw = yaw;
@@ -608,12 +703,14 @@ export class Explore {
     f.look = 0;
     f.lookUp = 0;
     f.time = time;
+    f.air = f.crouch = f.vy = 0;
     G.uPush.value.set(x, z, 0.85, 1);
   }
 
   /** Test hook: stand at world (x, z) facing `yaw` (on foot only). */
   standAt(x: number, z: number, yaw = this.yaw): void {
     if (this.mode !== "walk") return;
+    this.onGround();
     this.x = x;
     this.z = z;
     this.yaw = yaw;
@@ -623,6 +720,7 @@ export class Explore {
 
   /** Test hook: stand at road-relative (u, z) facing `yaw`. */
   teleport(u: number, z: number, yaw = roadYaw(z)): void {
+    this.onGround();
     this.x = roadX(z) + u;
     this.z = z;
     this.yaw = yaw;

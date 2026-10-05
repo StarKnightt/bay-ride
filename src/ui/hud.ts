@@ -12,7 +12,8 @@ export class Hud {
     this.help.className = "help";
     const rows: [string, string][] = [
       ["W A S D", "walk"],
-      ["Shift", "jog"],
+      ["Shift", "run · in the boat, full speed"],
+      ["Space", "jump"],
       ["mouse", "look around"],
       ["F", "into the boat / back onto the pier"],
       ["W S · A D", "throttle · tiller"],

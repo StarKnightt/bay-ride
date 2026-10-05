@@ -44,6 +44,12 @@ export interface FootState {
   boating?: boolean;
   /** Boat roll (rad), for leaning against the heel. */
   roll?: number;
+  /** Jump: 1 while airborne (feet off the ground, tucked under her). */
+  air?: number;
+  /** Knees bend and the hips drop: the crouch before a jump and the squash on landing, 0…1. */
+  crouch?: number;
+  /** Vertical speed (m/s) while airborne: falling, her legs reach down for the ground. */
+  vy?: number;
 }
 
 /** Ground under a world point: height and surface. */
@@ -53,8 +59,12 @@ export type PlantFn = (x: number, y: number, z: number, yaw: number, side: numbe
 
 /** Gait: stance fraction and half step (m) for walk (0) … jog (1); cycle = ground covered per stride. */
 const gaitDuty = (run: number) => 0.6 - 0.2 * run;
-/** Half step: shorter strides (and a quicker cadence for the speed) when she ambles. */
-const gaitA = (run: number, speed = 1.3) => (0.31 + 0.1 * run) * Math.min(1, Math.max(0.45, 0.45 + 0.55 * (speed / 1.3)));
+/**
+ * Half step: shorter strides (and a quicker cadence for the speed) when she ambles; running faster
+ * than an easy jog (3 m/s) lengthens the stride instead of quickening the cadence further.
+ */
+const gaitA = (run: number, speed = 1.3) =>
+  (0.31 + 0.1 * run) * Math.min(1, Math.max(0.45, 0.45 + 0.55 * (speed / 1.3))) * (1 + run * Math.max(0, speed / 3 - 1));
 export const gaitCycle = (run: number, speed = 1.3) => (2 * gaitA(run, speed)) / gaitDuty(run);
 
 const SIDE = [1, -1];
@@ -310,12 +320,14 @@ export class Rider {
     const P = this.poseA;
     const scripted = !!f.boating;
     this.bodyPose(f, P);
-    if (!scripted) this.plantFeet(dt, f, P);
-    else {
+    if (scripted) {
       this.feetInit = false;
+      this.aloft = false;
       this.analyticFeet(f, P);
-    }
+    } else if ((f.air ?? 0) > 0.5) this.airFeet(dt, f, P);
+    else this.plantFeet(dt, f, P);
     this.solveHeight(P);
+    P.pelvisP.y -= 0.11 * clamp(f.crouch ?? 0, 0, 1);
     if (seat > 0) {
       this.seatPose(f, this.poseS);
       blendPose(P, this.poseS, smooth(0, 1, seat));
@@ -366,6 +378,20 @@ export class Rider {
       P.curl[i] = 0.42 + 0.1 * run + 0.05 * Math.sin(t * 0.6 + i);
       P.thumb[i] = 0.25;
       P.wristRel[i] = 1;
+    }
+    // Jump: she folds forward over bent knees with her arms swung back (the crouch, the landing),
+    // and lifts them out for balance in the air.
+    const ck = clamp(f.crouch ?? 0, 0, 1), ak = clamp(f.air ?? 0, 0, 1);
+    if (ck > 0 || ak > 0) {
+      P.pelvisQ.multiply(_q.setFromAxisAngle(_X, -0.2 * ck));
+      P.chestQ.multiply(_q.setFromAxisAngle(_X, 0.06 * ck - 0.04 * ak));
+      P.headQ.multiply(_q.setFromAxisAngle(_X, 0.1 * ck));
+      for (let i = 0; i < 2; i++) {
+        P.wrist[i].x += SIDE[i] * 0.08 * ak;
+        P.wrist[i].y += 0.2 * ak - 0.02 * ck;
+        P.wrist[i].z += 0.16 * ck - 0.06 * ak;
+        P.curl[i] += 0.15 * ck;
+      }
     }
   }
 
@@ -445,6 +471,32 @@ export class Rider {
     outA.copy(flat).add(_v3).add(_v4);
   }
 
+  /** Airborne: the feet leave where they stood and tuck under her; falling, they reach down to land. */
+  private airFeet(dt: number, f: FootState, P: Pose): void {
+    if (!this.aloft) {
+      this.aloft = true;
+      this.airT = 0;
+      for (let i = 0; i < 2; i++) this.airFrom[i].copy(P.ankle[i]);
+    }
+    this.airT += dt;
+    this.feetInit = false;
+    const e = smooth(0, 0.14, this.airT);
+    const reach = clamp(-(f.vy ?? 0) / 3, 0, 1);
+    const mv = clamp(f.speed / 1.1, 0, 1);
+    for (let i = 0; i < 2; i++) {
+      const s = SIDE[i];
+      _v.set(s * 0.1, ANKLE_H + 0.17 - 0.1 * reach, (i === 0 ? -0.13 : 0.08) * (0.4 + 0.6 * mv));
+      P.ankle[i].lerpVectors(this.airFrom[i], _v, e);
+      _q.setFromAxisAngle(_Y, -s * 0.08);
+      _q2.setFromAxisAngle(_X, (-0.3 + 0.25 * reach) * e);
+      P.footQ[i].copy(_q).multiply(_q2);
+      P.toe[i] = 0;
+    }
+  }
+  private aloft = false;
+  private airT = 0;
+  private airFrom = [new THREE.Vector3(), new THREE.Vector3()];
+
   /** World-locked feet on foot (see the class comment). */
   private plantFeet(dt: number, f: FootState, P: Pose): void {
     const w = this.walker;
@@ -481,6 +533,14 @@ export class Rider {
         ft.prevS = frac(f.phase / (Math.PI * 2) + (i === 0 ? 0 : 0.5));
       }
       this.feetInit = true;
+      if (this.aloft) {
+        // Landing from a jump: both feet come down at once (prints, rings, footsteps).
+        this.aloft = false;
+        for (let i = 0; i < 2; i++) {
+          const ft = this.feet[i];
+          this.onPlant?.(ft.pw.x, ft.pw.y - ANKLE_H, ft.pw.z, ft.yaw, SIDE[i], ft.kind, f.time);
+        }
+      }
     }
     for (let i = 0; i < 2; i++) {
       const ft = this.feet[i], s = SIDE[i], other = this.feet[1 - i];

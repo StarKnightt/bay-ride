@@ -18,10 +18,15 @@ const BOW_F = 1.85;
 const THRUST = 3.55;
 const DRAG1 = 0.12;
 const DRAG2 = 0.035;
-const REVERSE = 0.32;
+/** Astern she makes ~3.8 m/s, about 45% of her 8.5 m/s ahead. */
+const REVERSE = 0.96;
 const BRAKE = 1.3;
+/** Shift: the throttle opens past full (top speed ~10.4 m/s), with a harder wake and spray. */
+export const BOOST = 1.35;
 /** Sideways slip damping (1/s): low enough for a light, drifting hull. */
 const SLIP = 1.5;
+/** Prop churn at full throttle is 1; boosted it reaches this (boil, aerated band and slick astern). */
+const CHURN_MAX = 1.25;
 /** Seabed clearance under the keel that stops the hull, and the depth where the shallows start to drag. */
 const GROUND = 0.38;
 const SHALLOW = 1.15;
@@ -169,9 +174,9 @@ export class Boat {
   private physics(dt: number, input: Input | null): void {
     if (dt <= 0) return;
     const up = input?.up ?? false, down = input?.down ?? false;
-    const want = up && !down ? 1 : down && !up ? -1 : 0;
-    // The throttle eases up, comes off quicker.
-    const rate = want > this.throttle ? 0.9 : 2.2;
+    const want = up && !down ? (input?.shift ? BOOST : 1) : down && !up ? -1 : 0;
+    // The throttle eases up (more slowly past full), comes off quicker.
+    const rate = want > this.throttle ? (this.throttle >= 1 ? 0.6 : 0.9) : 2.2;
     this.throttle += clamp(want - this.throttle, -rate * dt, rate * dt);
     const steerIn = input ? (input.right ? 1 : 0) - (input.left ? 1 : 0) : 0;
     this.steer += (steerIn - this.steer) * (1 - Math.exp(-5 * dt));
@@ -479,9 +484,9 @@ export class Boat {
     this.model.prop.rotation.z += dt * (6 + 70 * Math.abs(this.throttle));
   }
 
-  /** How hard the prop churns the water (0…1). */
+  /** How hard the prop churns the water (0…1, up to 1.25 with the throttle past full). */
   get churn(): number {
-    return clamp(Math.max(this.throttle, 0) * (0.55 + 0.45 * sm(0.5, 5, Math.abs(this.u))) + 0.25 * Math.max(-this.throttle, 0), 0, 1);
+    return clamp(Math.max(this.throttle, 0) * (0.55 + 0.45 * sm(0.5, 5, Math.abs(this.u))) + 0.25 * Math.max(-this.throttle, 0), 0, CHURN_MAX);
   }
 
   private snap: BoatSnap = { x: 0, z: 0, yaw: 0, speed: 0, throttle: 0, odo: 0, y: 0 };
@@ -505,7 +510,7 @@ export class Boat {
       p.yaw = s.yaw;
       p.age = k * WAKE_DT;
       p.speed = Math.max(s.speed, 0);
-      p.churn = clamp(Math.max(s.throttle, 0) * (0.55 + 0.45 * sm(0.5, 5, Math.abs(s.speed))), 0, 1) * sm(0.3, 2.5, Math.abs(s.speed) + 1.2 * Math.max(s.throttle, 0));
+      p.churn = clamp(Math.max(s.throttle, 0) * (0.55 + 0.45 * sm(0.5, 5, Math.abs(s.speed))), 0, CHURN_MAX) * sm(0.3, 2.5, Math.abs(s.speed) + 1.2 * Math.max(s.throttle, 0));
     }
     setWake(
       this.trail,

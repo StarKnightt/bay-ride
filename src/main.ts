@@ -396,7 +396,8 @@ function frame(now: number) {
     audio.setTimeOfDay(tod.preset);
     audio.setInBoat(boating);
     if (boating) {
-      audio.setBoatThrottle(Math.max(0, boat.throttle));
+      // Past full throttle (Shift) the motor rises a little further, kept short of a whine.
+      audio.setBoatThrottle(Math.min(1.2, Math.max(0, boat.throttle)));
       audio.setBoatSpeed(Math.abs(boat.u));
       audio.setMotion(Math.hypot(boat.u, boat.v));
       audio.setNearPier(Math.max(0, 1 - Math.hypot(boat.x - BERTH.x, boat.z - BERTH.z) / 18));

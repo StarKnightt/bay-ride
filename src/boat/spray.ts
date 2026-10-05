@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { COMMON, G } from "../render/materials";
 import { HULL, STEM_Z, waterlineHalf } from "./model";
-import type { Boat, BoatSnap } from "./boat";
+import { BOOST, type Boat, type BoatSnap } from "./boat";
 import { seaHeight } from "../water/query";
 
 /** Particle slots: bow droplets, thin bow sheets, and the prop's low churn. */
@@ -18,6 +18,7 @@ const sm = (a: number, b: number, x: number) => {
   const t = Math.min(Math.max((x - a) / (b - a), 0), 1);
   return t * t * (3 - 2 * t);
 };
+const clamp01 = (x: number) => Math.min(Math.max(x, 0), 1);
 
 /**
  * Translucent blending into the colour target only: the water's normal and ink mask underneath
@@ -267,9 +268,11 @@ export class Spray {
       const spd0 = s.speed;
       b.stateAt(te, s);
       const spd = Math.max(s.speed, 0);
-      // Driving hard (accelerating under throttle, bow up) throws far more water than cruising.
+      // Driving hard (accelerating under throttle, bow up) throws far more water than cruising,
+      // and so does the throttle held open past full (boost), even at a steady speed.
       const hard = Math.max(s.throttle, 0) * sm(0.15, 0.9, (spd - spd0) / 0.25);
-      const strength = kind === 2 ? Math.max(s.throttle, 0) * sm(0.5, 3, spd) * (0.5 + 0.5 * hard) : Math.min(1, sm(2.0, 7.0, spd) * 0.5 + 0.8 * hard * sm(1.0, 3.0, spd));
+      const boost = clamp01((s.throttle - 1) / (BOOST - 1)) * sm(4, 9, spd);
+      const strength = kind === 2 ? Math.max(s.throttle, 0) * sm(0.5, 3, spd) * (0.5 + 0.5 * hard) : Math.min(1, sm(2.0, 7.0, spd) * 0.5 + 0.8 * hard * sm(1.0, 3.0, spd) + 0.4 * boost);
       if (hash(i, 3) > strength) continue;
       const side = i & 1 ? 1 : -1;
       const fx = -Math.sin(s.yaw), fz = -Math.cos(s.yaw);
@@ -292,7 +295,7 @@ export class Spray {
         pf = (kind === 0 ? 0.9 : 0.6) + (kind === 0 ? 0.85 : 0.95) * hash(i, 4);
         ps = side * (waterlineHalf(-pf) + 0.04);
         // Fans off both forward chines: wider, higher and bigger when she is driven hard.
-        const g = 1 + 0.6 * hard;
+        const g = 1 + 0.6 * hard + 0.3 * boost;
         if (kind === 0) {
           vo = (1.2 + 1.4 * hash(i, 5)) * (0.45 + 0.45 * k) * g;
           vu = (1.6 + 1.8 * hash(i, 6)) * (0.45 + 0.45 * k) * g;
