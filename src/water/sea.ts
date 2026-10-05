@@ -173,7 +173,9 @@ const FS = /* glsl */ `
       float farB = 1.0 - smoothstep(200.0, 320.0, length(q - cameraPosition.xz));
       rings = max(rings, rr * farB * smoothstep(0.3, 0.6, vnoise(vec2(an * 3.0 + float(i), r * 0.6 - t * 0.4))));
       float ax = dot(d, O_WIND), sd = dot(d, side);
-      float lee = smoothstep(0.2, 1.2, ax) * exp(-ax / 3.0) * (1.0 - smoothstep(0.4, 1.0, abs(sd) / (B.z + 0.18 * ax)));
+      // Gone well inside the 7 m search radius: a faint tail cut there leaves a lone straight-edged
+      // scrap of foam on open water metres from the buoy.
+      float lee = smoothstep(0.2, 1.2, ax) * exp(-ax / 3.0) * (1.0 - smoothstep(0.4, 1.0, abs(sd) / (B.z + 0.18 * ax))) * (1.0 - smoothstep(3.5, 5.5, L));
       lee *= smoothstep(0.35, 0.7, vnoise(vec2(sd * 3.0 + float(i), ax * 0.9 - t * 1.1))) * mix(0.25, 1.0, farB);
       f = max(f, max(ring, lee * 0.6));
     }
@@ -506,9 +508,12 @@ const FS = /* glsl */ `
     seen = mix(vec3(dot(seen, vec3(0.2126, 0.7152, 0.0722))), seen, 0.85);
     float clarity = exp(-hd * 0.38) * seeBed;
     vec3 col = mix(bodyCol, seen, clarity);
-    // Aerated water under the propeller trail: a paler, greyer band of the water's own colour;
-    // the slick beyond it a touch darker and glassier.
-    vec3 aerC = mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, 0.55) * 1.2 + 0.02 * (1.0 - uNight);
+    // Aerated water under the propeller trail: a paler band of the water's own colour, taking the
+    // light's hue at a low sun (warm grey-gold, never slate); the slick beyond it a touch darker
+    // and glassier.
+    float colL = dot(col, vec3(0.2126, 0.7152, 0.0722));
+    vec3 aerC = mix(vec3(colL), col, 0.7) * 1.2 + 0.02 * (1.0 - uNight);
+    aerC = mix(aerC, colL * 1.25 * sunHue + 0.02, 0.6 * warmSky);
     col = mix(col, aerC, max(wk.aer * 0.55, wk.brk * 0.65));
     col *= 1.0 - 0.07 * wk.slick * (1.0 - wk.aer);
     // Wave faces turned to the light read a shade lighter, backs a shade darker.
@@ -570,6 +575,8 @@ const FS = /* glsl */ `
         blurD = 0.1 * (1.0 - uNight) * grazing * clamp(hy - ruv.y - 0.08, 0.0, 0.25) * (0.6 + 0.8 * vnoise(q * 0.02 + 3.0));
       }
       float span = (0.004 + 0.018 * clamp(rough * 5.0, 0.0, 1.0) + 0.012 * brkB.x) * (0.35 + 0.65 * grazing) * chopK + blurD;
+      // Her own image is a soft painted band, never the half-res texture's stepped edges.
+      span = max(span, 0.004 * wk.near);
       vec3 acc = vec3(0.0), mx = vec3(0.0);
       float ws = 0.0;
       float wph = vnoise(vec2(ruv.y * 70.0 + brkB.z, uTime * 0.8)) * 6.2831853;
@@ -687,12 +694,20 @@ const FS = /* glsl */ `
       R.y = max(R.y, 0.02);
       refl = skyColor(normalize(R)) * uWorldTint;
     }
+    // Churned water holds no image, but its broken facets still scatter the sky's broad colour,
+    // so the boil stays in the scene's light (gold at a low sun) instead of the cool body.
+    refl = mix(refl, skyH * uWorldTint, clamp(wk.brk * 1.2, 0.0, 1.0));
     vec3 reflRaw = refl;
+    // The boat's own mirror image sits under her slightly darker and greyer, in her own hues: it
+    // is not tinted by the sky's mirror colour nor washed into the blue water.
+    float objR = wk.near * smoothstep(0.06, 0.22, length(reflRaw - skyH * uWorldTint));
+    vec3 reflB = mix(vec3(dot(reflRaw, vec3(0.2126, 0.7152, 0.0722))), reflRaw, 0.8) * 0.8 / max(uWorldTint, vec3(0.05));
     float rl = dot(refl, vec3(0.2126, 0.7152, 0.0722));
     // In low sun the warmth comes from the bright sky in the mirror, not from the body.
     refl = mix(vec3(rl), refl, 1.15) * uWaterRefl * mix(0.9, 0.68, uNight) * (1.0 + 0.12 * warmSky);
     refl /= max(uWorldTint, vec3(0.05));
     refl = mix(refl, wCool(refl), 0.55 * (1.0 - smoothstep(0.3, 1.5, s.h)));
+    refl = mix(refl, reflB, objR);
     float cosT = max(dot(-V, Nw), 0.0);
     // Offshore the balance is painted: the mirror takes over toward grazing angles, the water's
     // own colour looking down.
@@ -705,14 +720,13 @@ const FS = /* glsl */ `
     // Water a few centimetres deep shows the sand rather than the sky, so the sea fades into the
     // beach's swash sheet with no seam.
     rk *= mix(0.04, 1.0, smoothstep(0.5, 1.4, hd + 0.3 * (vnoise(q * 0.12) - 0.5)));
-    // Inside churned water there is no coherent mirror image, only foam and aerated water.
-    rk *= 1.0 - 0.92 * wk.brk;
+    // Inside churned water the mirror is only that scattered sky, and weaker.
+    rk *= 1.0 - 0.5 * wk.brk;
+    // Under her image the blue body is greyed first: a part blend of red paint into blue water
+    // would print violet.
+    col = mix(col, vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), objR * 0.7);
     col = mix(col, refl, fres * 0.92 * rk);
-    // The boat's own mirror image sits under her slightly darker and greyer, in her own hues: it
-    // is not tinted by the sky's mirror colour nor washed into the blue water.
-    float objK = wk.near * smoothstep(0.06, 0.22, length(reflRaw - skyH * uWorldTint)) * rk;
-    vec3 reflB = mix(vec3(dot(reflRaw, vec3(0.2126, 0.7152, 0.0722))), reflRaw, 0.8) * 0.8 / max(uWorldTint, vec3(0.05));
-    col = mix(col, reflB, objK * 0.85);
+    col = mix(col, reflB, objR * rk * 0.85);
     // Sun shadows cast near the boat (her own, a buoy's) darken the water body a shade, warm-violet,
     // never revealing anything brighter.
     // One bilinear 2x2 tap: the full PCF would bloat the whole sea shader for a soft tint.
@@ -808,7 +822,7 @@ const FS = /* glsl */ `
     float glitter = mix(dn, glit * 1.6 + dn * 0.6, deepK) + path * uGlintShape.y;
     // No sun flakes on the boat's own mirror image or right round her, where a lone white dab
     // reads as a stray scrap floating off the hull.
-    float gk = uGlint * lightUp * (1.0 - s.foam) * mix(0.35, 1.0, smoothstep(0.8, 4.0, s.h)) * (1.0 - wk.brk) * (1.0 - objK) * (1.0 - 0.6 * wk.near);
+    float gk = uGlint * lightUp * (1.0 - s.foam) * mix(0.35, 1.0, smoothstep(0.8, 4.0, s.h)) * (1.0 - wk.brk) * (1.0 - objR * rk) * (1.0 - 0.6 * wk.near);
     // Never a blown white with a bloom halo under a high sun; the low sun's path may burn brighter.
     vec3 gAdd = gCol * glitter * gk;
     gAdd *= min(1.0, mix(0.3, 4.0, max(lowL, uNight)) / max(max(gAdd.r, max(gAdd.g, gAdd.b)), 1e-4));

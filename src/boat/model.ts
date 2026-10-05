@@ -157,16 +157,18 @@ function planking(skin: Skin, inner: boolean): void {
       }
       const vn = (i: number) => fn[Math.max(0, i - 1)].clone().add(fn[Math.min(N - 1, i)]).normalize();
       const col = inner ? (f === 0 ? C.woodDark : C.wood) : f === 0 ? C.bottom : f === 1 ? C.boot : f === F - 1 ? C.sheer : C.side;
-      // Outside, each strake is painted as a lap: a lit lower edge standing proud of the strake
-      // below, and a dark shadow line along its top where the strake above overlaps it.
-      const bands: [number, number, THREE.Color][] =
-        inner || f === 0
-          ? [[0, 1, col]]
-          : [
-              [0, 0.14, col.clone().lerp(new THREE.Color(1, 1, 1), 0.22)],
-              [0.14, 0.88, col],
-              [0.88, 1, col.clone().multiplyScalar(0.62)],
-            ];
+      // Outside, each painted band is two narrow planks (one for the boot top), each lap painted:
+      // a lit lower edge standing proud of the plank below, and a dark shadow line along its top
+      // where the plank above overlaps it, wide and dark enough to read from chase distance.
+      const bands: [number, number, THREE.Color][] = [];
+      const nP = inner || f === 0 ? 0 : f === 1 ? 1 : 2;
+      if (nP === 0) bands.push([0, 1, col]);
+      const lit = col.clone().lerp(new THREE.Color(1, 1, 1), 0.32).multiplyScalar(1.04);
+      const dark = col.clone().multiplyScalar(0.48);
+      for (let p = 0; p < nP; p++) {
+        const a = p / nP, b = (p + 1) / nP, h = b - a;
+        bands.push([a, a + 0.12 * h, lit], [a + 0.12 * h, b - 0.17 * h, col], [b - 0.17 * h, b, dark]);
+      }
       for (let i = 0; i < N; i++) {
         const [A0, B0, C0, D0] = quad(side, f, i);
         const nA = vn(i), nC = vn(i + 1);
@@ -270,9 +272,21 @@ export function buildBoat(): BoatModel {
   }
   // Seats: a stern bench, a thwart amidships and a small bow seat, each on two short legs.
   const seat = (z: number, depth: number, top: number) => {
-    const w = 2 * halfWidthAt(stationOf(z), top - 0.02) - 0.01;
+    const t = stationOf(z);
+    const w = 2 * halfWidthAt(t, top - 0.02) - 0.01;
     parts.push(xf(box(w, 0.035, depth, "#b98953", M.plain), 0, top - 0.0175, z));
-    for (const sx of [-1, 1]) parts.push(xf(box(0.05, top - floorY - 0.03, 0.05, "#8a5a33", M.plain), sx * w * 0.32, (top + floorY) / 2 - 0.02, z));
+    // Legs stand on the floorboards, or on the inside of the planking where the rockered bottom
+    // rises above them toward the bow (never through it). Checked across the leg's foot.
+    const lx = w * 0.32 + 0.03;
+    let yb = floorY - 0.005;
+    for (const dz of [-0.03, 0.03]) {
+      const tl = stationOf(z + dz);
+      let y = profile(tl)[0][1];
+      while (y < top && halfWidthAt(tl, y) < lx) y += 0.005;
+      yb = Math.max(yb, y);
+    }
+    const y0 = yb, y1 = top - 0.035;
+    for (const sx of [-1, 1]) parts.push(xf(box(0.05, y1 - y0, 0.05, "#8a5a33", M.plain), sx * w * 0.32, (y0 + y1) / 2, z));
   };
   seat(1.3, 0.36, 0.2);
   seat(0.12, 0.22, 0.21);

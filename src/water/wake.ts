@@ -226,7 +226,8 @@ float wakeLace(vec2 p, float dens, float seed, float px, float threads){
           + vnoise(vec2(q.x * 8.0, q.y * 2.5) + 4.0) * 0.32
           + (vnoise(vec2(q.x * 16.0, q.y * 5.0) + 9.0) - 0.5) * 0.18 * fine + 0.09;
   // Threads: ridges of a streamwise noise, thin filaments joining the cells.
-  float r = 1.0 - abs(vnoise(vec2(q.x * 6.0, q.y * 1.5) + 2.0) * 2.0 - 1.0);
+  // Broken into short meandering pieces, so none runs on straight across many cells.
+  float r = (1.0 - abs(vnoise(vec2(q.x * 6.0, q.y * 2.1) + 2.0) * 2.0 - 1.0)) * smoothstep(0.3, 0.55, vnoise(vec2(q.x * 2.2, q.y * 0.9) + 13.0));
   float d = clamp(dens, 0.0, 1.0);
   // Holes stay open even in the densest boil.
   float th = mix(0.76, 0.32, d);
@@ -271,8 +272,10 @@ Wake wakeShade(vec2 q, float px, float pxm){
     float wA = 0.1 + 0.045 * x + 0.05 * w.age;
     float wE = max(wA, pxW);
     float da = (ay - yA) / wE;
-    // A crisp outer edge and a long ragged tail inward where the broken crest spills back.
-    float prof = da > 0.0 ? exp(-da * da * 3.0) : exp(-da * da * 0.8);
+    // A crisp outer edge and a long ragged tail inward where the broken crest spills back. The
+    // edge itself wanders in and out along the arm, so it never draws a ruled line.
+    float daR = da + (vnoise(vec2(w.odo * 0.45, sd * 4.0)) - 0.5) * 1.4 + (vnoise(vec2(w.odo * 1.7, ay * 0.8)) - 0.5) * 0.7;
+    float prof = daR > 0.0 ? exp(-daR * daR * 3.0) : exp(-daR * daR * 0.8);
     float amp = S * exp(-x / 34.0) * exp(-w.age / 9.0) * smoothstep(-0.1, 0.5, x) * fade;
     // Feathers: the diverging crests cross the arm as short chevrons; once they are only a few
     // pixels apart they average out into an even band.
@@ -284,6 +287,14 @@ Wake wakeShade(vec2 q, float px, float pxm){
     float dens = amp * prof * feed * mix(sqrt(wA / wE), 1.0, keep) * mix(0.5, 1.0, fe) * (1.0 + 1.8 * smoothstep(0.05, 0.4, pxL));
     // Its outer edge breaks harder than its core.
     dens *= mix(1.0, 0.7 + 0.3 * vnoise(vec2(w.odo * 0.6, ay * 3.0) + sd * 3.0), smoothstep(0.0, 1.2, da));
+    // White belongs to the inner arms by the boat: further out the arm is clear water carrying
+    // its crest line, with only scattered patches. Far off the thinning is left to the lace's
+    // own averaging, so the distant V keeps its weight.
+    float gapA = smoothstep(0.25, 0.6, vnoise(vec2(w.odo * 0.3, sd * 11.0 + ay * 0.15)));
+    float gapB = smoothstep(0.35, 0.65, vnoise(vec2(w.odo * 1.1 + sd * 5.0, ay * 0.7)));
+    float latF = mix(1.0, (0.05 + 0.45 * gapA) * gapB, smoothstep(0.85, 2.2, ay)) * mix(1.0, gapA, 0.5 * smoothstep(1.5, 4.0, x))
+               * mix(1.0, 0.3 + 0.7 * gapB, smoothstep(0.0, 1.0, daR));
+    dens *= mix(latF, 1.0, smoothstep(0.25, 0.8, pxL));
     float arm = wakeLace(vec2(w.y, w.odo), clamp(dens * 0.85, 0.0, 1.0), 2.0 + sd, pxL, 1.0);
 
     // Transverse crests curving across between the arms, from just aft of the transom: painted
@@ -347,8 +358,23 @@ Wake wakeShade(vec2 q, float px, float pxm){
     float dO = (ay - yA - wE * 0.6 - wL * 0.6) / wL;
     float dC = (ay - yA) / wL;
     float swA = S * exp(-x / mix(60.0, 110.0, graze)) * exp(-w.age / mix(14.0, 30.0, graze)) * smoothstep(0.5, 3.0, x) * fade;
+    // On the side facing the eye the arm opens toward the viewer as a fan of separate parallel
+    // crest lines inside it: spaced a few pixels apart down the screen (the foreshortened
+    // direction), each broken along its length, fading inward and with age.
+    float fan = 0.0;
+    if (graze > 0.01 && dot(cameraPosition.xz - q, vec2(w.T.y, -w.T.x)) * w.y > 0.0) {
+      float spF = max(0.6 + 0.03 * x, 3.6 * pxm), wFn = max(0.12 + 0.008 * x, 0.75 * pxm);
+      for (int n = 1; n <= 4; n++) {
+        float fn = float(n);
+        float yn = yA - fn * spF;
+        float dn = (ay - yn) / wFn;
+        float brk = smoothstep(0.3, 0.55, vnoise(vec2(w.odo * 0.08 + fn * 3.7, fn)));
+        fan += exp(-dn * dn) * (1.0 - 0.17 * fn) * brk * smoothstep(0.15 * yA, 0.4 * yA, yn);
+      }
+      fan *= graze * swA * smoothstep(2.0, 8.0, x);
+    }
     o.crest = clamp(o.crest - mix(0.9, 1.3, graze) * swA * exp(-dO * dO) + 0.5 * swA * prof * smoothstep(0.05, 0.3, pxm)
-                    + 2.4 * graze * swA * exp(-dC * dC * 1.2) + 0.75 * tTone * inV, -1.0, 1.0);
+                    + 2.4 * graze * swA * exp(-dC * dC * 1.2) + 3.0 * fan + 0.75 * tTone * inV, -1.0, 1.0);
   }
   // The hull: a thin broken collar of foam hugging the waterline, piled up at the bow when she
   // moves, and a faint darker line right against the planking. Nothing reaches past about a

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { COMMON, G } from "../render/materials";
 import { HULL, STEM_Z, waterlineHalf } from "./model";
 import type { Boat, BoatSnap } from "./boat";
+import { seaHeight } from "../water/query";
 
 /** Particle slots: bow droplets, thin bow sheets, and the prop's low churn. */
 const N_DROP = 110;
@@ -152,7 +153,8 @@ export class Spray {
   private buildBowWave(): THREE.Mesh {
     const STN = 22, z0 = 0.2, z1 = STEM_Z + 0.04;
     const pos: number[] = [], kk: number[] = [], idx: number[] = [];
-    const lo = HULL.waterY - 0.14, hi = HULL.waterY + 0.2;
+    // Reaches well under the floating waterline, so a lifted bow never shows the sheet's foot.
+    const lo = HULL.waterY - 0.45, hi = HULL.waterY + 0.24;
     for (const side of [-1, 1]) {
       const base = pos.length / 3;
       for (let i = 0; i <= STN; i++) {
@@ -178,6 +180,7 @@ export class Spray {
       uniforms: { ...G, uBow: this.uBow },
       side: THREE.DoubleSide,
       vertexShader: /* glsl */ `
+        uniform vec4 uBow;
         in vec3 aK;
         out vec3 vK;
         out vec3 vWPos;
@@ -186,7 +189,9 @@ export class Spray {
           vK = aK;
           vec4 wp = modelMatrix * vec4(position, 1.0);
           vWPos = wp.xyz;
-          vH = position.y;
+          // Height above the real water surface, not the hull's floating waterline: when the
+          // bow lifts the sheet still stands on the water.
+          vH = wp.y - uBow.w + ${HULL.waterY.toFixed(3)};
           gl_Position = projectionMatrix * viewMatrix * wp;
         }`,
       fragmentShader: /* glsl */ `
@@ -230,7 +235,7 @@ export class Spray {
 
   update(t: number): void {
     const b = this.boat;
-    this.uBow.value.set(sm(0.5, 6.5, Math.abs(b.u)), b.odo, b.throttle, 0);
+    this.uBow.value.set(sm(0.5, 6.5, Math.abs(b.u)), b.odo, b.throttle, seaHeight(b.x - Math.sin(b.yaw), b.z - Math.cos(b.yaw), t));
     const P = this.aP.array as Float32Array, F = this.aF.array as Float32Array, VV = this.aV.array as Float32Array;
     let n = 0;
     const s = this.snap;

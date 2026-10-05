@@ -133,6 +133,8 @@ float brush(vec3 wp, vec3 n){
 
 // Toon-thresholded shadow map: 1 = sunlit, 0 = in shadow.
 bool gFastShadow = false;
+// Painted wood (the skiff): shade stays a warm violet multiply of the paint, whites included.
+float gWarmShade = 0.0;
 float shadowVis(vec3 wpos, vec3 N){
   if (uShadowOn < 0.5) return 1.0;
   vec2 rel = abs(wpos.xz - uShadowCenter.xz);
@@ -155,10 +157,13 @@ float shadowVis(vec3 wpos, vec3 N){
   }
   // 3x3 bilinear PCF from a 4x4 texel footprint: smooth, stair-free edges.
   float L[16];
+  float bz = 0.0, bn = 0.0;
   for (int j = 0; j < 4; j++) for (int i = 0; i < 4; i++) {
     float d = texture(uShadowMap, b0 + vec2(float(i - 1), float(j - 1)) * uShadowTexel).r;
     float lit = step(s.z - 0.0008, d);
     L[j * 4 + i] = lit;
+    bz += (1.0 - lit) * (s.z - d);
+    bn += 1.0 - lit;
   }
   float vis = 0.0;
   for (int j = 0; j < 3; j++) for (int i = 0; i < 3; i++) {
@@ -168,7 +173,11 @@ float shadowVis(vec3 wpos, vec3 N){
   }
   vis /= 9.0;
   // Dappled sun flecks belong under tree canopies only; the open coast has none yet.
-  vis = smoothstep(0.35, 0.65, vis);
+  // On the skiff a shadow cast from metres away (a buoy) has a wide, uneven penumbra instead of
+  // a crisp stamped shape.
+  float pen = gWarmShade * smoothstep(0.6, 4.0, bz / max(bn, 1.0) * uShadowRange);
+  float vj = (vnoise(wpos.xz * 7.0 + wpos.y * 9.0) - 0.5) * 0.45 * pen;
+  vis = smoothstep(0.35 - 0.3 * pen, 0.65 + 0.3 * pen, vis + vj);
   return mix(vis, 1.0, edge);
 }
 
@@ -177,8 +186,6 @@ float shadowVis(vec3 wpos, vec3 N){
 float gSoftCast = 0.0;
 // Rider cloth: gentle form shade where the blouse turns away from the camera.
 float gForm = 0.0;
-// Painted wood (the skiff): shade stays a warm violet multiply of the paint, whites included.
-float gWarmShade = 0.0;
 vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt, float soft, vec3 shTint){
   float br = brush(wpos, N);
   float t = dot(N, uSunDir) + (br - 0.5) * 0.32 * paint + jitter;
@@ -201,7 +208,7 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   // they read as white-in-shade, never as holes or sky.
   float chroma = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
   float whiteK = smoothstep(0.35, 0.75, al) * (1.0 - smoothstep(0.12, 0.3, chroma));
-  vec3 cSh = base * mix(shTint, mix(vec3(0.37, 0.4, 0.52), shTint * 1.3, uNight), whiteK * (1.0 - 0.85 * gWarmShade));
+  vec3 cSh = base * mix(shTint, mix(vec3(0.37, 0.4, 0.52), shTint * 1.3, uNight), whiteK * (1.0 - gWarmShade));
   // Painted key at a low sun or under the moon: lit faces take the light's own hue with a raking
   // gradient, shade goes toward the cool shadow colour, so land changes colour, not just level.
   // Faces barely turned to the light go violet, faces turned to it take its warm hue.
@@ -209,7 +216,7 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   vec3 keyCol = mix(shTint * (al * 1.8 + 0.07), uSunColor * (al * 1.9 + 0.05), smoothstep(0.04, 0.42, t));
   cLit = mix(cLit, keyCol, kh);
   cSh = mix(cSh, shTint * (al * 1.6 + 0.07), kh * 0.5 * (1.0 - gWarmShade));
-  vec3 cDk = cSh * vec3(0.7, 0.72, 0.84);
+  vec3 cDk = cSh * mix(vec3(0.7, 0.72, 0.84), vec3(0.76, 0.68, 0.7), gWarmShade);
   vec3 col = mix(cDk, cSh, max(mid, 1.0 - sv));
   col = mix(col, cLit, lit);
   col += base * uSkyMid * 0.1 * (N.y * 0.5 + 0.5);
@@ -636,7 +643,11 @@ void main(){
   if ((HAS(7) && mt == 7)) jit += 0.34;
   if (abs(uId - 20.0) < 0.5) {
     gWarmShade = 1.0;
-    shT = mix(uShadowTint, vec3(1.0, 0.82, 0.9) * dot(uShadowTint, vec3(0.2126, 0.7152, 0.0722)) * 1.4, 0.7);
+    float shL = dot(uShadowTint, vec3(0.2126, 0.7152, 0.0722));
+    shT = mix(uShadowTint, vec3(1.0, 0.82, 0.9) * shL * 1.4, 0.7);
+    // Under a warm low sun the paint's shade stays in the warm key: a rosy darkening of the
+    // cream, not the cool sky shadow.
+    shT = mix(shT, vec3(1.0, 0.78, 0.8) * shL * 1.5, 0.8 * smoothstep(0.08, 0.35, uSunColor.r - uSunColor.b) * (1.0 - uNight));
   }
   vec3 col = toonT(base, N, vWPos, jit, paint, rim, soft, shT) + emis;
   if ((HAS(26) && mt == 26) || (HAS(29) && mt == 29)) {

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { ID, M, cyl, merge, sphere, xf } from "../world/geo";
+import { ID, M, cyl, merge, xf } from "../world/geo";
 import { uber } from "../render/materials";
 import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../render/lightpasses";
 import { seaHeight, seaNormal } from "./query";
@@ -24,7 +24,7 @@ export const BUOY_XZ: readonly [number, number][] = SPOTS.map(([x, z]) => [x, z]
 export const BUOY_U = { value: Array.from({ length: BUOY_MAX }, () => new THREE.Vector4(1e5, 1e5, 0, 0)) };
 
 /**
- * A few mooring buoys riding the swell and chop: a squat float, a cone top and a small day-mark,
+ * A few mooring buoys riding the swell and chop: a squat float, a cone top and a conical day-mark,
  * pitched and rolled by the water normal. They show the motion of the sea and give the water
  * something to reflect and foam around.
  */
@@ -50,7 +50,7 @@ export class Buoys {
         xf(cyl(0.66, 0.66, 0.12, b, M.metal, 14), 0, 0.42, 0),
         xf(cyl(0.12, 0.5, 0.75, a, M.metal, 12), 0, 0.85, 0),
         xf(cyl(0.05, 0.05, 0.9, "#3a3a3e", M.metal, 6), 0, 1.6, 0),
-        xf(sphere(0.2, b, M.metal, 10, 6), 0, 2.1, 0),
+        xf(cyl(0.012, 0.21, 0.36, b, M.metal, 10), 0, 2.2, 0),
       ]);
       const m = new THREE.Mesh(g, mat);
       onLayers(m, LAYER_SHADOW, LAYER_REFLECT);
