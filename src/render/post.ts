@@ -5,6 +5,7 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { TOD_GRADE } from "./todUniforms";
 import { G, SAFE_GLSL } from "./materials";
+import { Paint } from "./paint";
 import type { Profiler } from "./profiler";
 
 const FS_VS = /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
@@ -21,6 +22,8 @@ export class Post {
   private smaa: SMAAPass;
   private sharpen: ShaderPass;
   readonly bloom: UnrealBloomPass;
+  /** Anisotropic Kuwahara paint filter ahead of the ink pass (null with ?kuwahara=0). */
+  readonly paint: Paint | null;
   prof: Profiler | null = null;
   private wrapped = false;
   sceneCalls = 0;
@@ -158,6 +161,15 @@ export class Post {
     this.ink.uniforms.tNormal.value = this.mrt.textures[1];
     this.ink.uniforms.tDepth.value = this.mrt.depthTexture;
     this.composer.addPass(this.ink);
+    // The paint filter replaces the ink pass's own small Kuwahara; ?paint=0..1 sets its strength.
+    this.paint = opts.kuwahara ? new Paint(W, H, this.mrt) : null;
+    if (this.paint) {
+      const ps = new URLSearchParams(location.search).get("paint");
+      if (ps !== null && Number.isFinite(Number(ps))) this.paint.strength = Number(ps);
+      this.ink.uniforms.uKuwa.value = 0;
+      // Found by the shader warm-up (it compiles every material hanging off a pass).
+      Object.assign(this.ink, { paintMaterials: this.paint.materials });
+    }
 
     this.bloom = new UnrealBloomPass(new THREE.Vector2(w / 2, h / 2), 0.28, 0.5, 1.0);
     this.composer.addPass(this.bloom);
@@ -242,12 +254,14 @@ export class Post {
   /** Keep depth linearisation in sync with the camera (FPP uses a much smaller near plane). */
   setNear(n: number): void {
     this.ink.uniforms.uNear.value = n;
+    this.paint?.setNear(n);
   }
 
   setSize(w: number, h: number): void {
     const pr = this.renderer.getPixelRatio();
     const W = Math.floor(w * pr), H = Math.floor(h * pr);
     this.mrt.setSize(W, H);
+    this.paint?.setSize(W, H);
     this.composer.setSize(w, h);
     this.ink.uniforms.uRes.value.set(W, H);
     this.ink.uniforms.uWidth.value = Math.max(1.0, H / 1080) * 1.35;
@@ -280,6 +294,10 @@ export class Post {
     pf?.end("scene", this.renderer);
     this.sceneCalls = this.renderer.info.render.calls - c0;
     this.sceneTris = this.renderer.info.render.triangles - t0;
+    pf?.begin("paint", this.renderer);
+    const painted = this.paint?.render(this.renderer) ?? false;
+    pf?.end("paint", this.renderer);
+    this.ink.uniforms.tColor.value = painted ? this.paint!.output.texture : this.mrt.textures[0];
     this.renderer.setRenderTarget(null);
     this.grade.uniforms.uTime.value = time;
     this.composer.render();
