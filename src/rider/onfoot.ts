@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { G } from "../render/materials";
-import type { Bay } from "../world/bay";
+import { WADE, type Bay } from "../world/bay";
 import { roadX, roadYaw } from "../world/bay/road";
 import { gaitCycle, type FootState, type Rider } from "./rider";
 import type { ChaseCam } from "./camera";
@@ -294,7 +294,7 @@ export class Explore {
     const out = this._pen;
     out.pen = out.nx = out.nz = 0;
     for (const k of this.bay.colliders) {
-      if (k.kind === "house") continue;
+      if (k.kind === "house" || k.top < this.y + 0.25) continue;
       const dx = x - k.x, dz = z - k.z, rr = k.r + BODY_R;
       if (Math.abs(dx) >= rr || Math.abs(dz) >= rr) continue;
       const d2 = dx * dx + dz * dz;
@@ -323,7 +323,7 @@ export class Explore {
       let hit = (roof > 0 && p.y < roof) || p.y < this.bay.camFloor(p.x, p.z) - 0.05;
       if (!hit && p.y < 3.2) {
         for (const k of this.bay.colliders)
-          if (!k.kind && k.r >= 0.35 && k.r <= 1.2 && Math.hypot(p.x - k.x, p.z - k.z) < k.r * 0.7 + 0.2) {
+          if (!k.kind && p.y < k.top && k.r >= 0.35 && k.r <= 1.2 && Math.hypot(p.x - k.x, p.z - k.z) < k.r * 0.7 + 0.2) {
             hit = true;
             break;
           }
@@ -351,16 +351,26 @@ export class Explore {
 
   /**
    * Can she step from where she stands to (x, z)? Not into a house or deep water, not up a step
-   * higher than STEP_UP, and not toward ground rising steeper than SLOPE_UP just beyond the step
-   * (so she stops at the foot of a face instead of creeping up it). Downhill anything goes.
+   * higher than STEP_UP, never uphill onto ground steeper than SLOPE_UP (by its gradient, so a
+   * slide along a face can't zigzag up it), and not toward a steep rise just ahead (she stops at
+   * its foot instead of half inside it). Level or downhill anything goes.
    */
   private passable(x: number, z: number): boolean {
     const g = this.bay.groundAt(x, z, this.y);
     if (!g || this.bay.roofAt(x, z, BODY_R) > 0) return false;
-    if (g.h - this.gy > STEP_UP) return false;
+    const rise = g.h - this.gy;
+    if (rise > STEP_UP || (rise > 0 && this.steepness(x, z, g.h) > SLOPE_UP)) return false;
     const dx = x - this.x, dz = z - this.z, d = Math.hypot(dx, dz) || 1;
-    const a = this.bay.groundAt(x + (dx / d) * LOOK_AHEAD, z + (dz / d) * LOOK_AHEAD, g.h);
-    return !a || a.h - this.gy < 0.05 || (a.h - g.h) / LOOK_AHEAD <= SLOPE_UP;
+    const ax = x + (dx / d) * LOOK_AHEAD, az = z + (dz / d) * LOOK_AHEAD;
+    const a = this.bay.groundAt(ax, az, g.h);
+    return !a || a.h - this.gy < 0.05 || this.steepness(ax, az, a.h) <= SLOPE_UP;
+  }
+
+  /** Rise over run of the ground at (x, z), whose height is h. */
+  private steepness(x: number, z: number, h: number): number {
+    const e = 0.15;
+    const gx = this.bay.groundAt(x + e, z, h), gz = this.bay.groundAt(x, z + e, h);
+    return gx && gz ? Math.hypot(gx.h - h, gz.h - h) / e : 0;
   }
 
   private move(dx: number, dz: number): void {
@@ -508,6 +518,10 @@ export class Explore {
       wx /= len;
       wz /= len;
       want = runKey ? RUN : WALK;
+      // Wading: no running past her shins, and the water slows her as it deepens to her knees.
+      const depth = Math.max(0, SEA_Y - this.gy);
+      want = Math.min(want, WALK + (RUN - WALK) * (1 - smooth01((depth - 0.1) / 0.2)));
+      want *= 1 - 0.45 * smooth01((depth - 0.08) / (WADE - 0.08));
       const err = this.steerToward(Math.atan2(-wx, -wz), dt, want > WALK ? 7 : 9);
       // Turn on the spot for big direction changes, then set off.
       want *= clamp(Math.cos(err) * 1.2, 0.1, 1);

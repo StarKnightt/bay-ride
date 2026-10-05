@@ -144,7 +144,7 @@ export function buildPier(colliders: Collider[]): THREE.Group {
       }
       const ya = Math.max(y0, wetTop);
       wood.push(xf(cyl(P.r, P.r * 1.03, top - ya, C.timber, M.bark, 9), x, (ya + top) / 2, z, lean, 0, 0));
-      if (g > SEA_Y - 0.45) colliders.push({ x, z, r: P.r + 0.05 });
+      if (g > SEA_Y - 0.45) colliders.push({ x, z, r: P.r + 0.05, top });
     }
     wood.push(xf(box(0.24, 0.2, 2 * H + 0.3, C.timber, M.bark), x, top - 0.1, Z));
     const lo = Math.max(SEA_Y + 0.35, terrainH(x, Z) + 0.3);
@@ -202,7 +202,7 @@ export function buildPier(colliders: Collider[]): THREE.Group {
     paint.push(xf(cyl(0.12, 0.14, 0.42, C.iron, M.metal, 10), x, y + 0.21, z));
     paint.push(xf(cyl(0.17, 0.15, 0.08, C.iron, M.metal, 10), x, y + 0.44, z));
     PIER_BOLLARDS.push(v(x, y + 0.36, z));
-    colliders.push({ x, z, r: 0.2 });
+    colliders.push({ x, z, r: 0.2, top: y + 0.48 });
   }
   // Lamps: dark green posts with a lantern head on a short arm over the deck.
   for (const [x, s] of [[PIER.x1 + 1.0, 1], [-58, -1], [-24, 1]] as const) {
@@ -214,7 +214,7 @@ export function buildPier(colliders: Collider[]): THREE.Group {
     paint.push(xf(cyl(0.16, 0.06, 0.12, C.lamp, M.metal, 8), x, y + hgt + 0.06, hz));
     paint.push(xf(cyl(0.11, 0.09, 0.26, "#ffe2a0", M.glow, 8), x, y + hgt - 0.13, hz));
     PIER_LAMPS.push(v(x, y + hgt - 0.13, hz));
-    colliders.push({ x, z, r: 0.16 });
+    colliders.push({ x, z, r: 0.16, top: y + hgt });
   }
   // A lifebuoy on the north railing, banded red and white.
   {

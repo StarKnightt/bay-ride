@@ -25,6 +25,8 @@ export interface Collider {
   x: number;
   z: number;
   r: number;
+  /** World height of its top: she walks over anything whose top is below her feet (the deck over a rock). */
+  top: number;
   /** Rocks stop her but not the camera (it clears them by height); houses only keep grass out. */
   kind?: "rock" | "house";
 }
@@ -44,8 +46,8 @@ export interface Ground {
   kind: StepSurface;
 }
 
-/** Deepest water she may wade into (metres below the mean sea level). */
-const WADE = 0.45;
+/** Deepest water she may wade into (metres below the mean sea level): about her knees. */
+export const WADE = 0.5;
 
 /**
  * The whole bay as one static scene (no streaming): landform, coast road, island, placeholder
@@ -64,7 +66,7 @@ export class Bay {
   constructor() {
     const { terrain, beach } = buildTerrain(beachMaterial());
     this.root.add(terrain, beach, buildRocks(), buildSlipways());
-    for (const r of ROCKS) if (r.top > SEA_Y - 0.2) this.colliders.push({ x: r.x, z: r.z, r: r.r * 0.85, kind: "rock" });
+    for (const r of ROCKS) if (r.top > SEA_Y - 0.2) this.colliders.push({ x: r.x, z: r.z, r: r.r * 0.85, top: r.top, kind: "rock" });
     this.root.add(buildIsland());
     this.root.add(buildRoadRibbon(ROAD_Z0 + 30, ROAD_Z1 - 30, roadMaterial()));
     this.root.add(this.lighthouse());

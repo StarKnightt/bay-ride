@@ -48,7 +48,7 @@ export function buildHouses(colliders: Collider[], boxes: Box[]): THREE.Mesh {
       hp.push(xf(box(1.0, 1.2, 0.08, "#20262c", M.glass), 0, wy, -d / 2 - 0.04));
     }
     for (const g of hp) parts.push(xf(g, x, 0, z));
-    colliders.push({ x, z, r: Math.min(w, d) / 2 + 0.3, kind: "house" });
+    colliders.push({ x, z, r: Math.min(w, d) / 2 + 0.3, top: ridge, kind: "house" });
     // Walls, plus the eaves and the door frame standing proud of them.
     boxes.push({ x0: x - w / 2 - 0.1, x1: x + w / 2 + 0.1, z0: z - d / 2 - 0.1, z1: z + d / 2 + 0.1, top: ridge });
   }

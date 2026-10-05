@@ -15,6 +15,8 @@ const LIGHT_GLSL = `uniform vec3 uSunColor; uniform vec3 uShadowTint;
 
 const N_PRINTS = 64;
 const N_RINGS = 24;
+const _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _q = new THREE.Quaternion();
+const _up = new THREE.Vector3(0, 1, 0), _one = new THREE.Vector3(1, 1, 1);
 
 export interface WaterProbe {
   /** Water surface height and depth at (x, z) now (depth 0 = dry). */
@@ -120,12 +122,18 @@ export class Trail {
           a *= vInfo.y * (1.0 - smoothstep(0.85, 1.0, r));
           if (a < 0.004) discard;
           vec3 light = todLight() * mix(vec3(0.95, 0.97, 1.0), vec3(0.35, 0.42, 0.55), uNight);
-          gColor = vec4(light * uWorldTint * a * 0.32, 0.0);
+          gColor = vec4(light * uWorldTint * a * 0.2, 0.0);
           gNormal = vec4(0.0);
         }`,
       transparent: true,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      // Light added as is (alpha-weighted additive would multiply it by the 0 alpha), alpha and the
+      // normal / outline buffer left untouched.
+      blending: THREE.CustomBlending,
+      blendSrc: THREE.OneFactor,
+      blendDst: THREE.OneFactor,
+      blendSrcAlpha: THREE.ZeroFactor,
+      blendDstAlpha: THREE.OneFactor,
     });
     this.rings = new THREE.InstancedMesh(rg, rm, N_RINGS);
     this.rings.count = 0;
@@ -137,16 +145,17 @@ export class Trail {
   /** A foot landed at (x, y, z) facing yaw (world); side +1 right, -1 left; surface kind. */
   plant(x: number, y: number, z: number, yaw: number, side: number, kind: string, now: number): void {
     const w = this.water(x, z);
-    if (w.depth > 0.015) this.ring(x, z, now, Math.min(1, 0.5 + w.depth * 3));
+    // Only a foot that lands in the water rings it (not one on the deck above it).
+    if (w.depth > 0.015 && y < w.y + 0.05) this.ring(x, z, now, Math.min(1, 0.5 + w.depth * 3));
     if (kind !== "sand" && kind !== "wetsand") return;
     if (w.depth > 0.25) return;
     const i = this.pNext;
     this.pNext = (this.pNext + 1) % N_PRINTS;
     this.p[i] = { x, y, z, yaw, side, t0: now, wet: Math.max(w.wet, kind === "wetsand" ? 0.8 : 0), wipe: 0 };
     this.prints.count = Math.max(this.prints.count, i + 1);
-    const m = new THREE.Matrix4().compose(new THREE.Vector3(x, y + 0.012, z - 0), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(1, 1, 1));
+    const m = _m.compose(_p.set(x, y + 0.012, z), _q.setFromAxisAngle(_up, yaw), _one);
     // The print centre is ahead of the ankle (under the arch).
-    m.multiply(new THREE.Matrix4().makeTranslation(0, 0, -0.055));
+    m.multiply(_m2.makeTranslation(0, 0, -0.055));
     this.prints.setMatrixAt(i, m);
     this.prints.instanceMatrix.needsUpdate = true;
     this.pInfo.setXYZW(i, side, now, this.p[i].wet, 0);
@@ -168,7 +177,8 @@ export class Trail {
    */
   update(now: number, dt: number, feet: THREE.Vector3[] | null): void {
     this.uNow.value = now;
-    const m = new THREE.Matrix4();
+    const m = _m;
+    _q.identity();
     for (let i = 0; i < this.r.length; i++) {
       const r = this.r[i];
       if (!r) continue;
@@ -176,7 +186,7 @@ export class Trail {
       const w = this.water(r.x, r.z);
       const y = Number.isFinite(w.y) ? w.y + 0.01 : -100;
       const size = age < 2.6 && age >= 0 ? 1.6 : 0;
-      m.compose(new THREE.Vector3(r.x, y, r.z), new THREE.Quaternion(), new THREE.Vector3(size, 1, size));
+      m.compose(_p.set(r.x, y, r.z), _q, _s.set(size, 1, size));
       this.rings.setMatrixAt(i, m);
     }
     this.rings.instanceMatrix.needsUpdate = true;
