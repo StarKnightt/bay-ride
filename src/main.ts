@@ -107,9 +107,17 @@ async function step<T>(label: string, weight: number, fn: () => T): Promise<T> {
 await yieldToPaint();
 
 const scene = new THREE.Scene();
-const bay = await step("the bay", W_BUILD * 0.5, () => new Bay());
+const bay = await Bay.build(yieldToPaint, (label, ms) => {
+  bootLog.push([label, Math.round(ms)]);
+  loader.advance((W_BUILD * 0.5) / 12);
+});
 scene.add(bay.root);
-await step("the sea", W_BUILD * 0.15, () => bakeDepth());
+{
+  const s = performance.now();
+  await bakeDepth(yieldToPaint);
+  bootLog.push(["the sea", Math.round(performance.now() - s)]);
+  loader.advance(W_BUILD * 0.15);
+}
 const sea = buildSea();
 scene.add(sea);
 const buoys = new Buoys();

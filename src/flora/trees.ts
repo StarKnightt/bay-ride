@@ -254,13 +254,15 @@ export interface TreeRegion {
 }
 
 /** One merged mesh per region; registers trunk and shrub colliders and keeps grass off trunks. */
-export function buildTrees(regions: TreeRegion[], layout: Layout, colliders: Collider[]): { group: THREE.Group; trees: number; cards: number } {
+/** One merged mesh per region, awaiting `pause()` between regions (see Bay.build). */
+export async function buildTrees(regions: TreeRegion[], layout: Layout, colliders: Collider[], pause: () => Promise<void> = async () => {}): Promise<{ group: THREE.Group; trees: number; cards: number }> {
   const group = new THREE.Group();
   group.name = "trees";
   const mat = foliageMaterial();
   let trees = 0, cards = 0;
   for (const reg of regions) {
     if (!reg.spots.length) continue;
+    if (group.children.length) await pause();
     const b = new Builder();
     for (const s of reg.spots) placeInto(b, s, layout, colliders);
     trees += reg.spots.length;

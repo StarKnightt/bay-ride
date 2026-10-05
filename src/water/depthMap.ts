@@ -207,19 +207,24 @@ function bilerp(grid: Float32Array, u: number, v: number): number {
   return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
 }
 
-export function bakeDepth(): THREE.DataTexture {
+/** Bake the bay's depth and wave travel-time field, awaiting `pause()` between slices of the work. */
+export async function bakeDepth(pause: () => Promise<void> = async () => {}): Promise<THREE.DataTexture> {
   const { x0, z0, size } = DEPTH_BOUNDS;
   // Travel times on the coarse grid.
   const tc = size / TN;
   const depth = new Float32Array(TN * TN);
   for (let j = 0; j < TN; j++)
     for (let i = 0; i < TN; i++) depth[j * TN + i] = SEA_Y - bedY(x0 + (i + 0.5) * tc, z0 + (j + 0.5) * tc);
+  await pause();
   const tA = shoreMatched(depth, WAVE.dir[0], WAVE.period[0]);
+  await pause();
   const tB = shoreMatched(depth, WAVE.dir[1], WAVE.period[1]);
+  await pause();
 
   const field = new Float32Array(RES * RES * 4);
   const data = new Uint16Array(RES * RES * 4);
   for (let j = 0; j < RES; j++) {
+    if (j % 64 === 63) await pause();
     const v = (j + 0.5) / RES;
     const z = z0 + v * size;
     for (let i = 0; i < RES; i++) {

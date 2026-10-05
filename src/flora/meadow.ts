@@ -101,7 +101,16 @@ export class Meadow {
   drawn = 0;
   draws = 0;
 
-  constructor(layout: Layout) {
+  /** Built in slices, awaiting `pause()` between them, so the loader keeps drawing (see Bay.build). */
+  static async build(layout: Layout, pause: () => Promise<void>): Promise<Meadow> {
+    const m = new Meadow();
+    await m.fill(layout, pause);
+    return m;
+  }
+
+  private constructor() {}
+
+  private async fill(layout: Layout, pause: () => Promise<void>): Promise<void> {
     this.group.name = "meadow";
     const mat = meadowMaterial();
     const nearBase = clumpGeo(9, 3, 1, 71);
@@ -138,8 +147,12 @@ export class Meadow {
       h *= 0.55 + 0.45 * smooth(0.0, 1.6, cl);
       put(x, y, z, Math.max(0.28, h), range(r, 0.85, 1.25), Math.min(1, Math.max(0, range(r, 0, 0.75) + (drift - 0.5) * 0.5)));
     };
-    for (let z = -300; z < 268; z += STEP)
+    let rows = 0;
+    for (let z = -300; z < 268; z += STEP) {
       for (let x = roadX(z) + 7.5; x < roadX(z) + 168; x += STEP) try1(x + range(r, -0.45, 0.45) * STEP, z + range(r, -0.45, 0.45) * STEP);
+      if (++rows % 48 === 0) await pause();
+    }
+    await pause();
 
     // Headlands: shorter, wind-swept golden grass on the gentler slopes.
     const try2 = (x: number, z: number) => {
@@ -167,8 +180,11 @@ export class Meadow {
         if (y < SEA_Y + 2.6 || slopeAt(xx, zz) > 0.34) continue;
         put(xx, y, zz, range(r, 0.3, 0.6), range(r, 0.9, 1.3), range(r, 0.4, 0.95));
       }
+    await pause();
 
+    let made = 0;
     for (const [k, l] of lists) {
+      if (++made % 24 === 0) await pause();
       const n = l.length / 8;
       // Sort by rank: drawing the first `count` instances thins the chunk evenly.
       const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => l[a * 8 + 7] - l[b * 8 + 7]);

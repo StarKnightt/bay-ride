@@ -64,27 +64,63 @@ export class Bay {
   /** Lighthouse lamp centre. */
   readonly lamp = new THREE.Vector3();
   /** Turning lighthouse beams and lamp halo (dusk and night). */
-  readonly beam: LighthouseBeam;
+  beam!: LighthouseBeam;
   /** The town, road furniture, harbour gear, boulders and all the flora (see world/detail). */
-  readonly detail: WorldDetail;
+  detail!: WorldDetail;
   /** Gulls, butterflies, leaping fish, drifting petals and seeds, fireflies (see life/). */
-  readonly life: Life;
+  life!: Life;
 
-  constructor() {
-    const { terrain, beach } = buildTerrain(beachMaterial());
-    this.root.add(terrain, beach, buildRocks(), buildSlipways());
-    for (const r of ROCKS) if (r.top > SEA_Y - 0.2) this.colliders.push({ x: r.x, z: r.z, r: r.r * 0.85, top: r.top, kind: "rock" });
-    this.root.add(buildIsland());
-    this.root.add(buildRoadRibbon(ROAD_Z0 + 30, ROAD_Z1 - 30, roadMaterial()));
-    this.root.add(this.lighthouse());
-    this.root.add(buildPier(this.colliders));
-    this.detail = new WorldDetail(this.colliders, this.boxes);
-    this.root.add(this.detail.group);
-    this.root.add(buildDuneGrass(this.colliders, this.detail.layout));
-    this.life = new Life(this.detail.layout, this.detail.flora.flowers.drifts);
-    this.root.add(this.life.group);
-    this.beam = new LighthouseBeam(this.lamp);
-    this.root.add(this.beam.group);
+  /**
+   * Build the bay one step at a time, awaiting `pause()` between steps so the loader keeps
+   * drawing (built in one go it held the page for over a second). `log` gets each step's time.
+   */
+  static async build(pause: () => Promise<void>, log?: (label: string, ms: number) => void): Promise<Bay> {
+    const bay = new Bay();
+    for (const [label, step] of bay.steps(pause, log)) {
+      const s = performance.now();
+      const nested = await step();
+      if (!nested) log?.(label, performance.now() - s);
+      await pause();
+    }
+    return bay;
+  }
+
+  private constructor() {}
+
+  /** Each step builds one part; a step that pauses and logs its own parts returns true. */
+  private steps(pause: () => Promise<void>, log?: (label: string, ms: number) => void): [string, () => void | Promise<boolean>][] {
+    return [
+      ["terrain", () => {
+        const { terrain, beach } = buildTerrain(beachMaterial());
+        this.root.add(terrain, beach);
+      }],
+      ["rocks", () => {
+        this.root.add(buildRocks(), buildSlipways());
+        for (const r of ROCKS) if (r.top > SEA_Y - 0.2) this.colliders.push({ x: r.x, z: r.z, r: r.r * 0.85, top: r.top, kind: "rock" });
+      }],
+      ["island", () => {
+        this.root.add(buildIsland());
+        this.root.add(buildRoadRibbon(ROAD_Z0 + 30, ROAD_Z1 - 30, roadMaterial()));
+        this.root.add(this.lighthouse());
+      }],
+      ["pier", () => {
+        this.root.add(buildPier(this.colliders));
+      }],
+      ["detail", async () => {
+        this.detail = await WorldDetail.build(this.colliders, this.boxes, pause, log);
+        this.root.add(this.detail.group);
+        return true;
+      }],
+      ["dune grass", () => {
+        this.root.add(buildDuneGrass(this.colliders, this.detail.layout));
+      }],
+      ["life", () => {
+        this.life = new Life(this.detail.layout, this.detail.flora.flowers.drifts);
+        this.root.add(this.life.group);
+        this.beam = new LighthouseBeam(this.lamp);
+        this.root.add(this.beam.group);
+      }],
+    ];
   }
 
   /**

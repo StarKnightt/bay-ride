@@ -122,13 +122,18 @@ const TOWN_TREES: [number, number, TreeKind, number][] = [
 
 export class Flora {
   readonly group = new THREE.Group();
-  readonly meadow: Meadow;
-  readonly flowers: Flowers;
-  readonly trees: number;
-  readonly leafCards: number;
+  meadow!: Meadow;
+  flowers!: Flowers;
+  trees = 0;
+  leafCards = 0;
 
-  constructor(layout: Layout, colliders: Collider[], townShrubs: TreeSpot[]) {
-    this.group.name = "flora";
+  /**
+   * Trees, then the meadow, then the flowers, with `done(label)` awaited after each and `pause()`
+   * between slices of the bigger ones (see Bay.build).
+   */
+  static async build(layout: Layout, colliders: Collider[], townShrubs: TreeSpot[], done: (label: string) => Promise<void>, pause: () => Promise<void>): Promise<Flora> {
+    const f = new Flora();
+    f.group.name = "flora";
     const r = mulberry32(3131);
     const town: TreeSpot[] = [...townShrubs];
     for (const [u, z, kind, s] of TOWN_TREES) {
@@ -137,14 +142,20 @@ export class Flora {
     }
     // Shrubs that would stand on a lane, path or wall are dropped.
     const regions = [{ name: "town", spots: town.filter((s) => s.y !== undefined || layout.free(s.x, s.z, 0.5)) }, ...wildTrees(layout)];
-    const t = buildTrees(regions, layout, colliders);
-    this.trees = t.trees;
-    this.leafCards = t.cards;
-    this.group.add(t.group);
-    this.meadow = new Meadow(layout);
-    this.flowers = new Flowers(layout);
-    this.group.add(this.meadow.group, this.flowers.group);
+    const t = await buildTrees(regions, layout, colliders, pause);
+    f.trees = t.trees;
+    f.leafCards = t.cards;
+    f.group.add(t.group);
+    await done("trees");
+    f.meadow = await Meadow.build(layout, pause);
+    await done("meadow");
+    f.flowers = new Flowers(layout);
+    f.group.add(f.meadow.group, f.flowers.group);
+    await done("flowers");
+    return f;
   }
+
+  private constructor() {}
 
   update(cam: THREE.Vector3): void {
     this.meadow.update(cam);

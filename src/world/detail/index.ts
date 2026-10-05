@@ -22,29 +22,44 @@ import { buildHarbour } from "./harbour";
 export class WorldDetail {
   readonly group = new THREE.Group();
   readonly layout = new Layout();
-  readonly flora: Flora;
+  flora!: Flora;
   readonly stats: Record<string, number> = {};
 
-  constructor(colliders: Collider[], boxes: Box[]) {
-    this.group.name = "world detail";
+  /** Built a part at a time, awaiting `pause()` between parts (see Bay.build). */
+  static async build(colliders: Collider[], boxes: Box[], pause: () => Promise<void>, log?: (label: string, ms: number) => void): Promise<WorldDetail> {
+    const d = new WorldDetail();
+    let s = performance.now();
+    const done = async (label: string) => {
+      log?.(label, performance.now() - s);
+      await pause();
+      s = performance.now();
+    };
+    d.group.name = "world detail";
     const q = new URLSearchParams(location.search).get("detail");
     setTier(q === "low" || q === "med" ? (q as Tier) : "high");
     const shrubs: TreeSpot[] = [];
     const c0 = colliders.length;
-    const town = buildTown(colliders, boxes, this.layout, shrubs);
-    this.group.add(town.group, buildStreet(this.layout, colliders), buildHarbour(this.layout, colliders, boxes), boulders(this.layout, colliders));
-    this.flora = new Flora(this.layout, colliders, shrubs);
-    this.group.add(this.flora.group);
-    Object.assign(this.stats, {
+    const town = buildTown(colliders, boxes, d.layout, shrubs);
+    await done("town");
+    const street = buildStreet(d.layout, colliders);
+    await done("street");
+    d.group.add(town.group, street, buildHarbour(d.layout, colliders, boxes), boulders(d.layout, colliders));
+    await done("harbour");
+    d.flora = await Flora.build(d.layout, colliders, shrubs, done, pause);
+    d.group.add(d.flora.group);
+    Object.assign(d.stats, {
       houses: town.houses,
-      trees: this.flora.trees,
-      leafCards: this.flora.leafCards,
-      grassClumps: this.flora.meadow.total,
-      flowerClumps: this.flora.flowers.total,
-      flowerSpots: this.layout.spots.length,
+      trees: d.flora.trees,
+      leafCards: d.flora.leafCards,
+      grassClumps: d.flora.meadow.total,
+      flowerClumps: d.flora.flowers.total,
+      flowerSpots: d.layout.spots.length,
       colliders: colliders.length - c0,
     });
+    return d;
   }
+
+  private constructor() {}
 
   update(cam: THREE.Vector3): void {
     this.flora.update(cam);
