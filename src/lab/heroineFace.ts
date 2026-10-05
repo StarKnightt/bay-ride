@@ -285,17 +285,21 @@ void main(){
       over(col, col * ${lin("#dcb0a2")}, (1.0 - smoothstep(0.3, 1.0, length((p - vec2(0.0, ym - 0.0080)) / vec2(0.0062, 0.0017)))) * 0.25);
     }
   }
-  // Tinted lenses: warm brown, deeper at the top, a soft diagonal sheen of the sky; the eyes read
-  // through them.
+  // Tinted lenses: a light, even warm-brown tint (the same density across the lens) and one clean
+  // white reflection streak, so her eyes read clearly through them at every time of day.
   if (uLens > 0.5 && fp.z > 0.0) {
     vec2 lq;
     float lA = lens(fp, vDirB, pw, lq);
     if (lA > 0.0) {
-      vec3 tint = mix(${lin("#a1806a")}, ${lin("#5e3c2b")}, smoothstep(-0.85, 0.8, lq.y));
-      col = mix(col, col * tint, lA);
-      float band = 1.0 - smoothstep(0.0, 0.16, abs(lq.x * 0.55 + lq.y * 0.85 - 0.3));
-      band += 0.6 * (1.0 - smoothstep(0.0, 0.06, abs(lq.x * 0.55 + lq.y * 0.85 - 0.62)));
-      over(col, Le * ${lin("#d8e3e7")} * (0.7 - 0.45 * uNight), band * 0.26 * lA);
+      col = mix(col, col * ${lin("#e2c6ae")}, lA * 0.85);
+      // One diagonal stroke across the upper outer part of each lens, tapering at both ends.
+      // Lens x is mirrored per side; the reflection sits on the same screen side in both lenses.
+      float lx = lq.x * (fp.x >= 0.0 ? 1.0 : -1.0);
+      vec2 sq = vec2(lx * 0.62 + lq.y * 0.78, -lx * 0.78 + lq.y * 0.62);
+      float along = 1.0 - smoothstep(0.35, 0.62, abs(sq.y + 0.08));
+      float wdt = 0.075 * along;
+      float streak = cov((abs(sq.x - 0.42) - wdt) * LHH, pw * 0.8) * along;
+      over(col, vec3(1.0) * mix(1.0, 0.55, uNight) * max(Le, vec3(0.6)), streak * 0.8 * lA);
     }
   }
   col = applyFog(col, vWPos);

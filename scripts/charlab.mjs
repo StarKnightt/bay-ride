@@ -35,6 +35,9 @@ const SHOTS = [
   ["face_golden", { view: "face", tod: "golden" }],
   ["face_noglasses_noon", { view: "face", tod: "noon", glasses: false }],
   ["sit_tiller_noon", { view: "sit", tod: "noon" }],
+  ["face_night", { view: "face", tod: "night" }],
+  ["crotch_noon", { view: "front", tod: "noon", dist: 1.5, height: 0.86 }],
+  ["hands_noon", { view: "front", tod: "noon", dist: 1.3, height: 0.86, yaw: 55 }],
 ];
 
 await fs.mkdir(OUT, { recursive: true });

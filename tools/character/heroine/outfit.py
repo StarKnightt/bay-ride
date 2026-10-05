@@ -169,8 +169,15 @@ def shorts(col):
             P = top * (1 - f) + ell * f
             P[:, 2] = top[:, 2] * (1 - f) + z * f
             P = body.leg_clear(s, P, 0.008)
+            # The inner side of each leg hangs flat against the midline (a seam, no open slot whose
+            # shaded inner walls read as a dark gap from the front). This moves cloth away from
+            # the thigh, never into it.
+            if f > 0.05:
+                xi = P[:, 0] * s
+                inner = smooth(0.06, 0.010, xi) * f
+                P[:, 0] = s * (xi * (1 - inner) + 0.0012 * inner)
             # The two legs never cross the middle.
-            P[:, 0] = np.where(P[:, 0] * s < 0.003, s * 0.003, P[:, 0]) if f > 0.05 else P[:, 0]
+            P[:, 0] = np.where(P[:, 0] * s < 0.0012, s * 0.0012, P[:, 0]) if f > 0.05 else P[:, 0]
             rings.append(P)
         leg_rings[s] = np.stack(rings)
         R = np.stack(rings[1:])

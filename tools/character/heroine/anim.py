@@ -185,13 +185,15 @@ def arms_down(s, adduct=17.0, flex=0.0, elbow=12.0, out_twist=0.0):
 def hand_relax(s, curl=1.0, thumb=1.0):
     sf = "L" if s > 0 else "R"
     loc = {}
+    # A relaxed hand: the curl cascades from the index to the pinky, the fingers fan a little.
     for i, name in enumerate(("index", "middle", "ring", "pinky")):
-        c = (14 + 5 * i) * curl
-        loc[f"{name}1_{sf}"] = rot(X, -c)
-        loc[f"{name}2_{sf}"] = rot(X, -(c * 1.3))
-    loc[f"thumb1_{sf}"] = rot(Z, 6 * thumb)
-    loc[f"thumb2_{sf}"] = rot(X, -10 * thumb)
-    loc[f"thumb3_{sf}"] = rot(X, -12 * thumb)
+        c = (22 + 7 * i) * curl
+        fan = (-1.5 + 1.2 * i) * s
+        loc[f"{name}1_{sf}"] = rot(Z, fan) @ rot(X, -c)
+        loc[f"{name}2_{sf}"] = rot(X, -(c * 1.45 + 6 * curl))
+    loc[f"thumb1_{sf}"] = rot(Z, 9 * thumb)
+    loc[f"thumb2_{sf}"] = rot(X, -16 * thumb)
+    loc[f"thumb3_{sf}"] = rot(X, -20 * thumb)
     return loc
 
 

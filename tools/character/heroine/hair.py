@@ -16,7 +16,7 @@ from .common import (assign_material, frames_along, gauss, hash1, make_mesh, mat
 HC = head.HC
 PART_X = -0.030           # side part on her right (x < 0), the fringe sweeps to her left
 CAP = 0.0045              # scalp cap above the skin
-NR = 7                    # vertices round each clump
+NR = 10                   # vertices round each lock
 HAIR = "#6f4630"
 HAIR_LT = "#9e6c48"
 HAIR_DK = "#3e2517"
@@ -155,9 +155,11 @@ def clump(path, w0, h0, n_ring=None, taper0=0.55, root_flat=0.6):
     O = norm(O - T * np.einsum("ij,ij->i", O, T)[:, None])
     Wd = norm(np.cross(T, O))
     s = np.linspace(0, 1, m)
-    w = w0 * (0.82 + 0.18 * smooth(0.0, 0.25, s)) * (1 - smooth(taper0, 1.0, s) ** 1.35)
-    w = np.maximum(w, w0 * 0.05)
-    h = h0 * (1 - 0.55 * s) * (1 - smooth(0.8, 1.0, s) * 0.6)
+    # Full through the body, tapering toward the end, then a rounded (elliptical) tip.
+    tip = np.sqrt(np.clip(1 - ((s - 0.86) / 0.14).clip(0, None) ** 2, 0, 1))
+    w = w0 * (0.84 + 0.16 * smooth(0.0, 0.25, s)) * (1 - 0.62 * smooth(taper0, 0.95, s)) * tip
+    w = np.maximum(w, w0 * 0.03)
+    h = h0 * (1 - 0.35 * s) * (1 - 0.5 * smooth(taper0, 0.95, s)) * tip
     th = np.linspace(0, 2 * np.pi, n_ring, endpoint=False)
     rings = []
     for i in range(m):
@@ -188,7 +190,7 @@ def _dir(theta, phi):
 # ---------------------------------------------------------------- the style
 
 
-def _wave(theta, amp_side=0.0110, amp_out=0.0070, lam=0.080):
+def _wave(theta, amp_side=0.0135, amp_out=0.0085, lam=0.100):
     """Waves whose phase drifts slowly round the head, so neighbouring locks wave together."""
     return (amp_side, amp_out, lam, 1.1 * theta)
 
@@ -198,36 +200,38 @@ def style():
     S = []
     R = lambda th, ph, off: scalp_point(_dir(th, ph)[None, :], off)[0]
     # (The side-swept fringe is drawn separately, see FRINGE.)
+    # Few, thick locks (a clean toon silhouette): 2 face-framing, 4 over the ears, 5 broad back
+    # locks and 3 darker under-layer locks filling the nape; 14 long locks plus the 4-lock fringe.
     # Face-framing locks in front of the ears, to the jaw line.
     for s in (1, -1):
-        for j, (th, ln, w) in enumerate([(0.98, 0.190, 0.026), (1.18, 0.205, 0.028)]):
-            root = R(s * th, 0.66, CAP + 0.004)
-            comb = norm(np.array([s * 0.10, -0.30, -1.0]))
-            S.append(("side" + ("L" if s > 0 else "R"), root, comb, ln, w, 0.0062, CAP + 0.008 + 0.0025 * j, 0.03,
-                      _wave(s * th, 0.0065, 0.004, 0.085), 0.008, 0.0))
+        th = 1.06
+        root = R(s * th, 0.66, CAP + 0.004)
+        comb = norm(np.array([s * 0.10, -0.30, -1.0]))
+        S.append(("side" + ("L" if s > 0 else "R"), root, comb, 0.205, 0.036, 0.0105, CAP + 0.010, 0.03,
+                  _wave(s * th, 0.0080, 0.0050, 0.095), 0.010, 0.0))
     # Over the ears, falling to the shoulders.
     for s in (1, -1):
-        for j, th in enumerate([1.42, 1.66, 1.90]):
-            root = R(s * th, 0.70 - 0.03 * j, CAP + 0.004)
+        for j, th in enumerate([1.46, 1.84]):
+            root = R(s * th, 0.70 - 0.04 * j, CAP + 0.004)
             comb = norm(np.array([s * 0.30, 0.30, -1.0]))
-            S.append(("ear" + ("L" if s > 0 else "R"), root, comb, 0.285 + 0.008 * j, 0.040, 0.0075,
-                      CAP + 0.012 + 0.0015 * j, 0.012, _wave(s * th), 0.020, 0.0))
+            S.append(("ear" + ("L" if s > 0 else "R"), root, comb, 0.285 + 0.012 * j, 0.055, 0.0135,
+                      CAP + 0.014 + 0.002 * j, 0.012, _wave(s * th), 0.022, 0.0))
     # Back: broad overlapping locks round the back of the head to the shoulders.
-    for j in range(7):
-        u = j / 6
-        th = 2.25 + (2 * np.pi - 4.5) * u      # from her left-back round to her right-back
+    for j in range(5):
+        u = j / 4
+        th = 2.28 + (2 * np.pi - 4.56) * u      # from her left-back round to her right-back
         root = R(th, 0.80, CAP + 0.004)
         comb = norm(np.array([np.sin(th) * 0.22, 0.45, -1.0]))
         ln = 0.300 + 0.012 * np.cos(u * np.pi * 2.0 + 0.6) + 0.008 * hash1(j * 3.1)
-        S.append(("back", root, comb, ln, 0.046, 0.0085, CAP + 0.015, 0.0, _wave(th), 0.022, 0.0))
+        S.append(("back", root, comb, ln, 0.064, 0.0155, CAP + 0.019 + 0.0015 * (j % 2), 0.0, _wave(th), 0.024, 0.0))
     # Under layer: shorter, darker, filling the nape and behind the ears.
-    for j in range(6):
-        u = j / 5
-        th = 1.75 + (2 * np.pi - 3.5) * u
+    for j in range(3):
+        u = j / 2
+        th = 1.95 + (2 * np.pi - 3.9) * u
         root = R(th, 1.02, CAP + 0.002)
         comb = norm(np.array([np.sin(th) * 0.3, 0.35, -1.0]))
-        S.append(("under", root, comb, 0.215 + 0.012 * hash1(j * 7.7), 0.044, 0.0072, CAP + 0.006, 0.0,
-                  _wave(th, 0.006, 0.003), 0.012, 1.0))
+        S.append(("under", root, comb, 0.220 + 0.012 * hash1(j * 7.7), 0.066, 0.0110, CAP + 0.008, 0.0,
+                  _wave(th, 0.007, 0.004), 0.012, 1.0))
     return S
 
 
@@ -237,14 +241,11 @@ def style():
 FRINGE = [
     # One soft side-swept sheet: wide overlapping locks whose tips follow a smooth curve from
     # high over her right brow, across above the frames, down past her left temple.
-    ((-0.034, 0.089), (-0.030, 0.062), (-0.018, 0.047), 0.020, 0.0040, 0),
-    ((-0.026, 0.092), (-0.016, 0.060), (-0.001, 0.041), 0.023, 0.0042, 1),
-    ((-0.017, 0.094), (-0.001, 0.058), (0.017, 0.037), 0.024, 0.0043, 2),
-    ((-0.007, 0.094), (0.014, 0.056), (0.034, 0.035), 0.024, 0.0043, 0),
-    ((0.003, 0.094), (0.030, 0.054), (0.050, 0.033), 0.023, 0.0044, 1),
-    ((0.014, 0.093), (0.046, 0.050), (0.063, 0.017), 0.022, 0.0045, 2),
-    ((0.025, 0.090), (0.060, 0.040), (0.072, -0.008), 0.020, 0.0046, 0),
-    ((0.035, 0.087), (0.068, 0.028), (0.077, -0.030), 0.018, 0.0047, 1),
+    # Four thick overlapping locks.
+    ((-0.033, 0.090), (-0.026, 0.062), (-0.011, 0.045), 0.030, 0.0062, 0),
+    ((-0.017, 0.094), (0.003, 0.058), (0.023, 0.037), 0.034, 0.0066, 1),
+    ((0.002, 0.094), (0.036, 0.054), (0.055, 0.027), 0.033, 0.0068, 2),
+    ((0.022, 0.091), (0.062, 0.042), (0.075, -0.020), 0.027, 0.0070, 0),
 ]
 
 
