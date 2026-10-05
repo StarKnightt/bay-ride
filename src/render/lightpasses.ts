@@ -1,10 +1,15 @@
 import * as THREE from "three";
 import { G, REFL, shadowDepthMaterial } from "./materials";
+import type { ShadowPass } from "./precompile";
 
-/** Render layers: 0 = main view, 1 = casts sun shadow, 2 = appears in water reflections, 3 = her own shadow. */
+/**
+ * Render layers: 0 = main view, 1 = casts sun shadow, 2 = appears in water reflections, 3 = her own
+ * shadow, 4 = her hat and face stand-ins in her own shadow (drawn with an offset depth).
+ */
 export const LAYER_SHADOW = 1;
 export const LAYER_REFLECT = 2;
 export const LAYER_CHAR = 3;
+export const LAYER_CHAR_HAT = 4;
 
 export function onLayers(o: THREE.Object3D, ...layers: number[]): void {
   o.traverse((c) => {
@@ -82,6 +87,14 @@ export class CharShadow {
   readonly cam: THREE.OrthographicCamera;
   private bias = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
 
+  /**
+   * Second pass into the same map: her hat and face (LAYER_CHAR_HAT) with their depth pushed away
+   * from the light, so the brim doesn't black out her face, hair and shoulders but still shades the
+   * ground; null = no second pass.
+   */
+  readonly hatCam: THREE.OrthographicCamera;
+  hatMat: THREE.Material | null = null;
+
   constructor(readonly mat: THREE.Material, size = 1024, half = 1.25) {
     this.rt = new THREE.WebGLRenderTarget(size, size, {
       depthTexture: new THREE.DepthTexture(size, size, THREE.UnsignedIntType),
@@ -91,6 +104,8 @@ export class CharShadow {
     this.rt.depthTexture!.magFilter = THREE.NearestFilter;
     this.cam = new THREE.OrthographicCamera(-half, half, half, -half, 0.5, 40);
     this.cam.layers.set(LAYER_CHAR);
+    this.hatCam = this.cam.clone();
+    this.hatCam.layers.set(LAYER_CHAR_HAT);
     G.uCharShadowMap.value = this.rt.depthTexture;
     G.uCharShadowTexel.value = 1 / size;
   }
@@ -110,8 +125,23 @@ export class CharShadow {
     renderer.setRenderTarget(this.rt);
     renderer.clear();
     renderer.render(scene, this.cam);
+    if (this.hatMat) {
+      this.hatCam.position.copy(this.cam.position);
+      this.hatCam.quaternion.copy(this.cam.quaternion);
+      this.hatCam.updateMatrixWorld();
+      const ac = renderer.autoClear;
+      renderer.autoClear = false;
+      scene.overrideMaterial = this.hatMat;
+      renderer.render(scene, this.hatCam);
+      renderer.autoClear = ac;
+    }
     scene.overrideMaterial = prevOverride;
     renderer.setRenderTarget(null);
+  }
+
+  /** The hat pass as a shadow pass, for the shader warm-up. */
+  get hatPass(): ShadowPass[] {
+    return this.hatMat ? [{ rt: this.rt, cam: this.hatCam, mat: this.hatMat }] : [];
   }
 }
 

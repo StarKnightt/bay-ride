@@ -4,8 +4,8 @@ import { Post } from "../render/post";
 import { CharShadow, LAYER_CHAR, SunShadow, onLayers } from "../render/lightpasses";
 import { PRESETS, TimeOfDay, parsePreset, type Preset } from "../world/timeofday";
 import { buildBoat } from "../boat/model";
-import { FACE_U } from "./heroineFace";
-import { loadHeroine, poseAt, type Heroine } from "./heroine";
+import { FACE_U } from "../rider/heroineFace";
+import { loadHeroine, poseAt, type Heroine } from "../rider/heroine";
 
 /**
  * Character lab (not part of the game build): the heroine GLB in the game's own toon materials,

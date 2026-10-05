@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { uber } from "../render/materials";
 import { ID, M } from "../world/geo";
 import { FACE_U, heroineFaceMaterial, type FaceLayout } from "./heroineFace";
@@ -15,24 +16,46 @@ interface Role {
   id: number;
   mt: number;
   side?: THREE.Side;
+  /** Draw group in the game (one skinned mesh per group). */
+  group: string;
 }
+const SHIRT: Role = { id: ID.rider, mt: M.linen, side: THREE.DoubleSide, group: "shirt" };
+const SHORTS: Role = { id: ID.shorts, mt: M.linen, side: THREE.DoubleSide, group: "shorts" };
 const ROLES: Record<string, Role> = {
-  skin: { id: ID.skin, mt: M.skin },
-  hair: { id: ID.hair, mt: M.hair, side: THREE.DoubleSide },
-  shirt: { id: ID.rider, mt: M.linen, side: THREE.DoubleSide },
-  cami: { id: ID.top, mt: M.cloth, side: THREE.DoubleSide },
-  shorts: { id: ID.shorts, mt: M.linen, side: THREE.DoubleSide },
-  sandal: { id: ID.shorts, mt: M.plain, side: THREE.DoubleSide },
-  metal: { id: ID.shorts, mt: M.metal },
-  straw: { id: ID.hat, mt: M.straw, side: THREE.DoubleSide },
-  ribbon: { id: ID.top, mt: M.cloth, side: THREE.DoubleSide },
-  frame: { id: ID.eye, mt: M.lacquer },
+  skin: { id: ID.skin, mt: M.skin, group: "skin" },
+  hair: { id: ID.hair, mt: M.hair, side: THREE.DoubleSide, group: "hair" },
+  shirt: SHIRT,
+  collar: SHIRT,
+  sleeve: SHIRT,
+  knot: SHIRT,
+  tail: SHIRT,
+  cami: { id: ID.top, mt: M.cloth, side: THREE.DoubleSide, group: "cami" },
+  shorts: SHORTS,
+  shorts_leg: SHORTS,
+  sandal: { ...SHORTS, mt: M.plain },
+  metal: { ...SHORTS, mt: M.metal },
+  straw: { id: ID.hat, mt: M.straw, side: THREE.DoubleSide, group: "hat" },
+  ribbon: { id: ID.top, mt: M.cloth, side: THREE.DoubleSide, group: "ribbon" },
+  frame: { id: ID.eye, mt: M.lacquer, group: "frame" },
 };
+
+export interface ClipMeta {
+  duration: number;
+  loop?: boolean;
+  speed?: number;
+  stride?: number;
+  contacts?: Record<"L" | "R", [number, number][]>;
+  takeOff?: number;
+  touchDown?: number;
+  seatHeight?: number;
+  grip?: [number, number, number];
+}
 
 export interface HeroineMeta {
   face: FaceLayout;
   materials: string[];
-  clips?: Record<string, { duration: number; [k: string]: unknown }>;
+  sole?: number;
+  clips?: Record<string, ClipMeta>;
 }
 
 export interface Heroine {
@@ -61,6 +84,7 @@ export async function loadHeroine(url: string): Promise<Heroine> {
   FACE_U.uHatShade.value = m.materials.includes("straw") ? 1 : 0;
   const meshes: THREE.Mesh[] = [];
   const bones = new Map<string, THREE.Bone>();
+  const mats = new Map<string, THREE.Material>();
   let tris = 0;
   gltf.scene.traverse((o) => {
     if ((o as THREE.Bone).isBone) bones.set(o.name, o as THREE.Bone);
@@ -83,8 +107,12 @@ export async function loadHeroine(url: string): Promise<Heroine> {
     if (wind) g.deleteAttribute("_wind");
     const role = ROLES[name];
     g.setAttribute("aMat", new THREE.BufferAttribute(new Float32Array(n).fill(role ? role.mt : M.skin), 1));
-    mesh.material = name === "face" ? face : uber(role?.id ?? ID.skin, 1, role?.side ?? THREE.FrontSide, 0, true);
+    const key = name === "face" ? "face" : role?.group ?? "skin";
+    if (!mats.has(key))
+      mats.set(key, name === "face" ? face : uber(role?.id ?? ID.skin, 1, role?.side ?? THREE.FrontSide, 0, true));
+    mesh.material = mats.get(key)!;
     mesh.userData.role = name;
+    mesh.userData.group = key;
     mesh.userData.hatPart = name === "straw" || name === "ribbon";
     // Her head shades her neck by paint too: it casts onto the ground, not onto her chest.
     mesh.userData.headPart = name === "face";
@@ -96,6 +124,48 @@ export async function loadHeroine(url: string): Promise<Heroine> {
   const clips = new Map(gltf.animations.map((c) => [c.name, c] as [string, THREE.AnimationClip]));
   const mixer = new THREE.AnimationMixer(gltf.scene);
   return { root, clips, mixer, meta: m, bones, meshes, tris };
+}
+
+/**
+ * One skinned mesh per draw group (skin, face, hair, shirt, cami, ribbon, hat, shorts, frame),
+ * all on the GLB's one skeleton: about 9 draws instead of 46. Replaces `h.meshes` in place.
+ */
+export function mergeHeroine(h: Heroine): Map<string, THREE.SkinnedMesh> {
+  const byGroup = new Map<string, THREE.SkinnedMesh[]>();
+  for (const m of h.meshes as THREE.SkinnedMesh[]) {
+    const k = m.userData.group as string;
+    if (!byGroup.has(k)) byGroup.set(k, []);
+    byGroup.get(k)!.push(m);
+  }
+  const out = new Map<string, THREE.SkinnedMesh>();
+  const first = h.meshes[0] as THREE.SkinnedMesh;
+  const skeleton = first.skeleton;
+  const names = skeleton.bones.map((b) => b.name).join();
+  for (const [k, list] of byGroup) {
+    for (const m of list) {
+      // Same bind: one skeleton, one bind matrix, joint indices into the same bone list.
+      if (m.skeleton.bones.map((b) => b.name).join() !== names || !m.bindMatrix.equals(first.bindMatrix))
+        throw new Error(`heroine: ${m.name} is bound differently`);
+    }
+    const g = mergeGeometries(list.map((m) => m.geometry), false);
+    if (!g) throw new Error(`heroine: merge failed for ${k}`);
+    g.computeBoundingSphere();
+    const sm = new THREE.SkinnedMesh(g, list[0].material);
+    sm.name = `heroine_${k}`;
+    sm.frustumCulled = false;
+    sm.userData.group = k;
+    sm.userData.hatPart = k === "hat" || k === "ribbon";
+    sm.userData.headPart = k === "face";
+    first.parent!.add(sm);
+    sm.bind(skeleton, first.bindMatrix);
+    out.set(k, sm);
+  }
+  for (const m of h.meshes) {
+    m.removeFromParent();
+    m.geometry.dispose();
+  }
+  h.meshes = [...out.values()];
+  return out;
 }
 
 /** Pose her on a clip at time t (seconds), frozen. */

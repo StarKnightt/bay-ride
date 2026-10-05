@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { Explore } from "../rider/onfoot";
 import type { Rider } from "../rider/rider";
 import type { Boat } from "../boat/boat";
-import { gaitCycle } from "../rider/rider";
+import { gaitCycle, jumpClock } from "../rider/rider";
 import { SPAWN } from "../boat/berth";
 import { PIER, deckH } from "../world/bay/pier";
 import { SEA_Y, roadX } from "../world/bay/road";
@@ -89,13 +89,19 @@ export class CharDirector {
       const tau = ((((t - 12) % JUMP.period) + JUMP.period) % JUMP.period) - JUMP.crouch;
       const fly = (2 * JUMP.v) / JUMP.g, f = e.foot;
       this.jumpY = 0;
-      if (tau < 0) f.crouch = 0.8 * smooth01((tau + JUMP.crouch) / JUMP.crouch);
-      else if (tau < fly) {
+      if (tau < 0) {
+        f.crouch = 0.8 * smooth01((tau + JUMP.crouch) / JUMP.crouch);
+        [f.jumpT, f.jumpW] = jumpClock(tau + JUMP.crouch, 0, false, 1, fly);
+      } else if (tau < fly) {
         f.air = 1;
         f.vy = JUMP.v - JUMP.g * tau;
         this.jumpY = JUMP.v * tau - 0.5 * JUMP.g * tau * tau;
         this.rider.walker.position.y += this.jumpY;
-      } else f.crouch = 0.75 * Math.exp(-(tau - fly) / 0.12) * smooth01((tau - fly) / 0.04);
+        [f.jumpT, f.jumpW] = jumpClock(-1, tau, true, 0, fly);
+      } else {
+        f.crouch = 0.75 * Math.exp(-(tau - fly) / 0.12) * smooth01((tau - fly) / 0.04);
+        [f.jumpT, f.jumpW] = jumpClock(-1, 0, false, tau - fly, fly);
+      }
     } else if (this.mode === "wade") {
       const z = 6 + WADE_V * t;
       const x = this.wadeX(z), x2 = this.wadeX(z + 0.5);

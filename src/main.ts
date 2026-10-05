@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { G, specializeUber } from "./render/materials";
 import { Post } from "./render/post";
-import { CharShadow, LAYER_CHAR, LAYER_REFLECT, PlanarReflection, SunShadow, onLayers } from "./render/lightpasses";
+import { CharShadow, LAYER_CHAR, LAYER_CHAR_HAT, LAYER_REFLECT, PlanarReflection, SunShadow, onLayers } from "./render/lightpasses";
 import { precompile, warmDraws } from "./render/precompile";
 import { leafAtlas } from "./render/leafAtlas";
 import { Profiler } from "./render/profiler";
@@ -16,7 +16,7 @@ import { Buoys } from "./water/buoys";
 import { seaHeight, seaNormal, waterSample, type WaterSample } from "./water/query";
 import { ShoreEvents, waterAt, waveEta, type WaterAt } from "./water/waves";
 import { terrainH, waterlineU } from "./world/bay/terrain";
-import { Rider } from "./rider/rider";
+import { Rider, gaitCycle, hatShadowMaterial } from "./rider/rider";
 import { ChaseCam, type CamMode, type CamTarget } from "./rider/camera";
 import { Boat } from "./boat/boat";
 import { Spray } from "./boat/spray";
@@ -117,11 +117,12 @@ bay.root.add(buoys.group);
 // so early-z rejects most of its pixels.
 const sky = await step("the sky", W_BUILD * 0.25, () => new Sky());
 scene.add(sky.group, sky.far, sky.motes);
-const rider = await step("the rider", W_BUILD * 0.1, () => new Rider());
+const rider = await step("the rider", W_BUILD * 0.1, () => Rider.load());
 // She casts into her own tight shadow map (CharShadow), not the bay's.
 onLayers(rider.walker, LAYER_CHAR, LAYER_REFLECT);
 rider.walker.traverse((o) => {
   if (o.userData.noCast) o.layers.disable(LAYER_CHAR);
+  if (o.userData.shadowProxy) o.layers.set(LAYER_CHAR_HAT);
 });
 scene.add(rider.walker);
 const boat = new Boat(bay);
@@ -149,6 +150,7 @@ if (!params.has("nospec")) for (const o of [bay.root, rider.walker, boat.root, m
 
 const shadow = new SunShadow(2048, 55);
 const charShadow = new CharShadow(shadow.mat);
+charShadow.hatMat = hatShadowMaterial;
 const _charC = new THREE.Vector3();
 const reflection = new PlanarReflection(Math.floor(innerWidth * 0.5), Math.floor(innerHeight * 0.5));
 const chase = new ChaseCam(innerWidth / innerHeight);
@@ -173,14 +175,14 @@ if (SHOT) {
 {
   const s = performance.now();
   let done = 0;
-  await precompile(renderer, scene, chase.cam, post, [shadow, charShadow], (f) => {
+  await precompile(renderer, scene, chase.cam, post, [shadow, charShadow, ...charShadow.hatPass], (f) => {
     loader.advance((f - done) * W_COMPILE);
     done = f;
   }, yieldToPaint);
   bootLog.push(["compile", Math.round(performance.now() - s)]);
   const parts = [...bay.root.children, sea, sky.far, sky.group, sky.motes, rider.walker, boat.root, spray.mesh, moor.group, trail.group];
   let tp = performance.now();
-  await warmDraws(renderer, scene, chase.cam, post, [shadow, charShadow], parts, (i) => {
+  await warmDraws(renderer, scene, chase.cam, post, [shadow, charShadow, ...charShadow.hatPass], parts, (i) => {
     const n = performance.now();
     bootLog.push([`draw${i}`, Math.round(n - tp)]);
     tp = n;
@@ -490,6 +492,10 @@ window.__ready = false;
 window.__ride = {
   renderer,
   scene,
+  /** The character and her controller (tests: foot contacts, grip error). */
+  rider,
+  explore,
+  gaitCycle,
   bay,
   audio,
   post,

@@ -243,7 +243,8 @@ export interface BoatModel {
   prop: THREE.Mesh;
   /** Tiller grip in the motor frame. */
   grip: THREE.Vector3;
-  /** Where she sits (boat frame): the walker origin on the floor under her, facing forward. */
+  /** Where she sits (boat frame): the walker origin on the floor under her, facing forward, on the
+   * bench to port of the centreline so her right hand falls on the tiller (the sit_tiller clip). */
   seat: THREE.Vector3;
 }
 
@@ -359,7 +360,7 @@ export function buildBoat(): BoatModel {
   onLayers(root, LAYER_SHADOW, LAYER_REFLECT);
   root.add(seaLid());
 
-  return { root, motor, prop, grip: v3(0, 0.1, -0.74), seat: v3(0.3, floorY, 1.3) };
+  return { root, motor, prop, grip: v3(0, 0.1, -0.74), seat: v3(-0.3, floorY, 1.3) };
 }
 
 /**

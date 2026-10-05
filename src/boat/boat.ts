@@ -131,7 +131,7 @@ export class Boat {
   /** Where she sits: the seat frame in world space (origin on the floor under her, facing forward). */
   seatMatrix(out: THREE.Matrix4): THREE.Matrix4 {
     this.model.root.updateMatrixWorld(true);
-    this.m4.makeRotationY(0.16).setPosition(this.model.seat);
+    this.m4.makeTranslation(this.model.seat);
     return out.multiplyMatrices(this.model.root.matrixWorld, this.m4);
   }
 

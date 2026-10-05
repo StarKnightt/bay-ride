@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { G } from "../render/materials";
 import { WADE, type Bay } from "../world/bay";
 import { roadX, roadYaw } from "../world/bay/road";
-import { gaitCycle, type FootState, type Rider } from "./rider";
+import { gaitCycle, jumpClock, type FootState, type Rider } from "./rider";
 import type { ChaseCam } from "./camera";
 import type { Input } from "../core/input";
 import type { RideAudio, StepSurface } from "../audio";
@@ -34,6 +34,8 @@ const GRAV = 13;
 const JUMP_V = 3.4;
 const CROUCH_T = 0.13;
 const LAND_T = 0.26;
+/** Flight time of a standing jump on the flat (s). */
+const FLY_T = (2 * JUMP_V) / GRAV;
 const DROP_FALL = 0.3;
 /** Steepest ground she walks up (tan 38°) and the highest step she takes in her stride (m). */
 const SLOPE_UP = 0.78;
@@ -563,6 +565,7 @@ export class Explore {
     f.air = walking && this.air ? 1 : 0;
     f.crouch = walking ? Math.max(antic * 0.8, squash) : 0;
     f.vy = this.vy;
+    [f.jumpT, f.jumpW] = walking ? jumpClock(this.crouchT, this.airT, this.air, this.landT, FLY_T) : [0, 0];
     G.uPush.value.set(this.x, this.z, 0.85, walking && !this.air ? 1 : 0);
   }
 
@@ -703,7 +706,7 @@ export class Explore {
     f.look = 0;
     f.lookUp = 0;
     f.time = time;
-    f.air = f.crouch = f.vy = 0;
+    f.air = f.crouch = f.vy = f.jumpW = 0;
     G.uPush.value.set(x, z, 0.85, 1);
   }
 
