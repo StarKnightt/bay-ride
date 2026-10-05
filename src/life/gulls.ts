@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { ID, M, merge, prep } from "../world/geo";
 import { uber } from "../render/materials";
 import { mulberry32, range } from "../core/rng";
+import { CUE_TAKEOFF, cues } from "../sound/cues";
 
 /**
  * Seagulls. Loose flocks wheel over the bay and a few loners soar high over the headlands and the
@@ -147,6 +148,9 @@ export class Gulls {
   private readonly tmpM = new THREE.Matrix4();
   private readonly hide = new THREE.Matrix4().makeScale(0, 0, 0);
   private readonly zAxis = new THREE.Vector3(0, 0, 1);
+  /** The last update's clock and activity (the sound asks where its gulls are). */
+  private lastT = 0;
+  private lastAct = 1;
 
   constructor(perches: [number, number, number, number][]) {
     this.group.name = "gulls";
@@ -178,6 +182,21 @@ export class Gulls {
       im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       this.group.add(im);
     }
+    cues.gulls = this;
+  }
+
+  /** For the sound: how many gulls (flying first, then perched), and where gull i is `ahead` s after the last update (0 hidden, 1 flying, 2 sitting). */
+  get voices(): number {
+    return this.gulls.length + this.perchers.length;
+  }
+  where(i: number, ahead: number, out: V3): number {
+    const g = this.gulls[i], p = this.perchers[i - this.gulls.length], t = this.lastT + ahead;
+    if (g && this.lastAct >= g.need) this.flyingAt(g, t, out);
+    else if (g || !p) return 0;
+    else if (p.mode === 0) out.copy(p.p);
+    else if (p.mode === 1) this.awayAt(p, t, out);
+    else this.returnAt(p, t, out);
+    return g || p.mode !== 0 ? 1 : 2;
   }
 
   /** Flock centre on path i at time t, and the flock's own drift. */
@@ -246,6 +265,8 @@ export class Gulls {
 
   /** `px, pz` = her position; `activity` 0…1 thins the flying birds toward dusk. */
   update(t: number, dt: number, px: number, pz: number, cam: V3, activity: number): void {
+    this.lastT = t;
+    this.lastAct = activity;
     const n = this.gulls.length;
     for (let i = 0; i < n; i++) {
       const g = this.gulls[i];
@@ -273,6 +294,7 @@ export class Gulls {
         // Away from her, biased out over the sea (-x).
         p.out.x -= 3;
         p.out.normalize();
+        cues.post(CUE_TAKEOFF, p.p.x, p.p.y, p.p.z, t, t * FLAP_HZ + ((k + 40) * 3.1) / (2 * Math.PI), FLAP_HZ);
       } else if (p.mode === 1 && t - p.t0 > 22 && dPlayer > 11 && dCam > 6) {
         this.awayAt(p, t, p.from);
         p.mode = 2;

@@ -5,6 +5,7 @@ import { Drift } from "./drift";
 import { Fireflies } from "./fireflies";
 import { Fish } from "./fish";
 import { Gulls } from "./gulls";
+import { cues } from "../sound/cues";
 
 /** What the life needs to know about the moment: time, step, and the time of day's mood. */
 export interface LifeTime {
@@ -44,6 +45,8 @@ export class Life {
     cam.getWorldDirection(this.fwd);
     const l = Math.hypot(this.fwd.x, this.fwd.z) || 1;
     const fx = this.fwd.x / l, fz = this.fwd.z / l;
+    // The ears for the placed sounds (gulls, fish).
+    cues.listen(cam.position, fx, fz, px, pz, time.t);
     const day = 1 - time.night;
     this.gulls.update(time.t, time.dt, px, pz, cam.position, time.birds);
     this.butterflies.update(cam.position, day);

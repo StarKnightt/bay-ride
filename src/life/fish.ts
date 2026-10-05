@@ -5,6 +5,7 @@ import { seaHeight } from "../water/query";
 import { SEA_Y } from "../world/bay/road";
 import { terrainH } from "../world/bay/terrain";
 import { inPier } from "../world/bay/pier";
+import { CUE_FISH_IN, CUE_FISH_OUT, cues } from "../sound/cues";
 
 /**
  * Little fish leaping now and then out of the sea where the camera can see them: an arc of about a
@@ -205,6 +206,8 @@ export class Fish {
       l.H = 0.35 + hash(seed + 9) * 0.4;
       l.s = 0.8 + hash(seed + 10) * 0.5;
       this.count++;
+      cues.post(CUE_FISH_OUT, x, SEA_Y, z, l.t0, l.s);
+      cues.post(CUE_FISH_IN, x + l.dx * l.L, SEA_Y, z + l.dz * l.L, l.t0 + l.T, l.s);
       // Ripples and droplets where it leaves the water and where it falls back in.
       this.ringInfo.setXY(c * 2, l.t0, l.s);
       this.ringInfo.setXY(c * 2 + 1, l.t0 + l.T, l.s * 0.9);
