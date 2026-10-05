@@ -29,21 +29,26 @@ import { coastCues } from "./sound/listener";
 import { Loader, fatal } from "./loader";
 import { Hud } from "./ui/hud";
 import { captureParams, poseCamera } from "./capture/shots";
+import { CharDirector, charMode } from "./capture/charcam";
+import { Trail } from "./rider/prints";
 
 const params = new URLSearchParams(location.search);
 const CAP = captureParams(params);
 const SHOT = CAP.shot;
 /** ?autoplay=1: she walks off along the pier by herself (frame-rate sampling). */
 const AUTOPLAY = params.has("autoplay") && params.get("autoplay") !== "0";
+/** Character capture views (?cam=portrait|turn|walk|boatseat, ?pose=wade; see SHOTS.md). */
+const CHAR = SHOT ? null : charMode(params);
 /** ?boat=1: she is seated in the skiff running the scripted capture course (a function of t). */
-const BOAT_RUN = params.get("boat") === "1";
+const BOAT_RUN = params.get("boat") === "1" || CHAR === "boatseat";
 /** A frozen-time boat capture from the ride camera (no fixed shot). */
 const BOATCAP = BOAT_RUN && !SHOT && CAP.time !== null;
 /** Go straight in once built (no click to start): captures and autoplay. */
-const SKIP_INTRO = !!SHOT || (params.has("skipintro") && params.get("skipintro") !== "0");
+const SKIP_INTRO = !!SHOT || !!CHAR || (params.has("skipintro") && params.get("skipintro") !== "0");
 /** A frozen-time capture of the opening view (play as it starts, no fixed shot, no boat course). */
 const OPENCAP = !SHOT && !BOAT_RUN && SKIP_INTRO && !AUTOPLAY && CAP.time !== null;
-const FROZEN = !!SHOT || BOATCAP || OPENCAP;
+const CHARCAP = !!CHAR && CAP.time !== null;
+const FROZEN = !!SHOT || BOATCAP || OPENCAP || CHARCAP;
 const W_BOOT = 0.04, W_BUILD = 0.2, W_COMPILE = 0.2, W_DRAW = 0.5, W_WARM = 0.06;
 
 if (!document.createElement("canvas").getContext("webgl2")) {
@@ -140,7 +145,7 @@ const chase = new ChaseCam(innerWidth / innerHeight);
 const camParam = params.get("cam");
 if (camParam === "fpp") chase.fpp = 1;
 else if (camParam === "boat") chase.mode = "chase";
-else if (camParam) chase.mode = camParam as CamMode;
+else if (camParam && !CHAR) chase.mode = camParam as CamMode;
 const post = new Post(renderer, innerWidth, innerHeight, { kuwahara: params.get("kuwahara") !== "0", msaa: Number(params.get("msaa") ?? 4) });
 const prof = new Profiler(renderer, params.has("prof"));
 post.prof = prof;
@@ -197,6 +202,20 @@ explore.boat = boat;
   explore.spawn(sx, sz, sy, or, op, od);
 }
 if (AUTOPLAY) explore.autoWalk = { dx: 1, dz: 0, run: false };
+// Her feet plant on the real ground; footprints in the sand and rings where she wades.
+rider.ground = (x, z, y) => bay.groundAt(x, z, y);
+const _ws: WaterSample = { y: NaN, normal: new THREE.Vector3(), depth: 0, wet: 0 };
+const trail = new Trail((x, z, at) => waterSample(x, z, at ?? t, terrainH(x, z), _ws));
+scene.add(trail.group);
+rider.onPlant = (x, y, z, yaw, side, kind, time) => {
+  trail.plant(x, y, z, yaw, side, kind, time);
+  explore.footfall();
+};
+rider.onSettle = () => trail.clear();
+const director = CHAR ? new CharDirector(CHAR, params, explore, rider, boat) : null;
+if (director?.drives) explore.lookAround = false;
+const _feet = [new THREE.Vector3(), new THREE.Vector3()];
+let trailResolved = false;
 boat.onSlap = (s) => audio.boatSlap(s * 0.8);
 if (BOAT_RUN) {
   explore.seatInBoat();
@@ -277,10 +296,20 @@ function frame(now: number) {
   const boating = BOAT_RUN || explore.inBoat;
   if (SHOT && BOAT_RUN) explore.update(0, input, t);
 
-  if (!SHOT) explore.update(simDt, input, t);
+  if (director?.drives) director.drive(t);
+  else if (!SHOT) explore.update(simDt, input, t);
   const px = explore.playerX, pz = explore.playerZ;
   const onFoot = explore.onFoot;
   if (!SHOT || BOAT_RUN) rider.update(simDt, explore.foot);
+  if (FROZEN && !trailResolved && !SHOT) {
+    trail.resolve(t);
+    trailResolved = true;
+  }
+  if (!SHOT) {
+    const walking = onFoot && explore.mode === "walk";
+    if (walking) for (let i = 0; i < 2; i++) rider.footWorld(i, _feet[i]);
+    trail.update(t, simDt, walking ? _feet : null);
+  }
   if (boating) {
     boatCam.x = boat.x;
     boatCam.z = boat.z;
@@ -291,6 +320,7 @@ function frame(now: number) {
     boatCam.boat.roll = boat.roll;
   }
   if (SHOT) poseCamera(chase.cam, SHOT);
+  else if (director) director.camera(chase.cam);
   else if (onFoot && chase.mode !== "custom") explore.updateCamera(simDt, chase.cam);
   else chase.update(simDt, boatCam, t, rider);
   sky.follow(chase.cam.position);

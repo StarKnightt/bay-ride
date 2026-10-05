@@ -15,6 +15,8 @@
  * --extra=boat=1 appends query parameters to every page (the scripted boat course, see SHOTS.md).
  * --variants="a=1|a=2" captures every shot once per variant query (files suffixed _v<i>), e.g. to
  *   compare framings of the opening with ?spawn=x,z,yaw and ?orbit=rel,pitch,dist.
+ * char:<view> captures her close up: char:portrait, char:turn<deg> (e.g. char:turn135), char:walk,
+ * char:boatseat, char:wade (see SHOTS.md, Character).
  * Shot tokens besides 1..5: cam:<mode> captures the boat course from the ride camera in that mode
  * (implies boat=1); `open` is the game's opening view (where play starts, frozen at t); `intro` is
  * the start screen waiting for its first click (the opening view behind a breathing dash).
@@ -116,12 +118,14 @@ for (const [W, H] of RES) for (const dpr of DPRS) {
   for (const tod of TODS) {
     for (const s of SHOTS) for (const T of TS) for (const [vi, vq] of (VARIANTS.length ? VARIANTS : [""]).entries()) {
       const cam = s.startsWith("cam:") ? s.slice(4) : null;
-      const name = cam ? `cam-${cam}` : s === "open" || s === "intro" ? s : `shot${s}`;
+      const ch = s.startsWith("char:") ? s.slice(5) : null;
+      const name = cam ? `cam-${cam}` : ch ? `char-${ch}` : s === "open" || s === "intro" ? s : `shot${s}`;
       const tag = `${name}_${tod}` + (TS.length > 1 ? `_t${T}` : "") + (VARIANTS.length ? `_v${vi}` : "") + sfx;
       const page = await ctx.newPage();
       watch(page, tag);
       const t0 = Date.now();
-      const q = cam ? `?boat=1&cam=${cam}&skipintro=1&t=${T}` : s === "open" ? `?skipintro=1&t=${T}` : s === "intro" ? `?t=${T}` : `?shot=${s}&t=${T}`;
+      const charQ = (c) => (c === "wade" ? "pose=wade" : c.startsWith("turn") ? `cam=turn&a=${c.slice(4) || 0}` : c === "boatseat" ? "cam=boatseat&boat=1" : `cam=${c}`);
+      const q = cam ? `?boat=1&cam=${cam}&skipintro=1&t=${T}` : ch ? `?${charQ(ch)}&t=${T}` : s === "open" ? `?skipintro=1&t=${T}` : s === "intro" ? `?t=${T}` : `?shot=${s}&t=${T}`;
       await page.goto(`${URL}${q}&tod=${tod}${s === "open" || s === "intro" ? "" : "&hud=0"}${EXTRA}${vq ? `&${vq}` : ""}`, { waitUntil: "load" });
       if (!gpuChecked) { await assertGpu(page); gpuChecked = true; }
       if (s === "intro") {
