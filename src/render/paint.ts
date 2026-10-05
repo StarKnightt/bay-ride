@@ -12,8 +12,9 @@ import { SAFE_GLSL } from "./materials";
  *   3. 8-sector elliptical Kuwahara oriented by the tensor's eigenvector, half resolution (each tap
  *      reads the full-resolution colour bilinearly between 2x2 texels: a free box prefilter)
  *   4. full-resolution composite: depth-aware 4-tap upsample, then blended over the scene by
- *      `strength`, with her face kept unfiltered, the rest of her and the boat softer, and the
- *      water's glitter kept wherever it is brighter than the paint
+ *      `strength`, with her face kept unfiltered, the rest of her and the boat softer, the sea and
+ *      the swash beach at about half strength with their glitter and foam highlights kept
+ *      wherever they are brighter than the paint, and wires untouched
  *
  * Cost at 1920x1080 (518k half-res pixels): 8 + 9 taps for the tensor, ~28 taps x 8 sectors at the
  * default radius for the Kuwahara (~45 loop steps), 7 taps per full-res pixel for the composite;
@@ -164,8 +165,12 @@ float linz(float d){ float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar 
 void main(){
   ivec2 fp = ivec2(gl_FragCoord.xy);
   vec3 col = safe3(texelFetch(tColor, fp, 0).rgb);
-  float id = floor(texelFetch(tNormal, fp, 0).z * 32.0 + 0.5);
-  float w = uStrength;
+  vec4 nrm = texelFetch(tNormal, fp, 0);
+  float id = floor(nrm.z * 32.0 + 0.5);
+  // The sea (id 2) and the swash beach (ground id with no ink mask): their foam lace and strokes
+  // are painted already; the filter only settles them a little.
+  bool wet = id == 2.0 || (id == 1.0 && abs(nrm.a) < 0.05);
+  float w = uStrength * (wet ? 0.55 : 1.0);
   if (id == 19.0 || w <= 0.0) { o = vec4(col, 1.0); return; }
   // Depth-aware upsample: the four nearest half-res texels, weighted by how close their depth is
   // to this pixel's (no background paint bleeding onto a silhouette, or the reverse).
@@ -191,7 +196,7 @@ void main(){
   float lp = lum(paint), lc = lum(col);
   // The water's glitter stays crisp wherever it outshines the paint; elsewhere any HDR point light
   // (fireflies, lamp heads, sparkles) that the sectors would average away.
-  if (id == 2.0) w *= 1.0 - smoothstep(lp * 1.15 + 0.02, lp * 1.6 + 0.06, lc);
+  if (wet) w *= 1.0 - smoothstep(lp * 1.15 + 0.02, lp * 1.6 + 0.06, lc);
   else w *= 1.0 - smoothstep(1.0, 1.4, lc) * smoothstep(lp * 1.4 + 0.1, lp * 1.9 + 0.2, lc);
   vec3 outc = mix(col, paint, clamp(w, 0.0, 1.0));
   o = vec4(badF3(outc) ? col : outc, 1.0);
