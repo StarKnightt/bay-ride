@@ -51,7 +51,7 @@ export class Explore {
   private lookT = 0;
   private lookTarget = 0;
   private idleT = 0;
-  private stepCount = 0;
+  private glance = 0;
   private surface: StepSurface = "wood";
   // Orbit camera.
   private oYaw = 0;
@@ -420,6 +420,8 @@ export class Explore {
     f.seat = seat;
     f.grip = seat > 0 ? this.grip : undefined;
     f.wind = boating && this.boat ? Math.abs(this.boat.u) : 0;
+    f.boating = boating;
+    f.roll = boating && this.boat ? this.boat.roll : 0;
     f.speed = this.speed;
     f.phase = this.phase;
     f.run = this.run;
@@ -440,13 +442,14 @@ export class Explore {
 
   private advancePhase(dt: number): void {
     this.run = clamp((this.speed - WALK) / (RUN - WALK), 0, 1);
-    this.phase += ((this.speed * dt) / gaitCycle(this.run)) * Math.PI * 2;
-    // Footfalls: each foot lands when the phase passes a multiple of π.
-    const n = Math.floor(this.phase / Math.PI);
-    if (n !== this.stepCount) {
-      if (this.speed > 0.35) this.audio.footstep(this.surface, 0.5 + 0.55 * this.run + 0.15 * Math.min(1, this.speed / WALK));
-      this.stepCount = n;
-    }
+    this.phase += ((this.speed * dt) / gaitCycle(this.run, this.speed)) * Math.PI * 2;
+  }
+
+  /** A footfall sound, called when one of her feet actually lands (Rider.onPlant). */
+  footfall(): void {
+    if (this.mode === "boat") return;
+    const s = this.speed > 0.35 ? 0.5 + 0.55 * this.run + 0.15 * Math.min(1, this.speed / WALK) : 0.3;
+    this.audio.footstep(this.surface, s);
   }
 
   private locomotion(dt: number, input: Input): void {
@@ -494,10 +497,12 @@ export class Explore {
     if (this.idleT > 2.2) {
       this.lookT -= dt;
       if (this.lookT <= 0) {
-        // Glance around: over a shoulder, at the sky, back ahead.
-        const r = Math.random();
-        this.lookTarget = this.lookTarget !== 0 && r < 0.55 ? 0 : (r < 0.5 ? -1 : 1) * (0.35 + Math.random() * 0.35);
-        this.lookT = 1.6 + Math.random() * 2.6;
+        // Glance around: over a shoulder, out to sea, back ahead (a fixed pseudo-random sequence,
+        // so captures repeat).
+        const k = ++this.glance;
+        const r = hash(k), r2 = hash(k + 0.5), r3 = hash(k + 0.25);
+        this.lookTarget = this.lookTarget !== 0 && r < 0.55 ? 0 : (r < 0.5 ? -1 : 1) * (0.35 + r2 * 0.35);
+        this.lookT = 1.6 + r3 * 2.6;
       }
     }
     this.look = damp(this.look, this.lookTarget, 2.4, dt);
@@ -517,6 +522,43 @@ export class Explore {
     this.oDist = clamp(dist, 1.4, 7);
     this.dCur = this.oDist;
     this.touched = 1e9;
+  }
+
+  /**
+   * Capture hook: on foot at world (x, z) facing `yaw`, moving at `speed` (m/s) with gait `phase`,
+   * at time `time`; no input, no collisions (the caller keeps her on a clear path).
+   */
+  drive(x: number, z: number, yaw: number, speed: number, phase: number, time: number): void {
+    this.mode = "walk";
+    this.k = 0;
+    this.x = x;
+    this.z = z;
+    this.yaw = yaw;
+    this.speed = speed;
+    this.phase = phase;
+    this.run = 0;
+    this.turn = 0;
+    const g = this.bay.groundAt(x, z, this.y);
+    if (g) {
+      this.y = g.h;
+      this.surface = g.kind;
+    }
+    this.rider.walker.position.set(x, this.y, z);
+    this.rider.walker.rotation.set(0, yaw, 0);
+    const f = this.foot;
+    f.seat = 0;
+    f.grip = undefined;
+    f.wind = 0;
+    f.boating = false;
+    f.roll = 0;
+    f.speed = speed;
+    f.phase = phase;
+    f.run = 0;
+    f.turn = 0;
+    f.look = 0;
+    f.lookUp = 0;
+    f.time = time;
+    G.uPush.value.set(x, z, 0.85, 1);
   }
 
   /** Test hook: stand at world (x, z) facing `yaw` (on foot only). */
@@ -560,6 +602,10 @@ export class Explore {
 }
 
 const _mi = new THREE.Matrix4();
+const hash = (n: number) => {
+  const v = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return v - Math.floor(v);
+};
 const _q = new THREE.Quaternion();
 const _up = new THREE.Vector3(0, 1, 0);
 
