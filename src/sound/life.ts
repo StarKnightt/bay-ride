@@ -5,6 +5,8 @@ import { crickets, fishIn, fishOut } from "./voices";
 
 const L_FISH = 0.11;
 const L_INSECTS = 0.014;
+/** The cricket loop holds nothing above ~3.6 kHz: rendered at 16 kHz, its one-off generation job is half as long. */
+const INSECT_SR = 16000;
 
 /**
  * Leaping fish: a soft plip where one leaves the water and a small plop and splash where it falls
@@ -45,7 +47,7 @@ export class InsectLayer extends Layer {
 
   constructor(kit: Kit) {
     super(kit);
-    kit.loopBank("crickets", 2, GEN_SR, crickets(6));
+    kit.loopBank("crickets", 2, INSECT_SR, crickets(6));
     this.lp = this.filter("lowpass", 3400, 0.5);
     this.gate = new Gate(this.gain(), this.out);
     this.lp.connect(this.gate.g);
