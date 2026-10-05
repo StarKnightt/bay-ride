@@ -4,9 +4,9 @@ import { HULL, STEM_Z, waterlineHalf } from "./model";
 import type { Boat, BoatSnap } from "./boat";
 
 /** Particle slots: bow droplets, thin bow sheets, and the prop's low churn. */
-const N_DROP = 90;
-const N_SHEET = 50;
-const N_PROP = 30;
+const N_DROP = 110;
+const N_SHEET = 70;
+const N_PROP = 44;
 const N = N_DROP + N_SHEET + N_PROP;
 
 const hash = (i: number, k: number) => {
@@ -105,7 +105,8 @@ export class Spray {
           // long thin veils.
           vec3 vv = (viewMatrix * vec4(aV, 0.0)).xyz;
           vec2 dir = length(vv.xy) > 1e-4 ? normalize(vv.xy) : vec2(0.0, 1.0);
-          vec2 nrm = vec2(-dir.y, dir.x);
+          // (x, y) -> (nrm, dir) must keep the quad's handedness or it is back-face culled.
+          vec2 nrm = vec2(dir.y, -dir.x);
           float len = aP.w * (1.0 + aF.z), wid = aP.w;
           vec4 c = viewMatrix * vec4(aP.xyz, 1.0);
           c.xy += dir * position.y * len + nrm * position.x * wid;
@@ -127,7 +128,7 @@ export class Spray {
           if (vF.w > 0.5) {
             // A veil: ragged soft edges, thinner in places, never a solid shape.
             float rag = vnoise(vec2(p.y * 2.5 + vF.y * 30.0, p.x * 1.5)) - 0.5;
-            a = (1.0 - smoothstep(0.45, 1.0, r + rag * 0.5)) * (0.5 + 0.5 * vnoise(p * 3.0 + vF.y * 17.0)) * 0.55;
+            a = (1.0 - smoothstep(0.45, 1.0, r + rag * 0.5)) * (0.5 + 0.5 * vnoise(p * 3.0 + vF.y * 17.0)) * 0.72;
           } else {
             a = (1.0 - smoothstep(0.35, 1.0, r)) * 0.85;
           }
@@ -143,8 +144,7 @@ export class Spray {
     });
     this.mesh = new THREE.Mesh(this.geo, seeThrough(mat));
     this.mesh.frustumCulled = false;
-    this.mesh.renderOrder = 1;
-    this.bowWave = this.buildBowWave();
+    this.mesh.renderOrder = 1;    this.bowWave = this.buildBowWave();
     boat.root.add(this.bowWave);
   }
 
@@ -242,9 +242,13 @@ export class Spray {
       const te = Math.floor((t - ph) / period) * period + ph;
       const age = t - te;
       if (age > life) continue;
+      b.stateAt(te - 0.25, s);
+      const spd0 = s.speed;
       b.stateAt(te, s);
       const spd = Math.max(s.speed, 0);
-      const strength = kind === 2 ? Math.max(s.throttle, 0) * sm(0.5, 3, spd) * 0.5 : sm(2.0, 7.0, spd) * 0.85;
+      // Driving hard (accelerating under throttle, bow up) throws far more water than cruising.
+      const hard = Math.max(s.throttle, 0) * sm(0.15, 0.9, (spd - spd0) / 0.25);
+      const strength = kind === 2 ? Math.max(s.throttle, 0) * sm(0.5, 3, spd) * (0.5 + 0.5 * hard) : Math.min(1, sm(2.0, 7.0, spd) * 0.5 + 0.8 * hard * sm(1.0, 3.0, spd));
       if (hash(i, 3) > strength) continue;
       const side = i & 1 ? 1 : -1;
       const fx = -Math.sin(s.yaw), fz = -Math.cos(s.yaw);
@@ -253,34 +257,40 @@ export class Spray {
       const k = sm(2.0, 7.5, spd);
       if (kind === 2) {
         // Low churn right at the leg: flattened, it barely leaves the water.
-        pf = -1.95 - 0.25 * hash(i, 4);
-        ps = (hash(i, 5) - 0.5) * 0.3;
-        vo = (hash(i, 6) - 0.5) * 0.8;
-        vu = 0.25 + 0.45 * hash(i, 7);
-        vf = spd * 0.6;
-        size = 0.06 + 0.05 * hash(i, 8);
-        stretch = 0.8;
+        // Thrown up off the prop wash right behind the transom: a low ragged fan under hard
+        // throttle, a few flecks when cruising.
+        pf = -1.95 - 0.35 * hash(i, 4);
+        ps = (hash(i, 5) - 0.5) * 0.4;
+        vo = (hash(i, 6) - 0.5) * (1.2 + 1.2 * hard);
+        vu = (0.55 + 0.9 * hash(i, 7)) * (1 + 0.8 * hard);
+        vf = spd * 0.55;
+        size = (0.07 + 0.07 * hash(i, 8)) * (1 + 0.8 * hard);
+        stretch = 0.9;
       } else {
         // Off the bow wave where it climbs the forward planking.
         pf = (kind === 0 ? 0.9 : 0.6) + (kind === 0 ? 0.85 : 0.95) * hash(i, 4);
         ps = side * (waterlineHalf(-pf) + 0.04);
+        // Fans off both forward chines: wider, higher and bigger when she is driven hard.
+        const g = 1 + 0.6 * hard;
         if (kind === 0) {
-          vo = (0.8 + 1.0 * hash(i, 5)) * (0.5 + 0.6 * k);
-          vu = (0.6 + 1.0 * hash(i, 6)) * (0.5 + 0.6 * k);
-          size = 0.022 + 0.022 * hash(i, 7);
+          vo = (1.2 + 1.4 * hash(i, 5)) * (0.45 + 0.45 * k) * g;
+          vu = (1.6 + 1.8 * hash(i, 6)) * (0.45 + 0.45 * k) * g;
+          size = (0.026 + 0.026 * hash(i, 7)) * g;
           stretch = 2.5;
         } else {
-          vo = (1.0 + 0.6 * hash(i, 5)) * (0.6 + 0.5 * k);
-          vu = (0.3 + 0.4 * hash(i, 6)) * (0.6 + 0.5 * k);
-          size = 0.08 + 0.07 * hash(i, 7);
-          stretch = 1.6;
+          vo = (1.4 + 0.8 * hash(i, 5)) * (0.6 + 0.5 * k) * g;
+          vu = (0.9 + 0.9 * hash(i, 6)) * (0.6 + 0.5 * k) * g;
+          size = (0.1 + 0.09 * hash(i, 7)) * (1 + 0.5 * hard);
+          stretch = 1.7;
         }
         // The water leaves the hull with most of the boat's speed: it peels away sideways and
         // falls back alongside her.
         vf = spd * (0.8 + 0.12 * hash(i, 8));
       }
       const x0 = s.x + fx * pf + rx * ps, z0 = s.z + fz * pf + rz * ps;
-      const y0 = s.y + 0.02;
+      // Off the top of the bow wave where it stands against the planking; the prop throws from
+      // the boil just above the surface.
+      const y0 = s.y + (kind === 2 ? 0.04 : 0.06 + 0.06 * k);
       const D = 2.6;
       const drag = Math.exp(-D * age);
       const dk = (1 - drag) / D;

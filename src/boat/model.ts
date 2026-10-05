@@ -37,10 +37,13 @@ const zAt = (t: number) => ZS - t * (ZS - ZB);
 
 /** Cross-section at station t: keel, chine, two strake laps and the gunwale (right side, x >= 0). */
 function profile(t: number): [number, number][] {
-  const a = Math.max(t - 0.4, 0) / 0.6;
-  const bG = 0.8 * (1 - Math.pow(a, 2.0)) * (0.84 + 0.16 * sm(0, 0.32, t));
-  const kY = -0.21 + 0.36 * Math.pow(Math.max(t - 0.5, 0) / 0.5, 1.7);
-  const sS = 0.42 + 0.34 * Math.pow(t, 2.2) + 0.05 * Math.pow(1 - t, 3);
+  const a = Math.max(t - 0.42, 0) / 0.58;
+  // Full forward sections: she carries her beam well up toward the bow before it closes in.
+  const bG = 0.8 * (1 - Math.pow(a, 2.6)) * (0.84 + 0.16 * sm(0, 0.32, t));
+  // A little rocker: the keel sweeps up toward the forefoot and lifts slightly at the transom.
+  const kY = -0.21 + 0.36 * Math.pow(Math.max(t - 0.5, 0) / 0.5, 1.7) + 0.05 * Math.pow(Math.max(0.3 - t, 0) / 0.3, 2);
+  // Sheer spring: lowest just aft of amidships, rising gently to the transom and boldly to a high bow.
+  const sS = 0.41 + 0.07 * Math.pow(1 - t, 2) + 0.45 * Math.pow(t, 1.8);
   const bC = bG * (0.8 - 0.1 * t);
   const cY = Math.min(kY + 0.1 + 0.12 * t, sS - 0.05);
   const pts: [number, number][] = [[0, kY], [bC, cY]];
@@ -154,15 +157,29 @@ function planking(skin: Skin, inner: boolean): void {
       }
       const vn = (i: number) => fn[Math.max(0, i - 1)].clone().add(fn[Math.min(N - 1, i)]).normalize();
       const col = inner ? (f === 0 ? C.woodDark : C.wood) : f === 0 ? C.bottom : f === 1 ? C.boot : f === F - 1 ? C.sheer : C.side;
+      // Outside, each strake is painted as a lap: a lit lower edge standing proud of the strake
+      // below, and a dark shadow line along its top where the strake above overlaps it.
+      const bands: [number, number, THREE.Color][] =
+        inner || f === 0
+          ? [[0, 1, col]]
+          : [
+              [0, 0.14, col.clone().lerp(new THREE.Color(1, 1, 1), 0.22)],
+              [0.14, 0.88, col],
+              [0.88, 1, col.clone().multiplyScalar(0.62)],
+            ];
       for (let i = 0; i < N; i++) {
-        const [A, B, Cc, D] = quad(side, f, i);
+        const [A0, B0, C0, D0] = quad(side, f, i);
         const nA = vn(i), nC = vn(i + 1);
-        if (!flip[i]) {
-          skin.tri(A, Cc, B, nA, nC, nA, col);
-          skin.tri(B, Cc, D, nA, nC, nC, col);
-        } else {
-          skin.tri(A, B, Cc, nA, nA, nC, col);
-          skin.tri(B, D, Cc, nA, nC, nC, col);
+        for (const [s0, s1, bc] of bands) {
+          const A = A0.clone().lerp(B0, s0), B = A0.clone().lerp(B0, s1);
+          const Cc = C0.clone().lerp(D0, s0), D = C0.clone().lerp(D0, s1);
+          if (!flip[i]) {
+            skin.tri(A, Cc, B, nA, nC, nA, bc);
+            skin.tri(B, Cc, D, nA, nC, nC, bc);
+          } else {
+            skin.tri(A, B, Cc, nA, nA, nC, bc);
+            skin.tri(B, D, Cc, nA, nC, nC, bc);
+          }
         }
       }
     }

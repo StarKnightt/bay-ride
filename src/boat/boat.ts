@@ -75,6 +75,8 @@ export class Boat {
   roll = 0;
   /** Mean water height under the hull (the mirror plane near her). */
   waterH = SEA_Y;
+  private wBow = SEA_Y;
+  private wStern = SEA_Y;
   private vy = 0;
   private vp = 0;
   private vr = 0;
@@ -400,8 +402,10 @@ export class Boat {
     const surge = clamp(this.accLP, -2.5, 2.5);
     const water = (hb + hs + hp + hr + hc * 2) / 6;
     this.waterH = water;
+    this.wBow = hb;
+    this.wStern = hs;
     const heave = water - HULL.waterY + 0.02 * sm(4.5, 8, au) + Math.min(surge, 0) * 0.012;
-    const pitch = Math.atan2(hb - hs, 2.8) * 0.85 + 0.04 * hump * Math.sign(this.u || 1) + 0.009 * surge;
+    const pitch = clamp(Math.atan2(hb - hs, 2.8) * 0.85 + 0.04 * hump * Math.sign(this.u || 1) + 0.009 * surge, -0.07, 0.06);
     // Banking: a flick outward as the turn bites (the hull's inertia), then a steady lean inward.
     const lat = this.u * this.yawRate;
     const bank = clamp(0.11 * this.latLP - 0.1 * (lat - this.latLP), -0.24, 0.24);
@@ -435,9 +439,27 @@ export class Boat {
       return [x + v * dt, v];
     };
     const bowVel = this.vy + this.vp * 1.4;
-    [this.y, this.vy] = spring(this.y, this.vy, ty, 5.2, 0.42);
-    [this.pitch, this.vp] = spring(this.pitch, this.vp, tp, 4.6, 0.38);
+    [this.y, this.vy] = spring(this.y, this.vy, ty, 6.5, 0.45);
+    [this.pitch, this.vp] = spring(this.pitch, this.vp, tp, 6.0, 0.42);
     [this.roll, this.vr] = spring(this.roll, this.vr, tr, 3.6, 0.3);
+    // However the springs lag a passing swell, she floats: the waterline never sinks more than a
+    // few centimetres under the water amidships, at the transom or at the bow.
+    this.pitch = clamp(this.pitch, -0.09, 0.075);
+    const over = this.y + HULL.waterY - (this.waterH + 0.14);
+    if (over > 0) {
+      this.y -= over;
+      this.vy = Math.min(this.vy, 0);
+    }
+    const sp = Math.sin(this.pitch);
+    const under = Math.max(
+      this.waterH - 0.05 - (this.y + HULL.waterY),
+      this.wStern - 0.06 - (this.y + HULL.waterY - 1.5 * sp),
+      this.wBow - 0.1 - (this.y + HULL.waterY + 1.3 * sp),
+    );
+    if (under > 0) {
+      this.y += under;
+      this.vy = Math.max(this.vy, 0);
+    }
     // A slap: the bow drops onto a swell and is stopped.
     this.slapCool -= dt;
     this.bowVelMin = Math.min(this.bowVelMin + dt * 0.6, bowVel, 0);

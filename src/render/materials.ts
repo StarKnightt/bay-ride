@@ -177,6 +177,8 @@ float shadowVis(vec3 wpos, vec3 N){
 float gSoftCast = 0.0;
 // Rider cloth: gentle form shade where the blouse turns away from the camera.
 float gForm = 0.0;
+// Painted wood (the skiff): shade stays a warm violet multiply of the paint, whites included.
+float gWarmShade = 0.0;
 vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt, float soft, vec3 shTint){
   float br = brush(wpos, N);
   float t = dot(N, uSunDir) + (br - 0.5) * 0.32 * paint + jitter;
@@ -199,14 +201,14 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   // they read as white-in-shade, never as holes or sky.
   float chroma = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
   float whiteK = smoothstep(0.35, 0.75, al) * (1.0 - smoothstep(0.12, 0.3, chroma));
-  vec3 cSh = base * mix(shTint, mix(vec3(0.37, 0.4, 0.52), shTint * 1.3, uNight), whiteK);
+  vec3 cSh = base * mix(shTint, mix(vec3(0.37, 0.4, 0.52), shTint * 1.3, uNight), whiteK * (1.0 - 0.85 * gWarmShade));
   // Painted key at a low sun or under the moon: lit faces take the light's own hue with a raking
   // gradient, shade goes toward the cool shadow colour, so land changes colour, not just level.
   // Faces barely turned to the light go violet, faces turned to it take its warm hue.
   float kh = uKeyHue * (1.0 - gSoftCast) * (1.0 - bright * 0.8);
   vec3 keyCol = mix(shTint * (al * 1.8 + 0.07), uSunColor * (al * 1.9 + 0.05), smoothstep(0.04, 0.42, t));
   cLit = mix(cLit, keyCol, kh);
-  cSh = mix(cSh, shTint * (al * 1.6 + 0.07), kh * 0.5);
+  cSh = mix(cSh, shTint * (al * 1.6 + 0.07), kh * 0.5 * (1.0 - gWarmShade));
   vec3 cDk = cSh * vec3(0.7, 0.72, 0.84);
   vec3 col = mix(cDk, cSh, max(mid, 1.0 - sv));
   col = mix(col, cLit, lit);
@@ -632,6 +634,10 @@ void main(){
   // Skin shades to a soft pink-lavender instead of the cool environment shadow.
   vec3 shT = (HAS(7) && mt == 7) ? vec3(0.9, 0.75, 0.7) : (HAS(15) && mt == 15) ? vec3(0.42, 0.4, 0.38) : uShadowTint;
   if ((HAS(7) && mt == 7)) jit += 0.34;
+  if (abs(uId - 20.0) < 0.5) {
+    gWarmShade = 1.0;
+    shT = mix(uShadowTint, vec3(1.0, 0.82, 0.9) * dot(uShadowTint, vec3(0.2126, 0.7152, 0.0722)) * 1.4, 0.7);
+  }
   vec3 col = toonT(base, N, vWPos, jit, paint, rim, soft, shT) + emis;
   if ((HAS(26) && mt == 26) || (HAS(29) && mt == 29)) {
     // Faked reflections: no env map, just the sky gradient over a dark ground with a crisp horizon

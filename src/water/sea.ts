@@ -509,7 +509,7 @@ const FS = /* glsl */ `
     // Aerated water under the propeller trail: a paler, greyer band of the water's own colour;
     // the slick beyond it a touch darker and glassier.
     vec3 aerC = mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, 0.55) * 1.2 + 0.02 * (1.0 - uNight);
-    col = mix(col, aerC, wk.aer * 0.55);
+    col = mix(col, aerC, max(wk.aer * 0.55, wk.brk * 0.65));
     col *= 1.0 - 0.07 * wk.slick * (1.0 - wk.aer);
     // Wave faces turned to the light read a shade lighter, backs a shade darker.
     vec2 Ls = normalize(uSunDir.xz + 1e-5);
@@ -549,6 +549,8 @@ const FS = /* glsl */ `
       // is eased there or it would stretch tall objects apart (a gap under the lantern).
       vec2 dB = vec2(vFoc.x * dot(tB, side) * 0.25, vFoc.y * dot(tB, fwd) * mix(0.2, 1.0, smoothstep(5.0, 60.0, dist))) * 0.3;
       ruv += mix(dS, mix(dO, dB, 1.0 - smoothstep(60.0, 400.0, dist)), chopK);
+      // Churned water behind the boat scatters what little mirror is left into fragments.
+      if (wk.brk > 0.002) ruv += (vec2(vnoise(q * 2.3 + uTime), vnoise(q * 2.3 - uTime + 4.0)) - 0.5) * 0.05 * wk.brk;
       // Inside a break band the facets look further up the scene (sky shows through a dark
       // reflection), the band's ends shifted sideways; the strokes jog the image up and down.
       ruv += vec2(brkB.z * brkB.x * 0.006, -brkB.x * (0.01 + 0.02 * grazing) - strokes * 0.006 - dabs * 0.004);
@@ -685,6 +687,7 @@ const FS = /* glsl */ `
       R.y = max(R.y, 0.02);
       refl = skyColor(normalize(R)) * uWorldTint;
     }
+    vec3 reflRaw = refl;
     float rl = dot(refl, vec3(0.2126, 0.7152, 0.0722));
     // In low sun the warmth comes from the bright sky in the mirror, not from the body.
     refl = mix(vec3(rl), refl, 1.15) * uWaterRefl * mix(0.9, 0.68, uNight) * (1.0 + 0.12 * warmSky);
@@ -702,7 +705,29 @@ const FS = /* glsl */ `
     // Water a few centimetres deep shows the sand rather than the sky, so the sea fades into the
     // beach's swash sheet with no seam.
     rk *= mix(0.04, 1.0, smoothstep(0.5, 1.4, hd + 0.3 * (vnoise(q * 0.12) - 0.5)));
+    // Inside churned water there is no coherent mirror image, only foam and aerated water.
+    rk *= 1.0 - 0.92 * wk.brk;
     col = mix(col, refl, fres * 0.92 * rk);
+    // The boat's own mirror image sits under her slightly darker and greyer, in her own hues: it
+    // is not tinted by the sky's mirror colour nor washed into the blue water.
+    float objK = wk.near * smoothstep(0.06, 0.22, length(reflRaw - skyH * uWorldTint)) * rk;
+    vec3 reflB = mix(vec3(dot(reflRaw, vec3(0.2126, 0.7152, 0.0722))), reflRaw, 0.8) * 0.8 / max(uWorldTint, vec3(0.05));
+    col = mix(col, reflB, objK * 0.85);
+    // Sun shadows cast near the boat (her own, a buoy's) darken the water body a shade, warm-violet,
+    // never revealing anything brighter.
+    // One bilinear 2x2 tap: the full PCF would bloat the whole sea shader for a soft tint.
+    if (wk.near > 0.01 && uNight < 0.9 && uShadowOn > 0.5) {
+      vec4 sc = uShadowMat * vec4(vWPos.x, surfY + 0.05, vWPos.z, 1.0) + vec4(uSunDir * 0.04, 0.0);
+      vec3 sp = sc.xyz / sc.w;
+      if (sp.x > 0.0 && sp.x < 1.0 && sp.y > 0.0 && sp.y < 1.0 && sp.z < 1.0) {
+        vec2 tc = sp.xy / uShadowTexel - 0.5, ff = fract(tc), b0 = (floor(tc) + 0.5) * uShadowTexel;
+        float z0 = sp.z - 0.0008;
+        float l00 = step(z0, texture(uShadowMap, b0).r), l10 = step(z0, texture(uShadowMap, b0 + vec2(uShadowTexel.x, 0.0)).r);
+        float l01 = step(z0, texture(uShadowMap, b0 + vec2(0.0, uShadowTexel.y)).r), l11 = step(z0, texture(uShadowMap, b0 + uShadowTexel).r);
+        float shd = (1.0 - mix(mix(l00, l10, ff.x), mix(l01, l11, ff.x), ff.y)) * wk.near * (1.0 - uNight);
+        col *= mix(vec3(1.0), vec3(0.78, 0.7, 0.76), shd);
+      }
+    }
     // The troughs and darker strokes keep the cool body, so warm water never reads as sand.
     col = mix(col, coolBody * 0.9, 0.35 * warmSky * clamp(smoothstep(0.1, 0.7, -s.swell) * offs + 0.3 * brkB.x, 0.0, 1.0) * rk);
     // Thin ripple lines of the break bands catch a little more light, broken along their length.
@@ -741,7 +766,9 @@ const FS = /* glsl */ `
     // The column narrows toward the horizon and widens toward the eye.
     float colW = 0.55 + 0.45 * smoothstep(0.0, 0.14, -V.y) + 0.35 * lowL * smoothstep(0.05, 0.4, -V.y);
     float sigT = mix(uGlintShape.x, sqrt(resV * 0.5 + lostV) * spread * 2.6 + 0.02, deepK) * colW;
-    vec2 dH = sH - sl * 0.6;
+    // The wake's slopes fan out from the boat; tilting the broad path and glow with them draws
+    // bright rays from the stern, so only the facets below follow them.
+    vec2 dH = sH - (sl - wk.grad * 1.35) * 0.6;
     float path = exp(-dot(dH, dH) / (2.0 * sigT * sigT)) * lightUp;
     // A soft glow under the low sun or the moon, tinted by the light (pale gold, orange-pink).
     float glowS = sigT * 2.4;
@@ -779,7 +806,9 @@ const FS = /* glsl */ `
       glit *= 1.0 - 0.6 * wk.slick;
     }
     float glitter = mix(dn, glit * 1.6 + dn * 0.6, deepK) + path * uGlintShape.y;
-    float gk = uGlint * lightUp * (1.0 - s.foam) * mix(0.35, 1.0, smoothstep(0.8, 4.0, s.h));
+    // No sun flakes on the boat's own mirror image or right round her, where a lone white dab
+    // reads as a stray scrap floating off the hull.
+    float gk = uGlint * lightUp * (1.0 - s.foam) * mix(0.35, 1.0, smoothstep(0.8, 4.0, s.h)) * (1.0 - wk.brk) * (1.0 - objK) * (1.0 - 0.6 * wk.near);
     // Never a blown white with a bloom halo under a high sun; the low sun's path may burn brighter.
     vec3 gAdd = gCol * glitter * gk;
     gAdd *= min(1.0, mix(0.3, 4.0, max(lowL, uNight)) / max(max(gAdd.r, max(gAdd.g, gAdd.b)), 1e-4));
@@ -889,8 +918,9 @@ const FS = /* glsl */ `
         float lump = vnoise(vec2(along * 4.0, d.x / (0.32 * sz)) + n * 5.3 + cid * 1.7) + 0.12 * rag;
         dens *= smoothstep(0.38, 0.52, lump + 0.2 * seg - 0.1);
         vec2 lp = vec2(f.y * 1.1, (f.x - run) * 1.4) + cid * 7.3;
-        // Held below full white: a far cap stays a soft off-white, with no bloom round it.
-        foam = max(foam, wLace(lp, dens, 3.0 + mod(n, 17.0), px) * mix(0.8, 0.55, smoothstep(0.1, 0.5, px)) * (1.0 - smoothstep(0.35, 1.0, px)));
+        // Held below full white: a far cap stays a soft off-white, with no bloom round it. None
+        // right round the boat, where a lone cap reads as a scrap of her own foam cast adrift.
+        foam = max(foam, wLace(lp, dens, 3.0 + mod(n, 17.0), px) * mix(0.8, 0.55, smoothstep(0.1, 0.5, px)) * (1.0 - smoothstep(0.35, 1.0, px)) * (1.0 - wk.near));
       }
     }
     // Foam round the buoys.
