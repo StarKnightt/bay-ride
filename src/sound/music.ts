@@ -321,7 +321,9 @@ export class Music {
     const m = MOODS[name];
     if (!m || m === this.mood) return;
     this.mood = m;
-    this.tone.frequency.setTargetAtTime(m.bright, now, 3);
+    // Before the score starts (the loader, the click) the new mood is simply where it begins.
+    if (!this.running) this.tone.frequency.setValueAtTime(m.bright, now);
+    else this.tone.frequency.setTargetAtTime(m.bright, now, 3);
     if (this.enabled && this.running) this.fadeTo(1, now, 4);
     // if between pieces, the new mood starts with the next one; mid-piece it takes over at the next phrase
   }
