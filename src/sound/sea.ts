@@ -1,4 +1,4 @@
-import { clamp, expRand, lerp, rr, vnoise } from "./dsp";
+import { clamp, expRand, lerp, rr, smoothstep, vnoise } from "./dsp";
 import { Gate, GEN_SR, glide, glideStep, Kit, Layer, type Env, type RideState } from "./kit";
 import { fizz, plop } from "./voices";
 
@@ -9,11 +9,16 @@ const L_OPEN = 0.045;
 const L_SLOSH = 0.035;
 const L_PLOP = 0.13;
 const LOOKAHEAD = 0.15;
+/** With no shore event for this long (s; the main swell's period is ~7.4 s), the layer times its own waves again. */
+const EVENT_HOLD = 16;
 
 interface WaveVoice {
   g: GainNode;
   lp: BiquadFilterNode;
   p: StereoPannerNode;
+  /** When it last started a wave, and which shoreline wave it carries (NaN: one of its own). */
+  used: number;
+  wave: number;
 }
 
 interface FizzVoice {
@@ -26,10 +31,12 @@ const nearness = (d: number) => 1 / (1 + Math.pow(Math.max(0, d) / 14, 1.3));
 
 /**
  * Waves on the sand. A low rolling bed never quite stops; on top, each wave is one long envelope on a
- * persistent noise voice: the swell gathers (dark and quiet), the crest spills over (the low-pass opens
- * to a warm ~2 kHz, never a hiss), the wash runs up the beach and the backwash slides away with a soft
- * fizz of bubbles. Waves come in sets with irregular spacing. Everything is placed by the distance and
- * direction of the shoreline: far away it is a low murmur, at the water's edge it surrounds you.
+ * persistent noise voice. The shoreline model reports its own waves near the listener (`shoreEvent`):
+ * a soft spill when a crest breaks offshore, the broken bore rolling in, then the wash running up the
+ * sand with a fizz of foam for as long as the drawn swash takes, and a gentle backwash sliding away
+ * while the bubbles burst. Without those events the layer times its own waves in sets (swell, spill,
+ * wash, backwash fizz), as before. Everything is placed by the distance and direction of the
+ * shoreline: far away it is a low murmur, at the water's edge it surrounds you.
  */
 export class ShoreLayer extends Layer {
   private voices: WaveVoice[] = [];
@@ -42,9 +49,9 @@ export class ShoreLayer extends Layer {
   private busG: GainNode;
   private busPan: StereoPannerNode;
   private next = 0;
-  private vi = 0;
   private fi = 0;
   private setLeft = 0;
+  private evAt = -1e9;
 
   constructor(kit: Kit) {
     super(kit);
@@ -65,7 +72,7 @@ export class ShoreLayer extends Layer {
       const g = this.gain();
       const p = this.ctx.createStereoPanner();
       kit.loop(kit.pinkSt, rr(kit.rng, 0.92, 1.05)).connect(this.filter("highpass", 60, 0.6)).connect(lp).connect(g).connect(p).connect(bus);
-      this.voices.push({ g, lp, p });
+      this.voices.push({ g, lp, p, used: -1e9, wave: NaN });
     }
     this.fizzIn = this.gain(1);
     for (let i = 0; i < 2; i++) {
@@ -82,6 +89,11 @@ export class ShoreLayer extends Layer {
       this.fizzSrc = k.loop(k.get("fizz")[0]);
       this.fizzSrc.connect(this.fizzIn);
     }
+    // While the shoreline reports its waves, those are the waves; the layer's own timing waits.
+    if (now - this.evAt < EVENT_HOLD) {
+      this.next = 0;
+      return;
+    }
     if (!this.next) this.next = now + rr(k.rng, 0.5, 2);
     if (now + LOOKAHEAD < this.next) return;
     const r = k.rng;
@@ -95,10 +107,89 @@ export class ShoreLayer extends Layer {
     this.next = t + rr(r, 6.5, 10.5) * (0.85 + 0.3 * (1 - size)) + (r() < 0.12 ? rr(r, 3, 6) : 0);
   }
 
-  /** One wave: swell, spill, wash up, backwash fizz. */
+  /**
+   * A wave of the shoreline model near the listener: "break" when its crest starts spilling offshore,
+   * "runup" when its swash starts up the sand. `size` = its height there (m, ~0.05…1.6), `wave` its number.
+   */
+  shoreEvent(when: number, kind: "break" | "runup", size: number, wave: number, s: RideState): void {
+    if (!Number.isFinite(when) || !Number.isFinite(size)) return;
+    this.evAt = when;
+    const k = 0.25 + 0.75 * smoothstep(0.05, 1, size);
+    if (kind === "break") this.spill(when, k, wave);
+    else this.wash(when, k, clamp(size, 0, 1.6), wave, s);
+  }
+
+  /** The voice already carrying shoreline wave `n` (NaN: one of its own), else the one that started a wave longest ago. */
+  private take(n: number, t: number): WaveVoice {
+    let v = this.voices[0];
+    for (const c of this.voices) {
+      if (c.wave === n) {
+        v = c;
+        break;
+      }
+      if (c.used < v.used) v = c;
+    }
+    v.used = t;
+    v.wave = n;
+    return v;
+  }
+
+  /** The crest spills over offshore: a soft rise to a warm top (never a hiss), then the broken bore rolling in. */
+  private spill(t: number, k: number, n: number): void {
+    const v = this.take(n, t);
+    const g = v.g.gain, f = v.lp.frequency;
+    g.cancelScheduledValues(t);
+    f.cancelScheduledValues(t);
+    g.setTargetAtTime(0.8 * k, t, 0.18);
+    f.setTargetAtTime(900 + 1000 * k, t, 0.22);
+    g.setTargetAtTime(0.4 * k, t + 0.8, 0.9);
+    f.setTargetAtTime(800 + 200 * k, t + 0.8, 1);
+    // If no run-up follows (she moved along the beach), the bore fades by itself.
+    g.setTargetAtTime(0, t + 5, 1.2);
+    f.setTargetAtTime(380, t + 5, 1.2);
+    v.p.pan.cancelScheduledValues(t);
+    v.p.pan.setTargetAtTime(rr(this.kit.rng, -0.35, 0.35), t, 0.3);
+  }
+
+  /**
+   * The swash runs up the sand for Tu s and slides back for 1.7 Tu, timed as the shoreline model draws
+   * it: a broad wash brightest as it surges, softening as the sheet thins near the top, then a gentle,
+   * darker backwash. The foam fizzes on the way up; the bubbles burst as the backwash drains.
+   */
+  private wash(t: number, k: number, size: number, n: number, s: RideState): void {
+    const v = this.take(n, t);
+    const r = this.kit.rng;
+    const R = 0.012 + 0.12 * size, Tu = 1.3 + 4.5 * R, Td = 1.7 * Tu;
+    const g = v.g.gain, f = v.lp.frequency;
+    g.cancelScheduledValues(t);
+    f.cancelScheduledValues(t);
+    g.setTargetAtTime(0.75 * k, t, 0.2);
+    f.setTargetAtTime(1000 + 700 * k, t, 0.25);
+    g.setTargetAtTime(0.38 * k, t + 0.6 * Tu, 0.3 * Tu);
+    f.setTargetAtTime(900, t + 0.6 * Tu, 0.4 * Tu);
+    g.setTargetAtTime(0.14 * k, t + Tu, 0.35 * Td);
+    f.setTargetAtTime(480, t + Tu, 0.4 * Td);
+    g.setTargetAtTime(0, t + Tu + Td, 0.7);
+    f.setTargetAtTime(340, t + Tu + Td, 0.9);
+    // the wash spreads along the beach as it runs up
+    v.p.pan.cancelScheduledValues(t);
+    v.p.pan.setTargetAtTime(rr(r, -0.2, 0.2), t, 1.2);
+
+    const fz = this.fizzes[this.fi++ % this.fizzes.length];
+    const near = 0.6 + 0.4 * nearness(s.shore);
+    const fg = fz.g.gain;
+    fg.cancelScheduledValues(t);
+    fg.setTargetAtTime(0.35 * k * near, t + 0.2, 0.3);
+    fg.setTargetAtTime(0.75 * k * near, t + 0.8 * Tu, 0.35);
+    fg.setTargetAtTime(0, t + Tu + 0.55 * Td, 0.3 * Td);
+    fz.p.pan.cancelScheduledValues(t);
+    fz.p.pan.setTargetAtTime(rr(r, -0.5, 0.5), t, 0.5);
+  }
+
+  /** One wave of its own: swell, spill, wash up, backwash fizz. */
   private wave(t: number, size: number, s: RideState): void {
     const r = this.kit.rng;
-    const v = this.voices[this.vi++ % this.voices.length];
+    const v = this.take(NaN, t);
     const swell = rr(r, 1.4, 2.4);
     const tb = t + swell;
     const tw = tb + rr(r, 0.6, 0.9);
