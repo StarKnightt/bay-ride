@@ -220,6 +220,7 @@ let shotFrames = 0;
 const shoreEvents = new ShoreEvents();
 const shadowCenter = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+const _moon = new THREE.Color();
 /** The bike as three circles: body at the saddle, front wheel + basket ahead, rear wheel behind. */
 function bikeContact(x: number, z: number): Contact {
   const fx = -Math.sin(ctl.yaw), fz = -Math.cos(ctl.yaw);
@@ -369,10 +370,18 @@ function frame(now: number) {
   shadow.update(renderer, scene, shadowCenter);
   bay.beam.update(t, chase.cam.position);
   // Stars stay in the sky: mirrored as sharp dots they read as specks painted on the sea.
+  // So is the painted moon: its mirrored disc would sit on the near water as a solid plate (the
+  // moon's light on the water is the glitter path).
   const stars = G.uStars.value;
   G.uStars.value = 0;
-  reflection.update(renderer, scene, chase.cam, SEA_Y);
+  _moon.copy(G.uMoonCol.value);
+  G.uMoonCol.value.setScalar(0);
+  // Near the boat the mirror sits at the water under her, so her reflection starts at her
+  // waterline even on a swell crest; far off it is the mean sea level.
+  const nearBoat = 1 - THREE.MathUtils.smoothstep(chase.cam.position.distanceTo(boat.root.position), 40, 100);
+  reflection.update(renderer, scene, chase.cam, SEA_Y + nearBoat * (boat.waterH - SEA_Y));
   G.uStars.value = stars;
+  G.uMoonCol.value.copy(_moon);
   post.setNear(chase.cam.near);
   post.render(scene, chase.cam, t);
   prof.poll();

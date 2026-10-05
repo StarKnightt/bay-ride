@@ -104,7 +104,7 @@ export class Post {
           float dC = linz(texture2D(tDepth, vUv).r);
           float iC = 1.0 / dC;
           vec4 nC = texture2D(tNormal, vUv);
-          float eD = 0.0, eN = 0.0, eI = 0.0, mask = max(nC.a, 0.0);
+          float eD = 0.0, eN = 0.0, eI = 0.0, mask = max(nC.a, 0.0), nBoat = 0.0;
           vec2 offs[4];
           offs[0] = vec2(1.0, 0.0); offs[1] = vec2(0.0, 1.0); offs[2] = vec2(0.7071, 0.7071); offs[3] = vec2(0.7071, -0.7071);
           for (int i = 0; i < 4; i++){
@@ -118,6 +118,7 @@ export class Post {
             eD = max(eD, abs(i1 + i2 - 2.0 * iC) / iC);
             eN = max(eN, length(n1.xy - nC.xy) + length(n2.xy - nC.xy));
             eI = max(eI, step(0.01, abs(n1.z - nC.z)) + step(0.01, abs(n2.z - nC.z)));
+            nBoat = max(nBoat, max(step(abs(n1.z * 32.0 - 20.5), 0.75), step(abs(n2.z * 32.0 - 20.5), 0.75)));
             mask = max(mask, max(n1.a, n2.a));
           }
           if (nC.a < 0.0) mask = 0.0;
@@ -138,7 +139,13 @@ export class Post {
           // The rider (body 13, hair 14, skin 18, eye 19) is inked in warm dark brown.
           float idC = floor(nC.z * 32.0 + 0.5);
           float chr = (idC == 13.0 || idC == 14.0 || idC == 18.0 || idC == 19.0) ? 1.0 : 0.0;
+          // The boat (hull 20, outboard 21) thins its line with distance, drawing it on her own
+          // pixels only and in a shade of her paint, so far off she stays a light painted shape.
+          float boatC = (idC == 20.0 || idC == 21.0) ? 1.0 : 0.0;
+          float bFar = smoothstep(20.0, 110.0, dC);
+          e *= mix(1.0, mix(1.0 - 0.45 * bFar, 1.0 - bFar, 1.0 - boatC), max(boatC, nBoat));
           vec3 inkCol = mix(mix(col * 0.22, uInk, 0.55), vec3(0.042, 0.023, 0.016), chr * 0.85);
+          inkCol = mix(inkCol, col * 0.55, boatC * bFar * 0.7);
           col = mix(col, inkCol, clamp(e, 0.0, 1.0) * 0.92);
           gl_FragColor = vec4(col, 1.0);
         }`,

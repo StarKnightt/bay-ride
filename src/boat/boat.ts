@@ -12,8 +12,8 @@ import type { Input } from "../core/input";
 import { clamp } from "../core/rng";
 
 /** Waterline: half length, and how far forward of amidships it ends at the bow. */
-const WL_HALF = 1.67;
-const BOW_F = 1.48;
+const WL_HALF = 1.8;
+const BOW_F = 1.85;
 /** Full-throttle push (m/s²), drag (linear, quadratic), reverse push, and prop-reversal braking. */
 const THRUST = 3.55;
 const DRAG1 = 0.12;
@@ -23,7 +23,7 @@ const BRAKE = 1.3;
 /** Sideways slip damping (1/s): low enough for a light, drifting hull. */
 const SLIP = 1.5;
 /** Seabed clearance under the keel that stops the hull, and the depth where the shallows start to drag. */
-const GROUND = 0.3;
+const GROUND = 0.38;
 const SHALLOW = 1.15;
 /** Hull probe points (forward, starboard) in metres from amidships. */
 const PROBES: [number, number][] = [[1.35, 0], [-1.75, 0], [0, -0.62], [0, 0.62]];
@@ -69,10 +69,12 @@ export class Boat {
   steer = 0;
   /** Distance the bow has travelled (m). */
   odo = 0;
-  /** Pose: heave (world y of the waterline origin), pitch (+ bow up), roll (+ starboard up). */
+  /** Pose: heave (world y of the boat frame's origin), pitch (+ bow up), roll (+ starboard up). */
   y = SEA_Y;
   pitch = 0;
   roll = 0;
+  /** Mean water height under the hull (the mirror plane near her). */
+  waterH = SEA_Y;
   private vy = 0;
   private vp = 0;
   private vr = 0;
@@ -90,12 +92,12 @@ export class Boat {
   private hHead = 0;
   private hLen = 0;
   private sp: ScriptPose = { x: 0, z: 0, yaw: 0, speed: 0, yawRate: 0, throttle: 0, s: 0 };
-  private trail: TrailPoint[] = Array.from({ length: WAKE_N }, () => ({ x: 0, z: 0, odo: 0, age: 0, speed: 0, churn: 0 }));
+  private trail: TrailPoint[] = Array.from({ length: WAKE_N }, () => ({ x: 0, z: 0, odo: 0, age: 0, speed: 0, churn: 0, yaw: 0 }));
   private m4 = new THREE.Matrix4();
 
   constructor(private bay: Bay) {
     this.model = buildBoat();
-    this.y = seaHeight(this.x, this.z, 0) - 0.02;
+    this.y = seaHeight(this.x, this.z, 0) - HULL.waterY;
   }
 
   get root(): THREE.Group {
@@ -324,7 +326,7 @@ export class Boat {
       out.speed = this.u;
       out.throttle = this.throttle;
       out.odo = this.odo;
-      out.y = this.y;
+      out.y = seaHeight(this.x, this.z, time);
       return out;
     }
     // Newest first: find the pair around `time`.
@@ -397,11 +399,13 @@ export class Boat {
     const hump = sm(1.2, 4.2, au) * (1 - 0.5 * sm(5, 8, au));
     const surge = clamp(this.accLP, -2.5, 2.5);
     const water = (hb + hs + hp + hr + hc * 2) / 6;
-    const heave = water - 0.015 - 0.03 * hump + 0.025 * sm(4.5, 8, au) + Math.min(surge, 0) * 0.012;
-    const pitch = Math.atan2(hb - hs, 2.8) * 0.85 + 0.06 * hump * Math.sign(this.u || 1) + 0.016 * surge;
+    this.waterH = water;
+    const heave = water - HULL.waterY + 0.02 * sm(4.5, 8, au) + Math.min(surge, 0) * 0.012;
+    const pitch = Math.atan2(hb - hs, 2.8) * 0.85 + 0.04 * hump * Math.sign(this.u || 1) + 0.009 * surge;
     // Banking: a flick outward as the turn bites (the hull's inertia), then a steady lean inward.
     const lat = this.u * this.yawRate;
-    const roll = Math.atan2(hr - hp, 1.2) * 0.8 + 0.06 * this.latLP - 0.09 * (lat - this.latLP) - this.v * 0.05;
+    const bank = clamp(0.11 * this.latLP - 0.1 * (lat - this.latLP), -0.24, 0.24);
+    const roll = Math.atan2(hr - hp, 1.2) * 0.8 + bank - this.v * 0.05;
     return [heave, pitch, roll];
   }
 
@@ -476,6 +480,7 @@ export class Boat {
       p.x = s.x - Math.sin(s.yaw) * BOW_F;
       p.z = s.z - Math.cos(s.yaw) * BOW_F;
       p.odo = s.odo;
+      p.yaw = s.yaw;
       p.age = k * WAKE_DT;
       p.speed = Math.max(s.speed, 0);
       p.churn = clamp(Math.max(s.throttle, 0) * (0.55 + 0.45 * sm(0.5, 5, Math.abs(s.speed))), 0, 1) * sm(0.3, 2.5, Math.abs(s.speed) + 1.2 * Math.max(s.throttle, 0));

@@ -8,7 +8,8 @@ import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../render/lightpasses";
  * the stern, a thwart amidships and a bow seat, floorboards, a pair of oars, a rope coil at the bow
  * and a tiller outboard on the transom.
  *
- * Boat frame: origin on the design waterline amidships, forward = -Z, up = +Y, right = +X.
+ * Boat frame: origin amidships at the build datum, forward = -Z, up = +Y, right = +X. She floats
+ * with the water at HULL.waterY in this frame.
  */
 
 /** Transom and stem (boat z). */
@@ -16,12 +17,14 @@ const ZS = 1.86;
 const ZB = -1.98;
 export const HULL = {
   /** Half length and half beam at the waterline (for foam, collisions and the wake). */
-  halfLen: 1.92,
-  halfBeam: 0.7,
-  /** Hull bottom below the design waterline. */
-  draft: 0.21,
-  /** Gunwale height amidships above the waterline. */
-  freeboard: 0.42,
+  halfLen: 1.88,
+  halfBeam: 0.74,
+  /** Height of the floating waterline in the boat frame: she floats a strake up her sides. */
+  waterY: 0.08,
+  /** Keel below the floating waterline. */
+  draft: 0.29,
+  /** Gunwale height amidships above the floating waterline. */
+  freeboard: 0.41,
 };
 
 const sm = (a: number, b: number, x: number) => {
@@ -34,10 +37,10 @@ const zAt = (t: number) => ZS - t * (ZS - ZB);
 
 /** Cross-section at station t: keel, chine, two strake laps and the gunwale (right side, x >= 0). */
 function profile(t: number): [number, number][] {
-  const a = Math.max(t - 0.32, 0) / 0.68;
-  const bG = 0.76 * (1 - Math.pow(a, 1.8)) * (0.84 + 0.16 * sm(0, 0.32, t));
+  const a = Math.max(t - 0.4, 0) / 0.6;
+  const bG = 0.8 * (1 - Math.pow(a, 2.0)) * (0.84 + 0.16 * sm(0, 0.32, t));
   const kY = -0.21 + 0.36 * Math.pow(Math.max(t - 0.5, 0) / 0.5, 1.7);
-  const sS = 0.4 + 0.24 * Math.pow(t, 2.4) + 0.05 * Math.pow(1 - t, 3);
+  const sS = 0.42 + 0.34 * Math.pow(t, 2.2) + 0.05 * Math.pow(1 - t, 3);
   const bC = bG * (0.8 - 0.1 * t);
   const cY = Math.min(kY + 0.1 + 0.12 * t, sS - 0.05);
   const pts: [number, number][] = [[0, kY], [bC, cY]];
@@ -61,13 +64,24 @@ function halfWidthAt(t: number, y: number): number {
 
 const stationOf = (z: number) => (ZS - z) / (ZS - ZB);
 
+/** Outside half width of the hull at the floating waterline, at boat z (0 past the stem). */
+export function waterlineHalf(z: number): number {
+  const t = stationOf(z);
+  if (t <= 0 || t >= 1) return 0;
+  const p = profile(t);
+  return p[0][1] >= HULL.waterY ? 0 : halfWidthAt(t, HULL.waterY) + 0.045;
+}
+export const STEM_Z = ZB;
+export const TRANSOM_Z = ZS;
+
 const C = {
   bottom: new THREE.Color("#a5483b"),
-  side: new THREE.Color("#efe6d3"),
-  sheer: new THREE.Color("#3b7d93"),
+  boot: new THREE.Color("#c9533f"),
+  side: new THREE.Color("#f7f2e7"),
+  sheer: new THREE.Color("#4c9fb8"),
   wood: new THREE.Color("#b98451"),
   woodDark: new THREE.Color("#8a5a33"),
-  rail: new THREE.Color("#7b4f2e"),
+  rail: new THREE.Color("#a46b3a"),
 };
 
 /** Push a quad (a, b, c, d: a-b along the section, a-c along the hull) with vertex normals. */
@@ -139,7 +153,7 @@ function planking(skin: Skin, inner: boolean): void {
         flip.push(fl);
       }
       const vn = (i: number) => fn[Math.max(0, i - 1)].clone().add(fn[Math.min(N - 1, i)]).normalize();
-      const col = inner ? (f === 0 ? C.woodDark : C.wood) : f === 0 ? C.bottom : f === F - 1 ? C.sheer : C.side;
+      const col = inner ? (f === 0 ? C.woodDark : C.wood) : f === 0 ? C.bottom : f === 1 ? C.boot : f === F - 1 ? C.sheer : C.side;
       for (let i = 0; i < N; i++) {
         const [A, B, Cc, D] = quad(side, f, i);
         const nA = vn(i), nC = vn(i + 1);
@@ -221,7 +235,9 @@ export function buildBoat(): BoatModel {
   planking(skin, true);
   rail(skin);
   transom(skin);
-  const parts: THREE.BufferGeometry[] = [skin.geo(M.plain)];
+  // Painted planking takes the painted-metal shading: few brush strokes, so faces near the
+  // light's terminator do not break into stripes of lit and shaded paint.
+  const parts: THREE.BufferGeometry[] = [skin.geo(M.metal)];
 
   // Floorboards: five planks with gaps, each as long as the bottom is wide enough for it.
   const floorY = -0.09;
@@ -288,13 +304,13 @@ export function buildBoat(): BoatModel {
   const motor = new THREE.Group();
   const sternTop = profile(0)[4][1];
   motor.position.set(0, sternTop + 0.01, ZS + 0.04);
-  const COWL = "#dcd8cc", DARK = "#3b4247";
+  const COWL = "#7d878d", DARK = "#3b4247";
   const mp: THREE.BufferGeometry[] = [
-    xf(box(0.16, 0.16, 0.14, "#55595e", M.metal), 0, -0.04, -0.03),
-    xf(box(0.27, 0.12, 0.36, COWL, M.metal), 0, 0.14, 0.17),
-    xf(sphere(1, COWL, M.metal, 16, 10), 0, 0.22, 0.17, 0, 0, 0, 0.158, 0.15, 0.215),
-    xf(box(0.31, 0.07, 0.41, DARK, M.metal), 0, 0.07, 0.17),
-    xf(box(0.11, 0.62, 0.13, DARK, M.metal), 0, -0.28, 0.13),
+    xf(box(0.14, 0.15, 0.12, "#55595e", M.metal), 0, -0.04, -0.02),
+    xf(box(0.18, 0.1, 0.25, COWL, M.metal), 0, 0.12, 0.13),
+    xf(sphere(1, COWL, M.metal, 14, 8), 0, 0.17, 0.13, 0, 0, 0, 0.09, 0.055, 0.125),
+    xf(box(0.2, 0.05, 0.27, DARK, M.metal), 0, 0.055, 0.13),
+    xf(box(0.09, 0.62, 0.11, DARK, M.metal), 0, -0.28, 0.12),
     xf(box(0.25, 0.018, 0.27, DARK, M.metal), 0, -0.6, 0.15),
     xf(cyl(0.055, 0.045, 0.3, DARK, M.metal, 10), 0, -0.71, 0.15, Math.PI / 2),
     xf(box(0.02, 0.13, 0.13, DARK, M.metal), 0, -0.79, 0.18),

@@ -374,7 +374,7 @@ const FS = /* glsl */ `
     vec2 r1 = vec2(vnoise(q * 0.31 + vec2(uTime * 0.21, uTime * 0.08)), vnoise(q * 0.27 - vec2(uTime * 0.15, -uTime * 0.19) + 7.0)) - 0.5;
     vec2 r2 = vec2(vnoise(q * 1.2 + uTime * 0.45), vnoise(q * 1.05 - uTime * 0.38 + 3.0)) - 0.5;
     vec2 rip = (r1 * (0.06 + 0.1 * near) + r2 * 0.08 * near * near) * (1.0 - 0.6 * s.foam) * (1.0 - 0.8 * deepK);
-    vec2 sl = s.grad * (1.0 - smoothstep(150.0, 900.0, dist) * 0.7) + wk.grad;
+    vec2 sl = s.grad * (1.0 - smoothstep(150.0, 900.0, dist) * 0.7) + wk.grad * 1.5;
     // Painted chop: the slope toward the viewer is flattened into three tones with soft clean
     // edges, so the facets read as brushed strokes rather than a noisy normal map.
     float tv = dot(gC, fwd) / max(sigR, 0.004);
@@ -418,6 +418,9 @@ const FS = /* glsl */ `
     vec3 brkB = vec3(0.0);
     float brkK = chopK * (1.0 - 0.6 * farK) * (1.0 - smoothstep(0.08, 0.14, -V.y)) * (1.0 - smoothstep(1000.0, 1600.0, dist));
     if (brkK > 0.01) brkB = oBreak(q - cameraPosition.xz, V, uTime, pxM / max(length(q - cameraPosition.xz), 1.0)) * brkK;
+    // The wake's waves and broken water tilt the painted facets too, so they break the mirror
+    // and the glitter rather than lying on top as a decal.
+    gU += wk.grad * 0.7 * (1.0 - farK);
     vec3 Nw = normalize(vec3(-(sl.x + gU.x) + rip.x, 1.0, -(sl.y + gU.y) + rip.y));
 
     float surfY = W_SEA + s.eta;
@@ -503,8 +506,11 @@ const FS = /* glsl */ `
     seen = mix(vec3(dot(seen, vec3(0.2126, 0.7152, 0.0722))), seen, 0.85);
     float clarity = exp(-hd * 0.38) * seeBed;
     vec3 col = mix(bodyCol, seen, clarity);
-    // Aerated water under the propeller trail reads as a paler band of the shallow colour.
-    col = mix(col, max(col, cW * 1.05 + 0.02), wk.aer * 0.5);
+    // Aerated water under the propeller trail: a paler, greyer band of the water's own colour;
+    // the slick beyond it a touch darker and glassier.
+    vec3 aerC = mix(vec3(dot(col, vec3(0.2126, 0.7152, 0.0722))), col, 0.55) * 1.2 + 0.02 * (1.0 - uNight);
+    col = mix(col, aerC, wk.aer * 0.55);
+    col *= 1.0 - 0.07 * wk.slick * (1.0 - wk.aer);
     // Wave faces turned to the light read a shade lighter, backs a shade darker.
     vec2 Ls = normalize(uSunDir.xz + 1e-5);
     col *= 1.0 + clamp(dot(-sl, Ls) * 2.0, -0.16, 0.16) * (1.0 - uNight * 0.5);
@@ -621,7 +627,8 @@ const FS = /* glsl */ `
           lm = max(lm, ct);
         }
         float dash = smoothstep(0.24, 0.36, dn2 + 0.2 * brkB.x - 0.15 * brkB.y + 0.1 * strokes);
-        float nK = smoothstep(0.35, 0.7, uNight);
+        // The boat's own mirror image (warm wood, her skin) is not a light.
+        float nK = smoothstep(0.35, 0.7, uNight) * (1.0 - wk.near);
         // A light's own mirror image is broken by the same dashes and held below the light: warm,
         // never clipped to white (the lantern is far brighter than the tone curve can show).
         vec3 warmL = vec3(1.0, 0.56, 0.24);
@@ -768,6 +775,8 @@ const FS = /* glsl */ `
       float sigF = sqrt(resV * 0.5 + lostV) * spread * 2.6 + 0.02;
       float gF = oFanGlint(fanD, uTime, sl * 0.6 + gC * spread * 0.6, sH, sigF, sigF);
       glit = max(gN * 0.6 * (1.0 - lostF), gF);
+      // The glassy slick behind the boat holds a smooth, unbroken streak of light instead.
+      glit *= 1.0 - 0.6 * wk.slick;
     }
     float glitter = mix(dn, glit * 1.6 + dn * 0.6, deepK) + path * uGlintShape.y;
     float gk = uGlint * lightUp * (1.0 - s.foam) * mix(0.35, 1.0, smoothstep(0.8, 4.0, s.h));
@@ -900,11 +909,19 @@ const FS = /* glsl */ `
     }
 #endif
     // The wake: painted crest tone, the dark water against the hull, then its foam.
-    col *= (1.0 + 0.1 * wk.crest * (1.0 - farK)) * (1.0 - 0.3 * wk.contact);
+    col *= (1.0 + wk.crest * mix(0.2, 0.38, smoothstep(0.1, 0.8, pxM)) * (1.0 - 0.5 * farK)) * (1.0 - 0.22 * wk.contact);
+    // Seen low across the water the glassy slick reads as a lane: a shade darker than the
+    // sparkling chop by day, a little paler under the moon.
+    col *= 1.0 + wk.slick * max(grazing, 0.35) * mix(-0.16, 0.2, uNight);
+    float foamW = step(foam, wk.foam) * step(0.002, wk.foam);
     foam = max(foam, wk.foam);
     if (foam > 0.002) {
       vec3 Nf = normalize(Nw + vec3(0.0, 1.2, 0.0));
-      col = mix(col, wFoamColor(normalize(Nf - vec3(0.0, 0.3 * s.crest, 0.0)), q, col, path), foam);
+      vec3 fc = wFoamColor(normalize(Nf - vec3(0.0, 0.3 * s.crest, 0.0)), q, col, path);
+      // Wake foam takes the low sun's warmth, and its thin lace lets the water show through
+      // (more so under the moon, where it is a dim grey over dark water).
+      fc = mix(fc, fc * mix(vec3(1.0), sunHue, 0.45), warmSky * foamW);
+      col = mix(col, fc, foam * mix(1.0, mix(0.9, 0.7, uNight), foamW));
     }
 
     // Lighthouse beams sweeping over the water: as each turns, a long soft band of light fans out

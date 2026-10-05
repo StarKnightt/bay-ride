@@ -199,7 +199,7 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   // they read as white-in-shade, never as holes or sky.
   float chroma = max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b));
   float whiteK = smoothstep(0.35, 0.75, al) * (1.0 - smoothstep(0.12, 0.3, chroma));
-  vec3 cSh = base * mix(shTint, vec3(0.37, 0.4, 0.52), whiteK);
+  vec3 cSh = base * mix(shTint, mix(vec3(0.37, 0.4, 0.52), shTint * 1.3, uNight), whiteK);
   // Painted key at a low sun or under the moon: lit faces take the light's own hue with a raking
   // gradient, shade goes toward the cool shadow colour, so land changes colour, not just level.
   // Faces barely turned to the light go violet, faces turned to it take its warm hue.
@@ -223,6 +223,9 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   if (gSoftCast > 0.5) col = mix(col, cSh, smoothstep(0.46, 0.6, fr) * 0.75);
   if (gForm > 0.0) col = mix(col, cSh, smoothstep(0.42, 0.62, fr) * gForm);
   col *= 1.0 + (br - 0.5) * 0.14 * paint;
+  // Under the moon whites stay a dim cool grey: the moonlight is far weaker than the sun, and
+  // unchecked they read as lit from within against the dark water.
+  col *= 1.0 - 0.4 * whiteK * uNight;
   return min(col, vec3(0.97));
 }
 vec3 toon(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt, float soft){
