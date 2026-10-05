@@ -43,6 +43,8 @@ export const G = {
   uDither: { value: 0 },
   /** Grass parting around her feet when she walks: (x, z, radius, strength). */
   uPush: { value: new THREE.Vector4(0, 0, 0.8, 0) },
+  /** Apparent wind on her cloth (rider materials only): world dir x, z, strength (m/s), gust. */
+  uRiderWind: { value: new THREE.Vector4(0, 0, 0, 0) },
   ...TOD,
 };
 
@@ -252,7 +254,7 @@ vec3 toon(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt,
 }
 `;
 
-const OUT = /* glsl */ `
+export const OUT = /* glsl */ `
 layout(location = 0) out vec4 gColor;
 layout(location = 1) out vec4 gNormal;
 uniform float uId;
@@ -298,8 +300,45 @@ float leafShape(vec2 uv){
 
 // ------------------------------------------------------------------ uber toon
 
+/** Linear-blend skinning for SkinnedMesh (bone texture), in object space. */
+export const SKIN_VS = /* glsl */ `
+#include <skinning_pars_vertex>
+void skinPN(inout vec3 p, inout vec3 n){
+#ifdef USE_SKINNING
+  mat4 bm = getBoneMatrix(skinIndex.x) * skinWeight.x + getBoneMatrix(skinIndex.y) * skinWeight.y
+          + getBoneMatrix(skinIndex.z) * skinWeight.z + getBoneMatrix(skinIndex.w) * skinWeight.w;
+  bm = bindMatrixInverse * bm * bindMatrix;
+  p = (bm * vec4(p, 1.0)).xyz;
+  n = mat3(bm) * n;
+#endif
+}
+`;
+
+/**
+ * Her cloth, hair ends and hat brim flutter in the apparent wind (aWind = flutter weight on rider
+ * meshes; world space, after skinning): a lean downwind plus travelling ripples.
+ */
+export const FLUTTER_VS = /* glsl */ `
+uniform vec4 uRiderWind;
+vec3 flutter(vec3 wp, vec3 obj, float w){
+  float s = uRiderWind.z;
+  vec2 d = uRiderWind.xy;
+  float ph = dot(obj, vec3(23.0, 31.0, 17.0));
+  float sp = 6.0 + 1.1 * s;
+  float rip = sin(uTime * sp - ph) * 0.6 + sin(uTime * sp * 1.73 - ph * 1.6 + 1.3) * 0.4;
+  float k = w * (0.35 + 0.65 * uRiderWind.w);
+  vec3 o = vec3(d.x, 0.0, d.y) * k * (0.004 * s + 0.0015 * s * rip);
+  o.y += k * (0.0012 * s * rip + 0.0006 * s);
+  return o;
+}
+`;
+
 const UBER_VS = /* glsl */ `
 ${COMMON}
+${SKIN_VS}
+#ifdef RIDER
+${FLUTTER_VS}
+#endif
 in float aMat;
 in float aWind;
 out vec3 vWPos;
@@ -325,6 +364,8 @@ vec3 windOffset(vec3 wp, float w){
 
 void main(){
   vec3 pos = position;
+  vec3 nrm = normal;
+  skinPN(pos, nrm);
   mat4 m = modelMatrix;
 #ifdef USE_INSTANCING
   m = modelMatrix * instanceMatrix;
@@ -359,6 +400,9 @@ void main(){
     vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
     wp = vec4(c + (right * position.x + up * position.y) * near, 1.0);
   }
+#ifdef RIDER
+  if (aWind > 0.0) wp.xyz += flutter(wp.xyz, position, aWind);
+#else
   if (aWind > 0.0) wp.xyz += windOffset(wp.xyz, aWind);
   if (aWind > 0.0 && uPush.w > 0.0) {
     vec2 pd = wp.xz - uPush.xy;
@@ -367,8 +411,9 @@ void main(){
     wp.xz += pd / max(pl, 1e-3) * pf * min(aWind, 1.0) * 0.45;
     wp.y -= pf * min(aWind, 1.0) * 0.12;
   }
+#endif
   vWPos = wp.xyz;
-  vN = normalize(mat3(m) * normal);
+  vN = normalize(mat3(m) * nrm);
   vCol = color;
 #ifdef USE_INSTANCING_COLOR
   vCol *= instanceColor;
@@ -602,6 +647,21 @@ void main(){
     // Albedo-driven: paper lanterns bloom, dark shop interiors stay a warm dim glow.
     gEmit = (base * 2.2 + vec3(0.26, 0.14, 0.05)) * uNight;
     paint = 0.3;
+  } else if ((HAS(27) && mt == 27)) {    // woven straw (hat): rows of plait in object space, fading before they alias
+    float r = length(vObj.xz);
+    float row = r * 260.0 + vObj.y * 260.0;
+    float plait = aaLine(row, 0.12);
+    float twill = vnoise(vec2(atan(vObj.x, vObj.z) * 70.0, row * 0.5));
+    float keep = aaKeep(row);
+    base *= (1.0 - 0.22 * plait * keep) * (0.92 + 0.16 * mix(0.5, twill, keep));
+    paint = 0.3; rim = 0.6;
+  } else if ((HAS(28) && mt == 28)) {    // linen: soft slub weave and a faint stripe of crumple tone
+    float keep = aaKeep(vObj.y * 420.0);
+    float slub = vnoise(vec2(vObj.x * 90.0 + vObj.z * 90.0, vObj.y * 420.0));
+    float crum = vnoise(vObj.xy * 30.0 + vObj.z * 20.0);
+    base *= (0.95 + 0.08 * mix(0.5, slub, keep)) * (0.94 + 0.12 * crum);
+    paint = 0.45; rim = 0.75;
+    gForm = 0.4;
   } else if ((HAS(15) && mt == 15)) {    // hair: strand highlights
     float s = vnoise(vec2(atan(vObj.x, vObj.z) * 9.0, vObj.y * 3.0));
     base *= 0.85 + 0.3 * s;
@@ -698,8 +758,8 @@ const uberCache = new Map<string, THREE.ShaderMaterial>();
  * Shared toon material. `id` = outline group (edges drawn between groups), `mask` = line weight,
  * `mts` = bit set of surface ids (M.*) the geometry uses (0 = all; see specializeUber).
  */
-export function uber(id: number, mask = 1, side: THREE.Side = THREE.FrontSide, mts = 0): THREE.ShaderMaterial {
-  const key = `${id}|${mask}|${side}|${mts >>> 0}`;
+export function uber(id: number, mask = 1, side: THREE.Side = THREE.FrontSide, mts = 0, rider = false): THREE.ShaderMaterial {
+  const key = `${id}|${mask}|${side}|${mts >>> 0}|${rider ? 1 : 0}`;
   let m = uberCache.get(key);
   if (!m) {
     m = new THREE.ShaderMaterial({
@@ -707,12 +767,12 @@ export function uber(id: number, mask = 1, side: THREE.Side = THREE.FrontSide, m
       uniforms: { ...G, uId: { value: id }, uMask: { value: mask } },
       vertexShader: UBER_VS,
       fragmentShader: UBER_FS,
-      defines: mts ? { MT_MASK_V: `0x${(mts >>> 0).toString(16)}u` } : {},
+      defines: { ...(mts ? { MT_MASK_V: `0x${(mts >>> 0).toString(16)}u` } : {}), ...(rider ? { RIDER: 1 } : {}) },
       vertexColors: true,
       side,
       alphaToCoverage: true,
     });
-    m.userData.uber = { id, mask, side };
+    m.userData.uber = { id, mask, side, rider };
     uberCache.set(key, m);
   }
   return m;
@@ -746,10 +806,10 @@ export function specializeUber(root: THREE.Object3D, extra?: (o: THREE.Mesh) => 
     users.set(mat, e);
   });
   for (const [mat, e] of users) {
-    const { id, mask, side } = mat.userData.uber;
+    const { id, mask, side, rider } = mat.userData.uber;
     // Leaf cards (17, 21) continue down the foliage (1) branch.
     if (e.bits & ((1 << 17) | (1 << 21))) e.bits |= 1 << 1;
-    const v = uber(id, mask, side, e.bits | 1);
+    const v = uber(id, mask, side, e.bits | 1, rider);
     for (const m of e.meshes) m.material = v;
   }
   return users.size;
@@ -762,6 +822,7 @@ export function shadowDepthMaterial(): THREE.ShaderMaterial {
     side: THREE.DoubleSide,
     uniforms: { uLeafTex: G.uLeafTex },
     vertexShader: /* glsl */ `
+      ${SKIN_VS}
       in float aMat;
       out vec2 vUv; flat out int vMat;
       void main(){
@@ -769,8 +830,10 @@ export function shadowDepthMaterial(): THREE.ShaderMaterial {
       #ifdef USE_INSTANCING
         m = modelMatrix * instanceMatrix;
       #endif
+        vec3 p = position, n = vec3(0.0, 1.0, 0.0);
+        skinPN(p, n);
         vUv = uv; vMat = int(aMat + 0.5);
-        gl_Position = projectionMatrix * viewMatrix * m * vec4(position, 1.0);
+        gl_Position = projectionMatrix * viewMatrix * m * vec4(p, 1.0);
         if (vMat == 21) gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // fringe cards: no shadow, clipped
       }`,
     fragmentShader: /* glsl */ `

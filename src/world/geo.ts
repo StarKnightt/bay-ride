@@ -17,6 +17,10 @@ export const M = {
   plaster: 25,
   /** Pier deck: weathered boards running across world x (seams and tone fade with distance). */
   deck: 26,
+  /** Woven straw (her hat). */
+  straw: 27,
+  /** Linen with a soft slub weave (her shirt and shorts). */
+  linen: 28,
   /** Panel that glows at night (lamp heads, vending fronts, sign lettering). */
   glow: 30,
   /** Stone-lantern fire box: plain dark stone by day, flame-lit at dusk. */
@@ -28,6 +32,8 @@ export const ID = {
   sky: 0, ground: 1, water: 2, berm: 3, grass: 4, rice: 5, tree: 6, house: 7, pole: 8, wire: 9,
   fence: 10, sign: 11, pier: 12, rider: 13, hair: 14, hills: 15, flower: 16, butterfly: 17, skin: 18, eye: 19,
   boat: 20, motor: 21,
+  /** Her clothes beyond the shirt (13): camisole and ribbon, shorts and sandals, straw hat. */
+  top: 22, shorts: 23, hat: 24,
 } as const;
 
 type Geo = THREE.BufferGeometry;

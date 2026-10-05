@@ -136,9 +136,9 @@ export class Post {
           }
           float fade = 1.0 - smoothstep(60.0, 420.0, dC) * 0.75;
           e *= clamp(mask, 0.0, 1.0) * fade;
-          // The rider (body 13, hair 14, skin 18, eye 19) is inked in warm dark brown.
+          // The rider (shirt 13, hair 14, skin 18, face 19, clothes 22-24) is inked in warm dark brown.
           float idC = floor(nC.z * 32.0 + 0.5);
-          float chr = (idC == 13.0 || idC == 14.0 || idC == 18.0 || idC == 19.0) ? 1.0 : 0.0;
+          float chr = (idC == 13.0 || idC == 14.0 || idC == 18.0 || idC == 19.0 || (idC >= 22.0 && idC <= 24.0)) ? 1.0 : 0.0;
           // The boat (hull 20, outboard 21) thins its line with distance, drawing it on her own
           // pixels only and in a shade of her paint, so far off she stays a light painted shape.
           float boatC = (idC == 20.0 || idC == 21.0) ? 1.0 : 0.0;
