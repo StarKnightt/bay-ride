@@ -84,7 +84,7 @@ export class Post {
             vec2 dir = vec2(k == 1 || k == 2 ? -1.0 : 1.0, k >= 2 ? -1.0 : 1.0);
             vec3 sum = vec3(0.0); float sq = 0.0;
             for (int j = 0; j <= 2; j++) for (int i = 0; i <= 2; i++){
-              vec3 c = texture2D(tColor, uv + vec2(float(i), float(j)) * dir * px).rgb;
+              vec3 c = textureLod(tColor, uv + vec2(float(i), float(j)) * dir * px, 0.0).rgb;
               sum += c; float l = lum(c); sq += l * l;
             }
             vec3 mean = sum / 9.0; float lm = lum(mean);
@@ -98,22 +98,22 @@ export class Post {
 
         void main(){
           vec2 px = uWidth / uRes;
-          vec3 col = texture2D(tColor, vUv).rgb;
+          vec3 col = textureLod(tColor, vUv, 0.0).rgb;
           // Eye features (irises, catch-lights, lashes, brows, glasses) stay crisp: no paint filter.
-          bool crisp = abs(texture2D(tNormal, vUv).z * 32.0 - 19.0) < 0.5;
-          float dC = linz(texture2D(tDepth, vUv).r);
+          bool crisp = abs(textureLod(tNormal, vUv, 0.0).z * 32.0 - 19.0) < 0.5;
+          float dC = linz(textureLod(tDepth, vUv, 0.0).r);
           float iC = 1.0 / dC;
-          vec4 nC = texture2D(tNormal, vUv);
+          vec4 nC = textureLod(tNormal, vUv, 0.0);
           float eD = 0.0, eN = 0.0, eI = 0.0, mask = max(nC.a, 0.0), nBoat = 0.0;
           vec2 offs[4];
           offs[0] = vec2(1.0, 0.0); offs[1] = vec2(0.0, 1.0); offs[2] = vec2(0.7071, 0.7071); offs[3] = vec2(0.7071, -0.7071);
           for (int i = 0; i < 4; i++){
             vec2 o = offs[i] * px;
-            vec4 n1 = texture2D(tNormal, vUv + o), n2 = texture2D(tNormal, vUv - o);
+            vec4 n1 = textureLod(tNormal, vUv + o, 0.0), n2 = textureLod(tNormal, vUv - o, 0.0);
             // Excluded surfaces (mask < 0: grass, leaf cards, motes) never ink or induce ink.
             if (n1.a < 0.0 || n2.a < 0.0) continue;
-            float i1 = 1.0 / linz(texture2D(tDepth, vUv + o).r);
-            float i2 = 1.0 / linz(texture2D(tDepth, vUv - o).r);
+            float i1 = 1.0 / linz(textureLod(tDepth, vUv + o, 0.0).r);
+            float i2 = 1.0 / linz(textureLod(tDepth, vUv - o, 0.0).r);
             // Laplacian of 1/z is zero on planes: only creases and silhouettes light up.
             eD = max(eD, abs(i1 + i2 - 2.0 * iC) / iC);
             eN = max(eN, length(n1.xy - nC.xy) + length(n2.xy - nC.xy));

@@ -47,7 +47,7 @@ float wVn(float x, int n, int s){ float i = floor(x); float t = x - i; t = t * t
 vec4 wField(vec2 xz){
   vec2 uv = (xz - uDepthXf.xy) * uDepthXf.z;
   if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return vec4(-40.0, 0.0, 0.0, 0.0);
-  return texture(uDepthTex, uv);
+  return textureLod(uDepthTex, uv, 0.0);
 }
 /**
  * The field with a smooth cubic B-spline filter (four bilinear taps): arrival-time contours on the
@@ -66,8 +66,8 @@ vec4 wFieldS(vec2 xz){
   vec2 w3 = fr3 / 6.0;
   vec2 g0 = w0 + w1, g1 = w2 + w3;
   vec2 h0 = (i - 0.5 + w1 / g0) / ts, h1 = (i + 1.5 + w3 / g1) / ts;
-  return (texture(uDepthTex, vec2(h0.x, h0.y)) * g0.x + texture(uDepthTex, vec2(h1.x, h0.y)) * g1.x) * g0.y
-       + (texture(uDepthTex, vec2(h0.x, h1.y)) * g0.x + texture(uDepthTex, vec2(h1.x, h1.y)) * g1.x) * g1.y;
+  return (textureLod(uDepthTex, vec2(h0.x, h0.y), 0.0) * g0.x + textureLod(uDepthTex, vec2(h1.x, h0.y), 0.0) * g1.x) * g0.y
+       + (textureLod(uDepthTex, vec2(h0.x, h1.y), 0.0) * g0.x + textureLod(uDepthTex, vec2(h1.x, h1.y), 0.0) * g1.x) * g1.y;
 }
 float wPeriod(int k){ return k == 0 ? W_P0 : W_P1; }
 vec2 wDir(int k){ return k == 0 ? W_DIR0 : W_DIR1; }

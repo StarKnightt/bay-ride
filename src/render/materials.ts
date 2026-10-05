@@ -149,17 +149,17 @@ float shadowVis(vec3 wpos, vec3 N){
   vec2 b0 = (floor(tc) + 0.5) * uShadowTexel;
   if (gFastShadow) {
     // Foliage: one bilinear 2x2 tap is plenty under the leaf texture (and far cheaper on canopies).
-    float l00 = step(s.z - 0.0008, texture(uShadowMap, b0).r);
-    float l10 = step(s.z - 0.0008, texture(uShadowMap, b0 + vec2(uShadowTexel.x, 0.0)).r);
-    float l01 = step(s.z - 0.0008, texture(uShadowMap, b0 + vec2(0.0, uShadowTexel.y)).r);
-    float l11 = step(s.z - 0.0008, texture(uShadowMap, b0 + uShadowTexel).r);
+    float l00 = step(s.z - 0.0008, textureLod(uShadowMap, b0, 0.0).r);
+    float l10 = step(s.z - 0.0008, textureLod(uShadowMap, b0 + vec2(uShadowTexel.x, 0.0), 0.0).r);
+    float l01 = step(s.z - 0.0008, textureLod(uShadowMap, b0 + vec2(0.0, uShadowTexel.y), 0.0).r);
+    float l11 = step(s.z - 0.0008, textureLod(uShadowMap, b0 + uShadowTexel, 0.0).r);
     return mix(mix(mix(l00, l10, f.x), mix(l01, l11, f.x), f.y), 1.0, edge);
   }
   // 3x3 bilinear PCF from a 4x4 texel footprint: smooth, stair-free edges.
   float L[16];
   float bz = 0.0, bn = 0.0;
   for (int j = 0; j < 4; j++) for (int i = 0; i < 4; i++) {
-    float d = texture(uShadowMap, b0 + vec2(float(i - 1), float(j - 1)) * uShadowTexel).r;
+    float d = textureLod(uShadowMap, b0 + vec2(float(i - 1), float(j - 1)) * uShadowTexel, 0.0).r;
     float lit = step(s.z - 0.0008, d);
     L[j * 4 + i] = lit;
     bz += (1.0 - lit) * (s.z - d);

@@ -32,7 +32,7 @@ uniform vec3 uDepthXf;
 float seabedY(vec2 xz){
   vec2 uv = (xz - uDepthXf.xy) * uDepthXf.z;
   if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return -40.0;
-  return texture(uDepthTex, uv).r;
+  return textureLod(uDepthTex, uv, 0.0).r;
 }
 `;
 

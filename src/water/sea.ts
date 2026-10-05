@@ -737,8 +737,8 @@ const FS = /* glsl */ `
       if (sp.x > 0.0 && sp.x < 1.0 && sp.y > 0.0 && sp.y < 1.0 && sp.z < 1.0) {
         vec2 tc = sp.xy / uShadowTexel - 0.5, ff = fract(tc), b0 = (floor(tc) + 0.5) * uShadowTexel;
         float z0 = sp.z - 0.0008;
-        float l00 = step(z0, texture(uShadowMap, b0).r), l10 = step(z0, texture(uShadowMap, b0 + vec2(uShadowTexel.x, 0.0)).r);
-        float l01 = step(z0, texture(uShadowMap, b0 + vec2(0.0, uShadowTexel.y)).r), l11 = step(z0, texture(uShadowMap, b0 + uShadowTexel).r);
+        float l00 = step(z0, textureLod(uShadowMap, b0, 0.0).r), l10 = step(z0, textureLod(uShadowMap, b0 + vec2(uShadowTexel.x, 0.0), 0.0).r);
+        float l01 = step(z0, textureLod(uShadowMap, b0 + vec2(0.0, uShadowTexel.y), 0.0).r), l11 = step(z0, textureLod(uShadowMap, b0 + uShadowTexel, 0.0).r);
         float shd = (1.0 - mix(mix(l00, l10, ff.x), mix(l01, l11, ff.x), ff.y)) * wk.near * (1.0 - uNight);
         col *= mix(vec3(1.0), vec3(0.78, 0.7, 0.76), shd);
       }
@@ -1001,7 +1001,8 @@ const FS = /* glsl */ `
     }
     col = applyFog(col, vWPos);
     // The far sea melts into the horizon haze: sky and sea meet at a soft light line.
-    col = mix(col, skyH, smoothstep(1800.0, 3800.0, dist) * 0.85);    gColor = vec4(col, 1.0);
+    col = mix(col, skyH, smoothstep(1800.0, 3800.0, dist) * 0.85);
+    gColor = vec4(col, 1.0);
     vec3 vn = normalize((viewMatrix * vec4(Nw, 0.0)).xyz);
     gNormal = vec4(vn.xy * 0.5 + 0.5, uId / 32.0, 0.0);
   }`;

@@ -39,6 +39,9 @@ const BOAT_RUN = params.get("boat") === "1";
 const BOATCAP = BOAT_RUN && !SHOT && CAP.time !== null;
 /** Go straight in once built (no "click to start" wait): captures and autoplay. */
 const SKIP_INTRO = !!SHOT || (params.has("skipintro") && params.get("skipintro") !== "0");
+/** A frozen-time capture of the opening view (play as it starts, no fixed shot, no boat course). */
+const OPENCAP = !SHOT && !BOAT_RUN && SKIP_INTRO && !AUTOPLAY && CAP.time !== null;
+const FROZEN = !!SHOT || BOATCAP || OPENCAP;
 const W_BOOT = 0.04, W_BUILD = 0.2, W_COMPILE = 0.2, W_DRAW = 0.5, W_WARM = 0.06;
 
 if (!document.createElement("canvas").getContext("webgl2")) {
@@ -252,7 +255,7 @@ function frame(now: number) {
     loader.advance(W_WARM / WARM_FRAMES);
   } else if (SKIP_INTRO && fadeEl.style.display !== "none") {
     fadeT += dt;
-    const k = SHOT || BOATCAP ? 1 : Math.min(1, fadeT / FADE);
+    const k = FROZEN ? 1 : Math.min(1, fadeT / FADE);
     fadeEl.style.opacity = String(1 - k * k * (3 - 2 * k));
     if (k >= 1) fadeEl.style.display = "none";
   }
@@ -396,7 +399,7 @@ function frame(now: number) {
     frames = 0;
     fpsT = 0;
   }
-  if (started && (SHOT || BOATCAP) && ++shotFrames === 6) {
+  if (started && FROZEN && ++shotFrames === 6) {
     post.warmSmaa();
     window.__ready = true;
   }
@@ -420,7 +423,7 @@ function frame(now: number) {
       return;
     }
   }
-  if ((SHOT || BOATCAP) && window.__ready && CAP.time !== null) {
+  if (FROZEN && window.__ready && CAP.time !== null) {
     // Frozen capture: nothing changes any more, so stop drawing (keeps the GPU idle).
     return;
   }
@@ -436,6 +439,7 @@ declare global {
 }
 window.__ready = false;
 window.__ride = {
+  renderer,
   scene,
   bay,
   audio,
@@ -508,6 +512,43 @@ window.__ride = {
   /** The skiff: pose, speed, mode; and where it is moored. */
   get boat() {
     return { x: boat.x, z: boat.z, y: boat.y, yaw: boat.yaw, speed: boat.u, slip: boat.v, pitch: boat.pitch, roll: boat.roll, throttle: boat.throttle, mode: boat.mode, aboard: explore.inBoat, berth: BERTH };
+  },
+  /**
+   * Capture guard: normalized screen points (0..1, y down) whose view ray reaches open water
+   * (>= 1 m deep) unoccluded by the land, the rider, the boat or the pier.
+   */
+  seaProbe(nx = 32, ny = 18): [number, number][] {
+    const cam = chase.cam;
+    cam.updateMatrixWorld();
+    const o = cam.position, d = new THREE.Vector3(), out: [number, number][] = [];
+    const avoid: [THREE.Vector3, number][] = [
+      [new THREE.Vector3(explore.playerX, terrainH(explore.playerX, explore.playerZ) + 0.9, explore.playerZ), 1.3],
+      [new THREE.Vector3(ctl.x, 0.8, ctl.z), 1.6],
+      [boat.root.position.clone(), 3.4],
+    ];
+    if (explore.inBoat || BOAT_RUN) avoid[0][0].copy(boat.root.position);
+    for (let j = 0; j < ny; j++)
+      for (let i = 0; i < nx; i++) {
+        const u = (i + 0.5) / nx, v = (j + 0.5) / ny;
+        d.set(u * 2 - 1, 1 - v * 2, 0.5).unproject(cam).sub(o).normalize();
+        if (d.y > -1e-3) continue;
+        const s = (SEA_Y - o.y) / d.y;
+        if (s <= 0 || s > 1800) continue;
+        const hx = o.x + d.x * s, hz = o.z + d.z * s;
+        if (terrainH(hx, hz) > SEA_Y - 1 || bay.overWater(hx, hz, 1.5)) continue;
+        let hit = false;
+        for (let k = 1; k < 96 && !hit; k++) {
+          const q = s * Math.pow(k / 96, 1.6);
+          const y = o.y + d.y * q;
+          if (y < terrainH(o.x + d.x * q, o.z + d.z * q) + 0.1 || bay.blocks(o.x + d.x * q, y, o.z + d.z * q)) hit = true;
+        }
+        for (const [c, r] of avoid) {
+          const t0 = Math.max(0, c.clone().sub(o).dot(d));
+          if (o.clone().addScaledVector(d, t0).distanceTo(c) < r) hit = true;
+        }
+        if (!hit) out.push([u, v]);
+      }
+    return out;
   },
   stats() {
     return {

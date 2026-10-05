@@ -98,6 +98,16 @@ export class Bay {
     return 0;
   }
 
+  /** Is (x, z) under a structure standing over the water (pier deck), within `pad` m? */
+  overWater(_x: number, _z: number, _pad = 0): boolean {
+    return false;
+  }
+
+  /** Is the point (x, y, z) inside a solid structure over the water (pier)? */
+  blocks(_x: number, _y: number, _z: number): boolean {
+    return false;
+  }
+
   /** Circle (x, z, r) against every collider: deepest penetration. */
   contact(x: number, z: number, r: number): Contact {
     const out: Contact = { pen: 0, nx: 0, nz: 0 };
