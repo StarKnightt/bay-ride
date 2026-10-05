@@ -1,29 +1,38 @@
+import { PaintedIntro } from "./ui/intro";
+
 /**
- * Start veil: a calm paper-coloured screen with one thin progress line while the bay builds and the
- * shaders compile. Once ready the veil clears to the opening view behind it, the line shrinks to a
- * softly breathing dash, and a click or key anywhere starts (the gesture that unlocks audio).
+ * Start veil: a painted seaside view (ui/intro.ts) while the bay builds and the shaders compile, its
+ * wave line drawing itself as the only progress mark. Once ready the painting dissolves into the
+ * live opening view behind it, a softly breathing dash remains, and a click or key anywhere starts
+ * (the gesture that unlocks audio).
  */
 export class Loader {
   private el: HTMLElement;
   private bar: HTMLElement;
+  private intro: PaintedIntro | null = null;
   progress = 0;
 
   constructor(private skip: boolean) {
     this.el = document.getElementById("loader")!;
     this.bar = this.el.querySelector(".bar i") as HTMLElement;
     if (skip) this.el.classList.add("quiet");
+    else this.intro = new PaintedIntro(this.el);
   }
 
   advance(w: number, _label?: string): void {
     this.progress = Math.min(1, this.progress + w);
     this.bar.style.transform = `scaleX(${this.progress.toFixed(3)})`;
+    if (this.intro) this.intro.progress = this.progress;
   }
 
   /** Built: wait for a click / key, then call `go` (true when it was a pointer gesture). */
   ready(go: (viaPointer: boolean) => void): void {
     this.progress = 1;
     this.bar.style.transform = "scaleX(1)";
+    this.intro?.ready();
     this.el.classList.add("ready");
+    // The painting has dissolved by now: stop drawing it.
+    setTimeout(() => this.intro?.stop(), 1800);
     const done = (viaPointer: boolean) => {
       removeEventListener("pointerdown", onPtr);
       removeEventListener("keydown", onKey);
@@ -43,6 +52,7 @@ export class Loader {
   }
 
   remove(): void {
+    this.intro?.stop();
     this.el.remove();
   }
 }
