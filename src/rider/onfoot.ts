@@ -672,7 +672,7 @@ export class Explore {
    * Capture hook: on foot at world (x, z) facing `yaw`, moving at `speed` (m/s) with gait `phase`,
    * at time `time`; no input, no collisions (the caller keeps her on a clear path).
    */
-  drive(x: number, z: number, yaw: number, speed: number, phase: number, time: number): void {
+  drive(x: number, z: number, yaw: number, speed: number, phase: number, time: number, run = 0): void {
     this.mode = "walk";
     this.k = 0;
     this.onGround();
@@ -681,7 +681,7 @@ export class Explore {
     this.yaw = yaw;
     this.speed = speed;
     this.phase = phase;
-    this.run = 0;
+    this.run = run;
     this.turn = 0;
     const g = this.bay.groundAt(x, z, this.y);
     if (g) {
@@ -698,7 +698,7 @@ export class Explore {
     f.roll = 0;
     f.speed = speed;
     f.phase = phase;
-    f.run = 0;
+    f.run = run;
     f.turn = 0;
     f.look = 0;
     f.lookUp = 0;

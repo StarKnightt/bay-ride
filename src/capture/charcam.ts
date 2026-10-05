@@ -9,31 +9,39 @@ import { SEA_Y, roadX } from "../world/bay/road";
 import { terrainH, waterlineU } from "../world/bay/terrain";
 
 /**
- * Character capture views (?cam=portrait | turn&a=<deg> | walk | boatseat, ?pose=wade). Each puts
+ * Character capture views (?cam=portrait | turn&a=<deg> | walk[&run=1] | jump | boatseat, ?pose=wade). Each puts
  * her somewhere fixed (or on a fixed path that is a function of t) and the camera relative to her,
  * so the same t always gives the same frame. See .gauntlet/SHOTS.md.
  */
-export type CharCamMode = "portrait" | "turn" | "walk" | "boatseat" | "wade";
+export type CharCamMode = "portrait" | "turn" | "walk" | "jump" | "boatseat" | "wade";
 
 export function charMode(params: URLSearchParams): CharCamMode | null {
   const c = params.get("cam");
-  if (c === "portrait" || c === "turn" || c === "walk" || c === "boatseat") return c;
+  if (c === "portrait" || c === "turn" || c === "walk" || c === "jump" || c === "boatseat") return c;
   if (params.get("pose") === "wade") return "wade";
   return null;
 }
 
-const WALK_V = 1.3;
+const WALK_V = 1.3, RUN_V = 3.4;
+/** Scripted jump (same take-off speed and gravity as on foot): crouch, flight, landing squash. */
+const JUMP = { v: 3.4, g: 13, crouch: 0.13, period: 1.4 };
 const WADE_V = 0.85;
 /** Water depth she wades in along the shore (m). */
 const WADE_D = 0.14;
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+const smooth01 = (x: number) => {
+  const u = Math.min(1, Math.max(0, x));
+  return u * u * (3 - 2 * u);
+};
 
 export class CharDirector {
   readonly angle: number;
   /** Turnaround distance and aim height (?d=, ?h=), for closer looks. */
   private dist: number;
   private aimH: number;
+  private run: number;
+  private jumpY = 0;
   private head = new THREE.Vector3();
   constructor(
     readonly mode: CharCamMode,
@@ -45,8 +53,10 @@ export class CharDirector {
     this.angle = (Number(params.get("a") ?? 0) * Math.PI) / 180;
     this.dist = Number(params.get("d") ?? 3.1);
     this.aimH = Number(params.get("h") ?? 0.87);
+    this.run = params.get("run") === "1" ? 1 : 0;
     if (mode === "wade") rider.settleT = 12;
     if (mode === "walk") rider.settleT = 6;
+    if (mode === "jump") rider.settleT = 1;
   }
 
   /** She walks the scripted path / stands for the view (not for boatseat: the boat course does). */
@@ -70,8 +80,22 @@ export class CharDirector {
   drive(t: number): void {
     const e = this.explore;
     if (this.mode === "walk") {
-      const x = -50 - WALK_V * t;
-      e.drive(x, PIER.z - 0.85, Math.PI / 2, WALK_V, ((WALK_V * t) / gaitCycle(0, WALK_V)) * Math.PI * 2, t);
+      const v = this.run ? RUN_V : WALK_V;
+      const x = -50 - v * t;
+      e.drive(x, PIER.z - 0.85, Math.PI / 2, v, ((v * t) / gaitCycle(this.run, v)) * Math.PI * 2, t, this.run);
+    } else if (this.mode === "jump") {
+      // Jumps on the spot from the spawn, one every JUMP.period s, the first crouch at t = 12.
+      e.drive(SPAWN.x, SPAWN.z, SPAWN.yaw, 0, 0, t);
+      const tau = ((((t - 12) % JUMP.period) + JUMP.period) % JUMP.period) - JUMP.crouch;
+      const fly = (2 * JUMP.v) / JUMP.g, f = e.foot;
+      this.jumpY = 0;
+      if (tau < 0) f.crouch = 0.8 * smooth01((tau + JUMP.crouch) / JUMP.crouch);
+      else if (tau < fly) {
+        f.air = 1;
+        f.vy = JUMP.v - JUMP.g * tau;
+        this.jumpY = JUMP.v * tau - 0.5 * JUMP.g * tau * tau;
+        this.rider.walker.position.y += this.jumpY;
+      } else f.crouch = 0.75 * Math.exp(-(tau - fly) / 0.12) * smooth01((tau - fly) / 0.04);
     } else if (this.mode === "wade") {
       const z = 6 + WADE_V * t;
       const x = this.wadeX(z), x2 = this.wadeX(z + 0.5);
@@ -99,11 +123,13 @@ export class CharDirector {
         r.gazeTarget = eye.clone();
         break;
       }
-      case "turn": {
+      case "turn":
+      case "jump": {
         const d = this.dist;
         const dir = fwd.clone().multiplyScalar(Math.cos(this.angle)).addScaledVector(right, Math.sin(this.angle));
-        eye = p.clone().addScaledVector(dir, d).add(V(0, this.aimH + 0.15 * (d / 3.1), 0));
-        look = p.clone().add(V(0, this.aimH, 0));
+        const g = p.clone().add(V(0, -this.jumpY, 0));
+        eye = g.clone().addScaledVector(dir, d).add(V(0, this.aimH + 0.15 * (d / 3.1), 0));
+        look = g.clone().add(V(0, this.aimH, 0));
         fov = 36;
         r.gazeTarget = null;
         break;

@@ -16,7 +16,7 @@
  * --variants="a=1|a=2" captures every shot once per variant query (files suffixed _v<i>), e.g. to
  *   compare framings of the opening with ?spawn=x,z,yaw and ?orbit=rel,pitch,dist.
  * char:<view> captures her close up: char:portrait, char:turn<deg> (e.g. char:turn135), char:walk,
- * char:boatseat, char:wade (see SHOTS.md, Character).
+ * char:jump, char:boatseat, char:wade (see SHOTS.md, Character).
  * Shot tokens besides 1..5: cam:<mode> captures the boat course from the ride camera in that mode
  * (implies boat=1); `open` is the game's opening view (where play starts, frozen at t); `intro` is
  * the start screen waiting for its first click (the opening view behind a breathing dash).
