@@ -4,7 +4,7 @@ import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { TOD_GRADE } from "./todUniforms";
-import { G } from "./materials";
+import { G, SAFE_GLSL } from "./materials";
 import type { Profiler } from "./profiler";
 
 const FS_VS = /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
@@ -70,6 +70,7 @@ export class Post {
       },
       vertexShader: FS_VS,
       fragmentShader: /* glsl */ `
+        ${SAFE_GLSL}
         uniform sampler2D tColor, tNormal, tDepth;
         uniform vec2 uRes; uniform float uNear, uFar, uWidth, uKuwa; uniform vec3 uInk;
         varying vec2 vUv;
@@ -98,7 +99,7 @@ export class Post {
 
         void main(){
           vec2 px = uWidth / uRes;
-          vec3 col = textureLod(tColor, vUv, 0.0).rgb;
+          vec3 col = safe3(textureLod(tColor, vUv, 0.0).rgb);
           // Eye features (irises, catch-lights, lashes, brows, glasses) stay crisp: no paint filter.
           bool crisp = abs(textureLod(tNormal, vUv, 0.0).z * 32.0 - 19.0) < 0.5;
           float dC = linz(textureLod(tDepth, vUv, 0.0).r);
@@ -131,7 +132,7 @@ export class Post {
             if (wK > 0.02) {
               vec4 k = kuwahara(vUv);
               wK *= 1.0 - smoothstep(0.0015, 0.012, k.a);
-              col = mix(col, k.rgb, wK);
+              if (!badF3(k.rgb) && !badF1(wK)) col = mix(col, k.rgb, wK);
             }
           }
           float fade = 1.0 - smoothstep(60.0, 420.0, dC) * 0.75;
@@ -146,8 +147,8 @@ export class Post {
           e *= mix(1.0, mix(1.0 - 0.45 * bFar, 1.0 - bFar, 1.0 - boatC), max(boatC, nBoat));
           vec3 inkCol = mix(mix(col * 0.22, uInk, 0.55), vec3(0.042, 0.023, 0.016), chr * 0.85);
           inkCol = mix(inkCol, col * 0.55, boatC * bFar * 0.7);
-          col = mix(col, inkCol, clamp(e, 0.0, 1.0) * 0.92);
-          gl_FragColor = vec4(col, 1.0);
+          col = mix(col, inkCol, safe1(e) * 0.92);
+          gl_FragColor = vec4(safe3(col), 1.0);
         }`,
     });
     this.ink.uniforms.tColor.value = this.mrt.textures[0];
@@ -166,6 +167,7 @@ export class Post {
       },
       vertexShader: FS_VS,
       fragmentShader: /* glsl */ `
+        ${SAFE_GLSL}
         uniform sampler2D tDiffuse; uniform vec2 uRes; uniform float uTime;
         uniform vec3 uGradeMul; uniform float uSat;
         varying vec2 vUv;
@@ -174,7 +176,7 @@ export class Post {
           return mix(mix(h12(i), h12(i + vec2(1, 0)), u.x), mix(h12(i + vec2(0, 1)), h12(i + vec2(1, 1)), u.x), u.y); }
         vec3 toSRGB(vec3 c){ c = max(c, 0.0); return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c)); }
         void main(){
-          vec3 c = texture2D(tDiffuse, vUv).rgb * uGradeMul;
+          vec3 c = safe3(texture2D(tDiffuse, vUv).rgb) * uGradeMul;
           float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
           c = mix(vec3(l), c, uSat);
           // Split tone: cool teal shadows, warm (#fff1d8) highlight lift.
@@ -191,7 +193,7 @@ export class Post {
           float fib = vn(vec2(fc.x * 0.02, fc.y * 0.6));
           s *= 0.978 + paper * 0.04 + fib * 0.006;
           s += (h12(fc) - 0.5) * 0.01;
-          gl_FragColor = vec4(clamp(s, 0.0, 1.0), 1.0);
+          gl_FragColor = vec4(badF3(s) ? vec3(0.0) : clamp(s, 0.0, 1.0), 1.0);
         }`,
     });
     Object.assign(this.grade.uniforms, TOD_GRADE);

@@ -147,7 +147,7 @@ export class Spray {
           vec3 Nw = normalize(vec3(p.x * 0.5, 0.7, p.y * 0.5));
           vec3 col = waterLit(Nw, V, vF.w > 0.5 ? 1.0 : 0.5);
           col = applyFog(col, vWPos);
-          gColor = vec4(col, a);
+          gColor = vec4(safe3(col), safe1(a));
           gNormal = vec4(0.0);
         }`,
     });
@@ -239,7 +239,7 @@ export class Spray {
           // Two tone steps: a lit lip along the crest, the body below a flat shade darker.
           col *= mix(0.82, 1.0, step(edge - 0.025 - 0.01 * spd, vH));
           col = applyFog(col, vWPos);
-          gColor = vec4(col, a);
+          gColor = vec4(safe3(col), safe1(a));
           gNormal = vec4(0.0);
         }`,
     });

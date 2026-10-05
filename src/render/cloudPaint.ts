@@ -148,7 +148,7 @@ export function paintedCloudMaterial(lobes: THREE.DataTexture): THREE.ShaderMate
         // Aerial perspective toward the sky behind (more for distant and low clouds).
         float haze = clamp(vHaze + (1.0 - smoothstep(0.0, 0.1, dir.y)) * 0.22, 0.0, 0.8);
         col = mix(col, skyColor(dir), haze);
-        gColor = vec4(col, alpha);
+        gColor = vec4(safe3(col), safe1(alpha));
         gNormal = vec4(0.5, 0.5, 0.0, 0.0);
       }`,
   });

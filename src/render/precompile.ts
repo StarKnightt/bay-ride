@@ -1,18 +1,24 @@
 import * as THREE from "three";
 import type { Post } from "./post";
-import type { SunShadow } from "./lightpasses";
+
+/** A depth pass that draws its layer with one override material (sun shadow, her shadow). */
+export interface ShadowPass {
+  readonly rt: THREE.WebGLRenderTarget;
+  readonly cam: THREE.Camera;
+  readonly mat: THREE.Material;
+}
 
 /**
- * Compile every shader variant the first frame will use (scene into the MRT target, the shadow
- * override on each mesh kind, every post pass offscreen + on screen) through the parallel-compile
- * path, reporting 0…1 as programs finish, so the first real frame does not stall for seconds.
+ * Compile every shader variant play will use (scene into the MRT target, the shadow override on
+ * each mesh kind, every post pass offscreen + on screen) through the parallel-compile path,
+ * reporting 0…1 as programs finish, so no frame stalls on a compile later.
  */
 export async function precompile(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
   post: Post,
-  shadow: SunShadow,
+  shadows: ShadowPass[],
   onProgress: (f: number) => void,
   pause: () => Promise<void>,
 ): Promise<void> {
@@ -22,19 +28,21 @@ export async function precompile(
   renderer.compile(scene, camera);
   await pause();
 
-  // The shadow pass renders the scene with an override material: the variants differ per mesh kind.
-  const swapped: [THREE.Mesh, THREE.Material | THREE.Material[]][] = [];
-  scene.traverse((o) => {
-    const m = o as THREE.Mesh;
-    if (m.isMesh && m.layers.test(shadow.cam.layers)) {
-      swapped.push([m, m.material]);
-      m.material = shadow.mat;
-    }
-  });
-  renderer.setRenderTarget(shadow.rt);
-  renderer.compile(scene, shadow.cam);
-  for (const [m, mat] of swapped) m.material = mat;
-  await pause();
+  // Shadow passes render the scene with an override material: the variants differ per mesh kind.
+  for (const sp of shadows) {
+    const swapped: [THREE.Mesh, THREE.Material | THREE.Material[]][] = [];
+    scene.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.layers.test(sp.cam.layers)) {
+        swapped.push([m, m.material]);
+        m.material = sp.mat;
+      }
+    });
+    renderer.setRenderTarget(sp.rt);
+    renderer.compile(scene, sp.cam);
+    for (const [m, mat] of swapped) m.material = mat;
+    await pause();
+  }
 
   const quads = new THREE.Scene();
   const plane = new THREE.PlaneGeometry(2, 2);
@@ -70,36 +78,59 @@ export async function precompile(
 }
 
 /**
- * Draw each part of the scene once, alone and unculled, into the real targets: buffer uploads and
- * the driver's deferred per-draw shader work land here in small slices instead of in frame one.
+ * Draw each part of the scene once, alone and unculled, into every target kind it is drawn into
+ * during play: buffer uploads and the driver's deferred per-draw shader variants (ANGLE builds them
+ * at the first real draw) land here in small slices instead of mid-play. Meshes that start empty
+ * (footprints, ripple rings, spray) get one instance for the warm draw, or they would first draw,
+ * and stall, at the first footstep or the first throttle.
  */
 export async function warmDraws(
   renderer: THREE.WebGLRenderer,
   scene: THREE.Scene,
   camera: THREE.Camera,
   post: Post,
-  shadow: SunShadow,
+  shadows: ShadowPass[],
   parts: THREE.Object3D[],
   onPart: (i: number) => void,
   pause: () => Promise<void>,
+  extraTargets: THREE.WebGLRenderTarget[] = [],
 ): Promise<void> {
   const culled: THREE.Object3D[] = [];
+  const restore: (() => void)[] = [];
   scene.traverse((o) => {
     if (o.frustumCulled) {
       o.frustumCulled = false;
       culled.push(o);
+    }
+    const im = o as THREE.InstancedMesh;
+    if (im.isInstancedMesh && im.count === 0) {
+      im.count = 1;
+      restore.push(() => (im.count = 0));
+    }
+    const g = (o as THREE.Mesh).geometry as THREE.InstancedBufferGeometry | undefined;
+    if (g?.isInstancedBufferGeometry && g.instanceCount === 0) {
+      g.instanceCount = 1;
+      restore.push(() => (g.instanceCount = 0));
+    }
+    if (g && g.drawRange.count === 0) {
+      g.drawRange.count = Infinity;
+      restore.push(() => (g.drawRange.count = 0));
     }
   });
   const vis = parts.map((p) => p.visible);
   const prev = renderer.getRenderTarget();
   for (let i = 0; i < parts.length; i++) {
     parts.forEach((p, j) => (p.visible = j === i));
-    renderer.setRenderTarget(post.mrt);
-    renderer.render(scene, camera);
+    for (const rt of [post.mrt, ...extraTargets]) {
+      renderer.setRenderTarget(rt);
+      renderer.render(scene, camera);
+    }
     const po = scene.overrideMaterial;
-    scene.overrideMaterial = shadow.mat;
-    renderer.setRenderTarget(shadow.rt);
-    renderer.render(scene, shadow.cam);
+    for (const sp of shadows) {
+      scene.overrideMaterial = sp.mat;
+      renderer.setRenderTarget(sp.rt);
+      renderer.render(scene, sp.cam);
+    }
     scene.overrideMaterial = po;
     renderer.setRenderTarget(prev);
     onPart(i);
@@ -107,4 +138,5 @@ export async function warmDraws(
   }
   parts.forEach((p, j) => (p.visible = vis[j]));
   for (const o of culled) o.frustumCulled = true;
+  for (const r of restore) r();
 }

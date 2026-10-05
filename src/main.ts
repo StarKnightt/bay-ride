@@ -9,7 +9,7 @@ import { Bay } from "./world/bay";
 import { MooringLines } from "./world/bay/pier";
 import { SEA_Y, roadX } from "./world/bay/road";
 import { Sky } from "./world/sky";
-import { TimeOfDay, parsePreset, type Preset } from "./world/timeofday";
+import { PRESETS, TimeOfDay, parsePreset, type Preset } from "./world/timeofday";
 import { bakeDepth } from "./water/depthMap";
 import { buildSea, followSea } from "./water/sea";
 import { Buoys } from "./water/buoys";
@@ -135,6 +135,10 @@ function updateMooring(): void {
 }
 const spray = new Spray(boat);
 scene.add(spray.mesh);
+// Footprints in the sand and rings where she wades: in the scene before the shaders compile.
+const _ws: WaterSample = { y: NaN, normal: new THREE.Vector3(), depth: 0, wet: 0 };
+const trail = new Trail((x, z, at) => waterSample(x, z, at ?? t, terrainH(x, z), _ws));
+scene.add(trail.group);
 if (BOAT_RUN) boat.mode = "scripted";
 boat.update(0, CAP.time ?? 0, null);
 if (!params.has("nospec")) for (const o of [bay.root, rider.walker, boat.root, moor.group]) specializeUber(o);
@@ -163,19 +167,19 @@ if (SHOT) {
 {
   const s = performance.now();
   let done = 0;
-  await precompile(renderer, scene, chase.cam, post, shadow, (f) => {
+  await precompile(renderer, scene, chase.cam, post, [shadow], (f) => {
     loader.advance((f - done) * W_COMPILE);
     done = f;
   }, yieldToPaint);
   bootLog.push(["compile", Math.round(performance.now() - s)]);
-  const parts = [...bay.root.children, sea, sky.far, sky.group, sky.motes, rider.walker, boat.root, spray.mesh, moor.group];
+  const parts = [...bay.root.children, sea, sky.far, sky.group, sky.motes, rider.walker, boat.root, spray.mesh, moor.group, trail.group];
   let tp = performance.now();
-  await warmDraws(renderer, scene, chase.cam, post, shadow, parts, (i) => {
+  await warmDraws(renderer, scene, chase.cam, post, [shadow], parts, (i) => {
     const n = performance.now();
     bootLog.push([`draw${i}`, Math.round(n - tp)]);
     tp = n;
     loader.advance(W_DRAW / parts.length);
-  }, yieldToPaint);
+  }, yieldToPaint, [reflection.rt]);
 }
 
 const audio = new RideAudio();
@@ -202,11 +206,8 @@ explore.boat = boat;
   explore.spawn(sx, sz, sy, or, op, od);
 }
 if (AUTOPLAY) explore.autoWalk = { dx: 1, dz: 0, run: false };
-// Her feet plant on the real ground; footprints in the sand and rings where she wades.
+// Her feet plant on the real ground.
 rider.ground = (x, z, y) => bay.groundAt(x, z, y);
-const _ws: WaterSample = { y: NaN, normal: new THREE.Vector3(), depth: 0, wet: 0 };
-const trail = new Trail((x, z, at) => waterSample(x, z, at ?? t, terrainH(x, z), _ws));
-scene.add(trail.group);
 rider.onPlant = (x, y, z, yaw, side, kind, time) => {
   trail.plant(x, y, z, yaw, side, kind, time);
   explore.footfall();
@@ -268,9 +269,59 @@ let fadeT = 0;
 let waiting = false;
 let started = false;
 
+/** Shadows, reflection, scene and post for the current camera (also the warm-up frames). */
+function drawScene(px: number, pz: number): void {
+  // Sun shadow frustum centred where the camera looks, ~25-30 m ahead.
+  chase.cam.getWorldDirection(_dir);
+  const l = Math.hypot(_dir.x, _dir.z) || 1;
+  if (SHOT) {
+    const reach = Math.min(40, SHOT.eye.distanceTo(SHOT.look));
+    shadowCenter.set(SHOT.eye.x + (_dir.x / l) * reach, 0, SHOT.eye.z + (_dir.z / l) * reach);
+  } else shadowCenter.set(px + (_dir.x / l) * 22, 0, pz + (_dir.z / l) * 22);
+  renderer.info.reset();
+  shadow.update(renderer, scene, shadowCenter);
+  bay.beam.update(t, chase.cam.position);
+  // Stars stay in the sky: mirrored as sharp dots they read as specks painted on the sea.
+  // So is the painted moon: its mirrored disc would sit on the near water as a solid plate (the
+  // moon's light on the water is the glitter path).
+  const stars = G.uStars.value;
+  G.uStars.value = 0;
+  _moon.copy(G.uMoonCol.value);
+  G.uMoonCol.value.setScalar(0);
+  // Near the boat the mirror sits at the water under her, so her reflection starts at her
+  // waterline even on a swell crest; far off it is the mean sea level.
+  const nearBoat = 1 - THREE.MathUtils.smoothstep(chase.cam.position.distanceTo(boat.root.position), 40, 100);
+  reflection.update(renderer, scene, chase.cam, SEA_Y + nearBoat * (boat.waterH - SEA_Y));
+  G.uStars.value = stars;
+  G.uMoonCol.value.copy(_moon);
+  post.setNear(chase.cam.near);
+  post.render(scene, chase.cam, t);
+}
+
+/**
+ * Dev builds (and ?progwarn): a shader program compiled after loading, or a long stall, can show
+ * as a blank or black frame on a busy GPU. Say so in the console with what was going on.
+ */
+const WATCH = import.meta.env.DEV || params.has("progwarn");
+let progSeen = -1;
+let watchSkip = true;
+addEventListener("visibilitychange", () => (watchSkip = true));
+function watch(interval: number): void {
+  const progs = renderer.info.programs ?? [];
+  if (progSeen >= 0 && progs.length > progSeen) {
+    const names = progs.slice(progSeen).map((p) => p.name || p.cacheKey.slice(0, 48));
+    console.warn(`[shader] ${progs.length - progSeen} program(s) compiled during play at t=${t.toFixed(2)} (${explore.mode}, ${tod.preset}): ${names.join(", ")}`);
+  }
+  progSeen = progs.length;
+  if (!watchSkip && !waiting && interval > 250 && document.visibilityState === "visible")
+    console.warn(`[frame] ${Math.round(interval)} ms stall at t=${t.toFixed(2)} (${explore.mode}, ${tod.preset}, ${renderer.info.render.calls} draws)`);
+  watchSkip = waiting;
+}
+
 function frame(now: number) {
   const interval = now - last;
-  let dt = interval / 1000;
+  // The first frame after the loader can carry a timestamp from before `last` was reset.
+  let dt = Math.max(0, interval / 1000);
   last = now;
   if (dt > 0.1) dt = 0.1;
   if (warm < WARM_FRAMES) {
@@ -358,32 +409,9 @@ function frame(now: number) {
     });
   }
 
-  // Sun shadow frustum centred where the camera looks, ~25-30 m ahead.
-  chase.cam.getWorldDirection(_dir);
-  const l = Math.hypot(_dir.x, _dir.z) || 1;
-  if (SHOT) {
-    const reach = Math.min(40, SHOT.eye.distanceTo(SHOT.look));
-    shadowCenter.set(SHOT.eye.x + (_dir.x / l) * reach, 0, SHOT.eye.z + (_dir.z / l) * reach);
-  } else shadowCenter.set(px + (_dir.x / l) * 22, 0, pz + (_dir.z / l) * 22);
-  renderer.info.reset();
-  shadow.update(renderer, scene, shadowCenter);
-  bay.beam.update(t, chase.cam.position);
-  // Stars stay in the sky: mirrored as sharp dots they read as specks painted on the sea.
-  // So is the painted moon: its mirrored disc would sit on the near water as a solid plate (the
-  // moon's light on the water is the glitter path).
-  const stars = G.uStars.value;
-  G.uStars.value = 0;
-  _moon.copy(G.uMoonCol.value);
-  G.uMoonCol.value.setScalar(0);
-  // Near the boat the mirror sits at the water under her, so her reflection starts at her
-  // waterline even on a swell crest; far off it is the mean sea level.
-  const nearBoat = 1 - THREE.MathUtils.smoothstep(chase.cam.position.distanceTo(boat.root.position), 40, 100);
-  reflection.update(renderer, scene, chase.cam, SEA_Y + nearBoat * (boat.waterH - SEA_Y));
-  G.uStars.value = stars;
-  G.uMoonCol.value.copy(_moon);
-  post.setNear(chase.cam.near);
-  post.render(scene, chase.cam, t);
+  drawScene(px, pz);
   prof.poll();
+  if (WATCH && started) watch(interval);
 
   frames++;
   fpsT += dt;
@@ -423,6 +451,23 @@ function frame(now: number) {
     return;
   }
   requestAnimationFrame(frame);
+}
+
+// Every time of day once through the whole pipeline (dusk and night turn on the lamps and the
+// lighthouse beam), behind the loader, then back to the opening preset.
+if (params.get("timelapse") !== "1") {
+  const s = performance.now();
+  reflection.every = 1;
+  for (const p of PRESETS) {
+    tod.set(p, true);
+    tod.update(0);
+    drawScene(explore.playerX, explore.playerZ);
+    await yieldToPaint();
+  }
+  reflection.every = 2;
+  tod.set(startPreset, true);
+  tod.update(0);
+  bootLog.push(["presets", Math.round(performance.now() - s)]);
 }
 requestAnimationFrame(frame);
 

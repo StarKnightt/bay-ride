@@ -1020,8 +1020,9 @@ const FS = /* glsl */ `
     col = applyFog(col, vWPos);
     // The far sea melts into the horizon haze: sky and sea meet at a soft light line.
     col = mix(col, skyH, smoothstep(1800.0, 3800.0, dist) * 0.85);
-    gColor = vec4(col, 1.0);
+    gColor = vec4(safe3(col), 1.0);
     vec3 vn = normalize((viewMatrix * vec4(Nw, 0.0)).xyz);
+    if (badF3(vn)) vn = vec3(0.0, 0.0, 1.0);
     gNormal = vec4(vn.xy * 0.5 + 0.5, uId / 32.0, 0.0);
   }`;
 

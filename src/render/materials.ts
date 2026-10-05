@@ -48,7 +48,19 @@ export const G = {
   ...TOD,
 };
 
+/**
+ * NaN / Inf never reach the frame: one bad pixel would be smeared by the paint filter and the bloom
+ * mips into a black blotch the size of the screen. Bit test, so fast-math can't fold it away.
+ */
+export const SAFE_GLSL = /* glsl */ `
+bool badF3(vec3 c){ uvec3 e = floatBitsToUint(c) & uvec3(0x7f800000u); return any(equal(e, uvec3(0x7f800000u))); }
+bool badF1(float c){ return (floatBitsToUint(c) & 0x7f800000u) == 0x7f800000u; }
+vec3 safe3(vec3 c){ return badF3(c) ? vec3(0.0) : clamp(c, 0.0, 64.0); }
+float safe1(float a){ return badF1(a) ? 0.0 : clamp(a, 0.0, 1.0); }
+`;
+
 export const COMMON = /* glsl */ `
+${SAFE_GLSL}
 uniform float uTime;
 uniform vec3 uSunDir;
 uniform vec3 uSunColor;
@@ -272,7 +284,8 @@ void writeOut(vec3 col, vec3 wN, float mask){
     gAlpha = 1.0;
   }
   vec3 vn = normalize((viewMatrix * vec4(wN, 0.0)).xyz);
-  gColor = vec4(col, gAlpha);
+  if (badF3(vn)) vn = vec3(0.0, 0.0, 1.0);
+  gColor = vec4(safe3(col), gAlpha);
   gNormal = vec4(vn.xy * 0.5 + 0.5, uId / 32.0, mask);
 }
 `;
@@ -621,7 +634,7 @@ void main(){
     base = mix(base, base * vec3(1.2, 1.2, 0.8), step(0.93, fl) * 0.5 * footKeep(2.3));
     paint = 1.6; rim = 0.0;
   } else if ((HAS(12) && mt == 12)) {    // butterfly (bright, unshaded)
-    gColor = vec4(applyFog(base * 0.92, vWPos), 1.0);
+    gColor = vec4(safe3(applyFog(base * 0.92, vWPos)), 1.0);
     gNormal = vec4(0.5, 0.5, uId / 32.0, -1.0);
     return;
   } else if ((HAS(13) && mt == 13)) {    // stone
@@ -696,7 +709,7 @@ void main(){
     c = mix(c * uFarTint, skyColor(normalize(vec3(V.x, 0.02, V.z))), 0.25 * (1.0 - h) + uFarHaze * (1.0 - 0.5 * h));
     // At night far land stays a silhouette darker than the sky behind it.
     c = mix(c, min(c, skyColor(normalize(vec3(V.x, 0.08, V.z))) * 0.72), uNight);
-    gColor = vec4(c, 1.0);
+    gColor = vec4(safe3(c), 1.0);
     gNormal = vec4(0.5, 0.5, uId / 32.0, uMask);
     return;
   }
@@ -936,7 +949,7 @@ export function skyMaterial(): THREE.ShaderMaterial {
           float halo = exp(-max(r - 1.0, 0.0) * 2.2) * 0.32 + exp(-max(r - 1.0, 0.0) * 0.18) * 0.06;
           col += uMoonCol * halo * (1.0 - disk) * ok;
         }
-        gColor = vec4(col, 1.0);
+        gColor = vec4(safe3(col), 1.0);
         gNormal = vec4(0.5, 0.5, 0.0, 0.0);
       }`,
   });

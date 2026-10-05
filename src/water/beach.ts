@@ -117,7 +117,7 @@ export function beachMaterial(): THREE.ShaderMaterial {
 
         col = applyFog(col, vWPos);
         vec3 vn = normalize((viewMatrix * vec4(N, 0.0)).xyz);
-        gColor = vec4(col, 1.0);
+        gColor = vec4(safe3(col), 1.0);
         gNormal = vec4(vn.xy * 0.5 + 0.5, uId / 32.0, uMask);
       }`,
   });
