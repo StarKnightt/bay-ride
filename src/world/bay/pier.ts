@@ -64,16 +64,22 @@ export function inPier(x: number, z: number, pad = 0): boolean {
  * - undefined where the pier has no say (beside it on land, or under it with headroom).
  */
 export function pierGround(x: number, z: number, y = Infinity): { h: number; kind: "wood" } | null | undefined {
+  const h = pierWalkH(x, z, y);
+  return Number.isNaN(h) ? undefined : h === -Infinity ? null : { h, kind: "wood" };
+}
+
+/** pierGround as a number (no allocation): the deck height, −Infinity where it stops her, NaN where it has no say. */
+export function pierWalkH(x: number, z: number, y = Infinity): number {
   const dz = Math.abs(z - PIER.z);
-  if (x > PIER.x0 || x < PIER.x1 - 0.6 || dz > PIER.half + 0.6) return undefined;
+  if (x > PIER.x0 || x < PIER.x1 - 0.6 || dz > PIER.half + 0.6) return NaN;
   const top = deckH(x);
   const ground = terrainH(x, z);
-  if (y < top - 0.7) return ground < top - 1.9 ? undefined : null;
-  if (x < PIER.x1 + 0.3) return null;
+  if (y < top - 0.7) return ground < top - 1.9 ? NaN : -Infinity;
+  if (x < PIER.x1 + 0.3) return -Infinity;
   const gap = z < PIER.z && x > PIER_GAP.x0 && x < PIER_GAP.x1;
-  if (dz <= (gap ? PIER.half - 0.12 : PIER.half - 0.24)) return { h: top, kind: "wood" };
+  if (dz <= (gap ? PIER.half - 0.12 : PIER.half - 0.24)) return top;
   // Off the side: open onto the promenade at the landward end, railings (or the drop) elsewhere.
-  return x > PIER.railFrom && ground > top - 0.35 ? undefined : null;
+  return x > PIER.railFrom && ground > top - 0.35 ? NaN : -Infinity;
 }
 
 /** Is (x, y, z) inside the pier's solid (deck, railings, posts and the space between them)? */

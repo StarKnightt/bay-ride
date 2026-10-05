@@ -8,7 +8,7 @@ import type { StepSurface } from "../../sound/steps";
 import { LighthouseBeam } from "./beam";
 import { buildHouses } from "./houses";
 import { buildDuneGrass } from "./dunegrass";
-import { buildPier, deckH, inPier, pierBlocks, pierContact, pierGround } from "./pier";
+import { buildPier, deckH, inPier, pierBlocks, pierContact, pierGround, pierWalkH } from "./pier";
 import { beachMaterial } from "../../water/beach";
 import { ROCKS, buildRocks, rockTop } from "../../water/rocks";
 import { buildSlipways, rampH } from "./slipway";
@@ -115,6 +115,16 @@ export class Bay {
     else if (onRoadZ && u >= WALL_IN && u < RIBBON_HALF + 0.4) kind = "dirt";
     else if (h < 0.1 && u < WALL_IN) kind = h < SEA_Y + 0.35 ? "wetsand" : "sand";
     return { h: Math.max(h, SEA_Y - WADE), kind };
+  }
+
+  /** Height of walkable ground at (x, z) as groundAt finds it, or NaN; no allocation (per-frame probes). */
+  walkH(x: number, z: number, y = Infinity): number {
+    if (Math.abs(z) > 520 || x < -600 || x > 600) return NaN;
+    const p = pierWalkH(x, z, y);
+    if (p === -Infinity) return NaN;
+    if (!Number.isNaN(p)) return p;
+    const h = this.surfaceH(x, z);
+    return h < SEA_Y - WADE ? NaN : h;
   }
 
   /** The land as drawn, without the pier: the terrain mesh's triangles, the road ribbon and slipways on them. */

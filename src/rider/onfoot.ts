@@ -372,7 +372,7 @@ export class Explore {
 
   /** Somewhere she can stand: walkable ground (not deep water, not off the map), not in a house. */
   private standable(x: number, z: number): boolean {
-    return this.bay.groundAt(x, z, this.y) !== null && this.bay.roofAt(x, z, BODY_R) === 0;
+    return !Number.isNaN(this.bay.walkH(x, z, this.y)) && this.bay.roofAt(x, z, BODY_R) === 0;
   }
 
   /**
@@ -382,24 +382,24 @@ export class Explore {
    * its foot instead of half inside it). Level or downhill anything goes.
    */
   private passable(x: number, z: number): boolean {
-    const g = this.bay.groundAt(x, z, this.y);
-    if (!g || this.bay.roofAt(x, z, BODY_R) > 0) return false;
+    const h = this.bay.walkH(x, z, this.y);
+    if (Number.isNaN(h) || this.bay.roofAt(x, z, BODY_R) > 0) return false;
     // Aloft she clears anything below her feet and lands on it; anything higher stops her, and so
     // does a steep face rising ahead (no hopping up the sea wall a jump at a time).
-    if (this.air) return g.h <= this.y + 0.05 && (g.h <= this.takeoffY + 0.05 || this.steepness(x, z, g.h) <= SLOPE_UP);
-    const rise = g.h - this.gy;
-    if (rise > STEP_UP || (rise > 0 && this.steepness(x, z, g.h) > SLOPE_UP)) return false;
+    if (this.air) return h <= this.y + 0.05 && (h <= this.takeoffY + 0.05 || this.steepness(x, z, h) <= SLOPE_UP);
+    const rise = h - this.gy;
+    if (rise > STEP_UP || (rise > 0 && this.steepness(x, z, h) > SLOPE_UP)) return false;
     const dx = x - this.x, dz = z - this.z, d = Math.hypot(dx, dz) || 1;
     const ax = x + (dx / d) * LOOK_AHEAD, az = z + (dz / d) * LOOK_AHEAD;
-    const a = this.bay.groundAt(ax, az, g.h);
-    return !a || a.h - this.gy < 0.05 || this.steepness(ax, az, a.h) <= SLOPE_UP;
+    const a = this.bay.walkH(ax, az, h);
+    return Number.isNaN(a) || a - this.gy < 0.05 || this.steepness(ax, az, a) <= SLOPE_UP;
   }
 
   /** Rise over run of the ground at (x, z), whose height is h. */
   private steepness(x: number, z: number, h: number): number {
     const e = 0.15;
-    const gx = this.bay.groundAt(x + e, z, h), gz = this.bay.groundAt(x, z + e, h);
-    return gx && gz ? Math.hypot(gx.h - h, gz.h - h) / e : 0;
+    const hx = this.bay.walkH(x + e, z, h), hz = this.bay.walkH(x, z + e, h);
+    return Number.isNaN(hx) || Number.isNaN(hz) ? 0 : Math.hypot(hx - h, hz - h) / e;
   }
 
   private move(dx: number, dz: number): void {
