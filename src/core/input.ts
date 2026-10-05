@@ -3,8 +3,6 @@ export class Input {
   down = false;
   left = false;
   right = false;
-  /** Shift held (sprint on the bike; the on-foot explorer reads Shift itself for running). */
-  sprint = false;
 
   constructor(onFirst: () => void, onToggleView: () => void = () => {}) {
     const set = (code: string, v: boolean) => {
@@ -25,10 +23,6 @@ export class Input {
         case "ArrowRight":
           this.right = v;
           return true;
-        case "ShiftLeft":
-        case "ShiftRight":
-          this.sprint = v;
-          return false;
       }
       return false;
     };
@@ -42,7 +36,7 @@ export class Input {
     });
     addEventListener("pointerdown", onFirst);
     addEventListener("blur", () => {
-      this.up = this.down = this.left = this.right = this.sprint = false;
+      this.up = this.down = this.left = this.right = false;
     });
   }
 }

@@ -3,7 +3,7 @@
  * They run once (lazily, a few per frame) and the results are played back as AudioBuffers.
  * Everything here is deliberately soft: rounded attacks, low-passed tops, nothing much above ~5 kHz.
  */
-import { Biq, envAD, filt, lerp, makeLoop, mode, normPeak, normRms, note, rr, smooth, sn, TAU, trim, type Rng } from "./dsp";
+import { Biq, filt, lerp, makeLoop, normPeak, normRms, note, rr, smooth, sn, TAU, trim, type Rng } from "./dsp";
 
 type Gen = (r: Rng, sr: number) => Float32Array[];
 const mono = (d: Float32Array, sr: number, peak = 0.9): Float32Array[] => normPeak([trim(d, sr)], peak);
@@ -14,60 +14,6 @@ function fadeIn(d: Float32Array, sr: number, sec: number): Float32Array {
   for (let i = 0; i < n; i++) d[i] *= 0.5 - 0.5 * Math.cos((Math.PI * i) / n);
   return d;
 }
-
-// ───────────────────────────── bicycle ─────────────────────────────
-
-/** Freewheel pawl tick: a tiny, round, muted tick (many of them make a soft purr). */
-export const freewheelClick: Gen = (r, sr) => {
-  const d = new Float32Array(Math.floor(sr * 0.02));
-  const a = rr(r, 0.6, 1);
-  mode(d, sr, 0, rr(r, 1700, 2200), a, rr(r, 0.004, 0.005), r(), 0.005);
-  mode(d, sr, 0, rr(r, 850, 1050), a * 0.6, rr(r, 0.005, 0.007), r(), 0.005);
-  filt(d, new Biq("lp", sr, 3200, 0.6));
-  return [d];
-};
-
-/** Chain link over the sprocket while pedalling: a low, rounded tick. */
-export const chainTick = (accent: boolean): Gen => (r, sr) => {
-  const d = new Float32Array(Math.floor(sr * 0.04));
-  const a = accent ? rr(r, 0.85, 1) : rr(r, 0.35, 0.6);
-  mode(d, sr, 0, rr(r, 650, 900), a * 0.6, rr(r, 0.005, 0.007), r(), 0.005);
-  mode(d, sr, 0, rr(r, 1400, 1800), a * 0.3, rr(r, 0.004, 0.005), r(), 0.005);
-  mode(d, sr, 0, rr(r, 150, 210), a * (accent ? 0.55 : 0.25), 0.012, 0, 0.004);
-  filt(d, new Biq("lp", sr, 2800, 0.6));
-  return [d];
-};
-
-/** Tyre over a seam: a soft thump with a faint basket shiver. */
-export const rattle: Gen = (r, sr) => {
-  const d = new Float32Array(Math.floor(sr * 0.3));
-  note(d, sr, 0, 0.1, (u) => lerp(105, 55, u), envAD(0.08, 2.5), [1, 0.2]);
-  const n = 2 + Math.floor(r() * 4);
-  for (let k = 0; k < n; k++) {
-    const t = 0.006 + r() * 0.08;
-    mode(d, sr, t, rr(r, 1100, 2200), rr(r, 0.04, 0.12), rr(r, 0.003, 0.008), r(), 0.002);
-  }
-  filt(d, new Biq("lp", sr, 2600, 0.6));
-  return mono(d, sr);
-};
-
-const BELL_PARTIALS: [number, number, number][] = [
-  [1, 1, 0.6],
-  [1.0048, 0.75, 0.65],
-  [2.09, 0.25, 0.3],
-  [2.104, 0.16, 0.26],
-  [3.15, 0.06, 0.12],
-];
-
-/** Thumb bell: a gentle, round "ting-ting" (soft striker, top rolled off). */
-export const bikeBell = (single: boolean): Gen => (r, sr) => {
-  const f = rr(r, 1250, 1350);
-  const strikes: [number, number][] = single ? [[0.003, 0.5]] : [[0.003, 0.7], [0.32, 0.9]];
-  const d = new Float32Array(Math.floor(sr * (strikes[strikes.length - 1][0] + 2)));
-  for (const [t, a] of strikes) for (const [ratio, amp, tau] of BELL_PARTIALS) mode(d, sr, t, f * ratio, a * amp, tau, r(), 0.004);
-  filt(d, new Biq("lp", sr, 4200, 0.6));
-  return mono(d, sr);
-};
 
 // ───────────────────────────── sea ─────────────────────────────
 

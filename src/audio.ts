@@ -1,32 +1,32 @@
 /**
  * Bay soundscape and score — everything is synthesised at runtime with Web Audio (no audio files).
  * The engine lives in ./sound/: waves on the sand, lapping at the pier and hull, the outboard and hull
- * slaps, distant gulls, wind, the bicycle, footsteps on wood / sand / wet sand, and a quiet generative
+ * slaps, distant gulls, wind, footsteps on wood / sand / wet sand, and a quiet generative
  * score that follows the time of day — all through warm open-air and hall reverbs and a gentle
  * compressor → limiter → soft-ceiling master (peaks held under −3.5 dBFS).
  *
  * ── Wiring guide ────────────────────────────────────────────────────────────────────────────────
  *   const audio = new RideAudio();
  *   new Input(() => audio.start());            // start() must run inside a user gesture (autoplay policy)
- *   audio.bindKeys();                          // B = bell, M = music on/off, Shift+M = mute all
+ *   audio.bindKeys();                          // M = music on/off, Shift+M = mute all
  *
- *   // every frame, the bike (unchanged signature; the 7th argument is optional):
- *   audio.update(dt, speed, cadence, wheelRate, pedaling, braking, { steer, bump, roughness, evening, night });
+ *   // every frame (all fields optional):
+ *   audio.update(dt, { speed, steer, evening, night });
  *
  *   // every frame (or whenever they change), the world around the listener:
  *   audio.setTimeOfDay("morning" | "noon" | "golden" | "sunset" | "dusk" | "night");  // music mood + gulls
  *   audio.setShore(distanceToWaterline_m, pan);   // pan −1 shore on the left … 1 on the right
  *   audio.setOpenWater(0…1);                      // 0 on land … 1 out on the bay (open-sea hush)
  *   audio.setNearPier(0…1, pan);                  // closeness to pier posts / moored hulls (lapping)
- *   audio.setMotion(m/s);                         // listener travel speed for the wind (bike, feet or boat)
+ *   audio.setMotion(m/s);                         // listener travel speed for the wind (feet or boat)
  *
- *   // the boat (once it exists):
+ *   // the boat:
  *   audio.setInBoat(true | false);                // aboard: the outboard idles, our hull laps when still
  *   audio.setBoatThrottle(0…1);  audio.setBoatSpeed(m/s);
  *   audio.boatSlap(0…1);                          // optional: a swell meets the bow (auto-generated otherwise)
  *
  *   audio.footstep("wood" | "sand" | "wetsand" | "asphalt" | "grass" | "dirt", 0…1.5);
- *   audio.ringBell();  audio.toggleMusic();  audio.toggleMute();  audio.setMasterVolume(0…1);
+ *   audio.toggleMusic();  audio.toggleMute();  audio.setMasterVolume(0…1);
  * ────────────────────────────────────────────────────────────────────────────────────────────────
  */
 import { SoundEngine, type EngineInput, type MoodName, type SoundEvent } from "./sound/engine";
@@ -35,10 +35,11 @@ import type { StepSurface } from "./sound/steps";
 export type { SoundEvent, MoodName } from "./sound/engine";
 export type { StepSurface } from "./sound/steps";
 
-export interface RideAudioExtras {
+export interface AudioFrame {
+  /** Walking speed, m/s. */
+  speed?: number;
+  /** -1 … 1 turning. */
   steer?: number;
-  bump?: number;
-  roughness?: number;
   evening?: number;
   night?: number;
 }
@@ -57,7 +58,7 @@ export class RideAudio {
   private hideTimer = 0;
   private onVis = () => this.visibility();
   private mood: MoodName = "golden";
-  private world: EngineInput = { speed: 0, crank: 0, wheel: 0, pedal: 0, brake: 0, shore: 30, shorePan: -0.5, sea: 0, pier: 0, pierPan: 0, boat: 0, throttle: 0, boatSpeed: 0 };
+  private world: EngineInput = { speed: 0, shore: 30, shorePan: -0.5, sea: 0, pier: 0, pierPan: 0, boat: 0, throttle: 0, boatSpeed: 0 };
   private slapQ = 0;
 
   constructor() {
@@ -108,18 +109,12 @@ export class RideAudio {
     if (ctx.state === "suspended") void ctx.resume();
   }
 
-  update(dt: number, speed: number, crankRate: number, wheelRate: number, pedaling: number, braking: boolean | number, extras?: RideAudioExtras): void {
+  update(dt: number, extras?: AudioFrame): void {
     const ctx = this.ctx;
     if (!ctx || !this.engine || ctx.state !== "running") return;
     const w = this.world;
-    w.speed = speed;
-    w.crank = crankRate;
-    w.wheel = wheelRate;
-    w.pedal = pedaling;
-    w.brake = typeof braking === "number" ? braking : braking ? 1 : 0;
+    w.speed = extras?.speed ?? 0;
     w.steer = extras?.steer;
-    w.bump = extras?.bump;
-    w.roughness = extras?.roughness;
     if (extras?.evening !== undefined) w.evening = extras.evening;
     if (extras?.night !== undefined) w.night = extras.night;
     w.slap = this.slapQ;
@@ -153,7 +148,7 @@ export class RideAudio {
     this.world.pierPan = pan;
   }
 
-  /** Listener travel speed (m/s) for the wind; defaults to the bike speed (or boat speed when aboard). */
+  /** Listener travel speed (m/s) for the wind; defaults to the walking speed (or boat speed when aboard). */
   setMotion(speed: number | undefined): void {
     this.world.move = speed;
   }
@@ -177,17 +172,6 @@ export class RideAudio {
   /** A swell meets the hull, strength 0…1 (optional — slaps are generated from boat speed otherwise). */
   boatSlap(strength = 0.6): void {
     this.slapQ = Math.max(this.slapQ, strength);
-  }
-
-  /** Thumb bell. Starts audio if needed. */
-  ringBell(): void {
-    this.start();
-    if (this.ctx && this.engine) this.engine.ringBell(this.ctx.currentTime + 0.01);
-  }
-
-  /** Tyre over a seam, strength 0…1. */
-  bump(strength = 0.6): void {
-    if (this.ctx && this.engine) this.engine.bump(this.ctx.currentTime + 0.01, strength);
   }
 
   /** A footstep while walking, strength 0…1.5 (jogging ≈ 1.2). */
@@ -236,14 +220,13 @@ export class RideAudio {
     this.applyVolume(0.13);
   }
 
-  /** B = bell, M = music on/off, Shift+M = mute everything. Returns a function that removes the listener. */
+  /** M = music on/off, Shift+M = mute everything. Returns a function that removes the listener. */
   bindKeys(target: Window = window): () => void {
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
-      if (e.code === "KeyB") this.ringBell();
-      else if (e.code === "KeyM") {
+      if (e.code === "KeyM") {
         this.start();
         if (e.shiftKey) this.toggleMute();
         else {

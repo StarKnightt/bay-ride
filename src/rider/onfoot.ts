@@ -2,9 +2,8 @@ import * as THREE from "three";
 import { G } from "../render/materials";
 import type { Bay } from "../world/bay";
 import { roadX, roadYaw } from "../world/bay/road";
-import { PARK_LEAN, PARK_STEER, gaitCycle, type FootState, type Rider } from "./rider";
-import type { Controller } from "./controller";
-import type { CamMode, ChaseCam } from "./camera";
+import { gaitCycle, type FootState, type Rider } from "./rider";
+import type { ChaseCam } from "./camera";
 import type { Input } from "../core/input";
 import type { RideAudio, StepSurface } from "../audio";
 import { clamp, damp } from "../core/rng";
@@ -13,21 +12,13 @@ import { BERTH } from "../boat/berth";
 import { SEA_Y } from "../world/bay/road";
 
 /**
- * F = get off and explore on foot; F next to the bike = get back on.
- *
- * ride → (braking) → dismount → walk ⇄ (approach → mount) → ride
- *
- * The same character mesh is used: the body is re-parented from the bike to `rider.walker` and
- * blended limb by limb between the seated and standing poses. While she walks the bike stays
- * parked on its kickstand where she left it. Pressing F out of reach
- * (> 2.2 m) wheels it over: it reappears parked at the road edge beside her, and she gets on.
- *
- * The skiff: F within reach of it (at the berth) = step aboard and sit at the tiller; F aboard,
- * slow, at the berth or close to wadeable shore = step ashore there.
+ * On foot and in the skiff. She walks (WASD, Shift to jog) with a mouse orbit camera; F within
+ * reach of the moored skiff steps aboard and sits at the tiller; F aboard, slow, at the berth or
+ * close to wadeable shore steps ashore there (at the berth: up onto the pier deck).
  *
  * walk → board → boat → leave → walk
  */
-export type FootMode = "ride" | "braking" | "dismount" | "walk" | "approach" | "mount" | "board" | "boat" | "leave";
+export type FootMode = "walk" | "board" | "boat" | "leave";
 
 const BOARD_T = 1.5;
 /** Aboard and slower than this, F steps ashore. */
@@ -36,12 +27,6 @@ const LEAVE_SPEED = 1.3;
 const WALK = 1.3;
 const RUN = 3.0;
 const BODY_R = 0.24;
-const MOUNT_RANGE = 2.2;
-const DISMOUNT_T = 1.0;
-const MOUNT_T = 0.9;
-/** Where she stands beside the bike (bike-local): to the side of the saddle, a touch forward of it. */
-const STAND_X = 0.6;
-const STAND_Z = 0.12;
 /** Orbit pitch limits: never steeper than ~55° looking down or below ~-10° looking up. */
 const PITCH_MIN = -0.17;
 const PITCH_MAX = 0.96;
@@ -49,8 +34,8 @@ const PIVOT_DROP = 0.1;
 const wrapA = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export class Explore {
-  mode: FootMode = "ride";
-  /** Walker position (feet), heading (forward = (-sin, -cos) like the bike), ground speed. */
+  mode: FootMode = "walk";
+  /** Walker position (feet), heading (forward = (-sin, -cos)), ground speed. */
   x = 0;
   z = 0;
   y = 0;
@@ -60,19 +45,14 @@ export class Explore {
   private phase = 0;
   private turn = 0;
   private k = 0;
-  private side = 1;
   private shiftKey = false;
   private look = 0;
   private lookUp = 0;
   private lookT = 0;
   private lookTarget = 0;
   private idleT = 0;
-  private approachT = 0;
-  private prevCam: CamMode = "chase";
   private stepCount = 0;
-  private surface: StepSurface = "asphalt";
-  /** Parked-bike presentation (kickstand, lean onto it, bars turned). */
-  kick = 0;
+  private surface: StepSurface = "wood";
   // Orbit camera.
   private oYaw = 0;
   private oPitch = 0.16;
@@ -85,12 +65,10 @@ export class Explore {
   private dragT = 0;
   private lastX = 0;
   private lastY = 0;
-  private hint: HTMLDivElement;
-  private hintOn = false;
-  readonly foot: FootState = { blend: 0, side: 1, speed: 0, phase: 0, run: 0, turn: 0, look: 0, lookUp: 0, time: 0 };
+  readonly foot: FootState = { speed: 0, phase: 0, run: 0, turn: 0, look: 0, lookUp: 0, time: 0 };
   /** Test hook: walk in a fixed world direction instead of reading the keys. */
   autoWalk: { dx: number; dz: number; run: boolean } | null = null;
-  /** F / C only act once the ride is running (not on the intro loader's "press any key"). */
+  /** F / C only act once play is running (not on the intro loader's "press any key"). */
   enabled = false;
   /** Idle glances around (off for posed test shots). */
   lookAround = true;
@@ -108,37 +86,16 @@ export class Explore {
   constructor(
     private bay: Bay,
     private rider: Rider,
-    private ctl: Controller,
     private chase: ChaseCam,
     private audio: RideAudio,
     private canvas: HTMLCanvasElement,
-    showHint: boolean,
   ) {
-    this.hint = document.createElement("div");
-    this.hint.textContent = "F — ride";
-    Object.assign(this.hint.style, {
-      position: "fixed",
-      left: "50%",
-      bottom: "7%",
-      transform: "translateX(-50%)",
-      font: '400 13px/1 "Georgia", "Times New Roman", serif',
-      letterSpacing: "0.22em",
-      color: "rgba(255, 252, 240, 0.82)",
-      textShadow: "0 1px 3px rgba(40, 30, 20, 0.45)",
-      pointerEvents: "none",
-      userSelect: "none",
-      opacity: "0",
-      transition: "opacity 0.6s ease",
-      display: showHint ? "block" : "none",
-    });
-    document.body.appendChild(this.hint);
-
     addEventListener("keydown", (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.code === "ShiftLeft" || e.code === "ShiftRight") this.shiftKey = true;
       if (e.repeat || !this.enabled) return;
       if (e.code === "KeyF") this.pressF();
-      else if (e.code === "KeyC" && (this.mode === "ride" || this.mode === "boat")) this.chase.cycle();
+      else if (e.code === "KeyC" && this.mode === "boat") this.chase.cycle();
     });
     addEventListener("keyup", (e) => {
       if (e.code === "ShiftLeft" || e.code === "ShiftRight") this.shiftKey = false;
@@ -171,7 +128,7 @@ export class Explore {
       if ((mx || my) && this.onFoot) this.orbitBy(mx, my);
     });
     addEventListener("pointerup", () => {
-      if (this.dragging && this.dragMoved < 5 && performance.now() - this.dragT < 350 && (this.onFoot || this.lockRiding) && document.pointerLockElement !== canvas) {
+      if (this.dragging && this.dragMoved < 5 && performance.now() - this.dragT < 350 && (this.onFoot || this.lockAboard) && document.pointerLockElement !== canvas) {
         // A plain click captures the mouse for free look (Esc releases it).
         try {
           const p = canvas.requestPointerLock() as unknown as Promise<void> | undefined;
@@ -193,12 +150,12 @@ export class Explore {
     );
   }
 
-  /** Also capture the mouse on a canvas click while riding (off for autoplay captures). */
-  lockRiding = false;
+  /** Also capture the mouse on a canvas click while aboard (off for scripted captures). */
+  lockAboard = false;
 
-  /** Is she off the bike (the body lives on the walker root and the orbit camera is in charge)? */
+  /** On her feet (the orbit camera is in charge), including stepping aboard and ashore. */
   get onFoot(): boolean {
-    return this.mode === "dismount" || this.mode === "walk" || this.mode === "approach" || this.mode === "mount" || this.mode === "board" || this.mode === "leave";
+    return this.mode === "walk" || this.mode === "board" || this.mode === "leave";
   }
 
   /** Seated in the boat at the tiller (the boat camera is in charge). */
@@ -206,85 +163,44 @@ export class Explore {
     return this.mode === "boat";
   }
 
-  /** Body on the walker root (on foot or in the boat). */
-  get offBike(): boolean {
-    return this.onFoot || this.mode === "boat";
-  }
-
-  /** Should the bike controller run this frame? */
-  get bikeActive(): boolean {
-    return this.mode === "ride" || this.mode === "braking";
-  }
-
-  /** Where the player is (the bike while riding, her while on foot). */
+  /** Where the player is (the boat while aboard, her while on foot). */
   get playerZ(): number {
-    return this.mode === "boat" && this.boat ? this.boat.z : this.onFoot ? this.z : this.ctl.z;
+    return this.mode === "boat" && this.boat ? this.boat.z : this.z;
   }
   get playerX(): number {
-    return this.mode === "boat" && this.boat ? this.boat.x : this.onFoot ? this.x : this.ctl.x;
+    return this.mode === "boat" && this.boat ? this.boat.x : this.x;
   }
 
-  /** Close enough to the moored skiff to step aboard? */
+  /** Close enough to the moored skiff to step aboard? At the berth: near the gap in the railing. */
   get nearBoat(): boolean {
     const b = this.boat;
-    return !!b && this.mode === "walk" && b.mode === "idle" && Math.hypot(b.u, b.v) < 1 && b.hullDistance(this.x, this.z) < BERTH.reach;
-  }
-
-  get bikeDistance(): number {
-    return Math.hypot(this.x - this.ctl.x, this.z - this.ctl.z);
+    if (!b || this.mode !== "walk" || b.mode !== "idle" || Math.hypot(b.u, b.v) >= 1) return false;
+    if (Math.hypot(b.x - BERTH.x, b.z - BERTH.z) < 6) return Math.hypot(this.x - BERTH.stand.x, this.z - BERTH.stand.z) < BERTH.reach && Math.abs(this.y - BERTH.stand.y) < 0.6;
+    return b.hullDistance(this.x, this.z) < BERTH.reach;
   }
 
   pressF(): void {
-    switch (this.mode) {
-      case "ride":
-        if (Math.abs(this.ctl.speed) > 0.3) {
-          this.mode = "braking";
-          this.ctl.hold = true;
-        } else this.startDismount();
-        return;
-      case "walk": {
-        const d = this.bikeDistance;
-        const hb = this.boat ? this.boat.hullDistance(this.x, this.z) : 1e9;
-        if (this.nearBoat && !(d < MOUNT_RANGE && d < hb)) {
-          this.startBoard();
-          return;
-        }
-        if (d > MOUNT_RANGE) this.summon();
-        if (this.bikeDistance < MOUNT_RANGE) this.startApproach();
-        return;
-      }
-      case "boat":
-        this.tryLeave();
-        return;
-      default:
-        return;
-    }
+    if (this.mode === "walk" && this.nearBoat) this.startBoard();
+    else if (this.mode === "boat") this.tryLeave();
   }
 
-  private standSpot(side: number, out = new THREE.Vector3()): THREE.Vector3 {
-    const c = this.ctl, cy = Math.cos(c.yaw), sy = Math.sin(c.yaw);
-    const lx = -STAND_X * side, lz = STAND_Z;
-    return out.set(c.x + lx * cy + lz * sy, 0, c.z - lx * sy + lz * cy);
-  }
-
-  private startDismount(): void {
-    const c = this.ctl;
-    c.hold = true;
-    c.speed = 0;
-    this.prevCam = this.chase.mode === "front" || this.chase.mode === "flank" ? this.chase.mode : "chase";
-    this.chase.forceThirdPerson(this.rider);
-    const left = this.standSpot(1);
-    this.side = this.free(left.x, left.z) ? 1 : -1;
-    const p = this.standSpot(this.side);
-    this.x = p.x;
-    this.z = p.z;
-    this.yaw = c.yaw;
-    this.speed = 0;
-    this.y = this.bay.groundAt(this.x, this.z)?.h ?? 0.02;
-    this.mode = "dismount";
+  /**
+   * Character spawn: standing at world (x, z) facing `yaw`; the orbit camera at bearing `rel` from
+   * behind her (radians, + swings it round to her right), `pitch` above her and `dist` back.
+   */
+  spawn(x: number, z: number, yaw: number, rel = 0, pitch = 0.12, dist = 3.6): void {
+    this.mode = "walk";
     this.k = 0;
-    // Orbit camera picks up from wherever the ride camera is (behind, or a cinematic front shot).
-    this.orbitFromCam();
+    this.x = x;
+    this.z = z;
+    this.yaw = yaw;
+    this.speed = 0;
+    this.y = this.bay.groundAt(x, z)?.h ?? 0;
+    this.rider.walker.position.set(x, this.y, z);
+    this.rider.walker.rotation.set(0, yaw, 0);
+    this.setOrbit(rel, pitch, dist);
+    this.touched = 0;
+    this.rider.headWorld(this.pivot);
   }
 
   /** The orbit camera picks up from wherever the current camera is. */
@@ -364,56 +280,8 @@ export class Explore {
     this.chase.forceThirdPerson(this.rider);
   }
 
-  private startApproach(): void {
-    const c = this.ctl;
-    const dx = this.x - c.x, dz = this.z - c.z;
-    const lx = dx * Math.cos(c.yaw) - dz * Math.sin(c.yaw);
-    this.side = lx <= 0 ? 1 : -1;
-    this.mode = "approach";
-    this.approachT = 0;
-  }
-
-  /** Far from the bike: it reappears parked at the road edge nearest to her. */
-  private summon(): void {
-    const c = this.ctl;
-    const u = this.x - roadX(this.z);
-    for (let i = 0; i < 6; i++) {
-      const z = this.z - i * 1.6;
-      const yaw = roadYaw(z);
-      // To her right, so she ends up at its left-hand stand spot when she's on the road.
-      const ub = clamp(u + STAND_X, -2.3, 2.3);
-      const x = roadX(z) + ub;
-      const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
-      let clear = this.bay.contact(x, z, 0.4).pen <= 0;
-      for (const d of [0.75, -0.45]) clear &&= this.bay.contact(x + fx * d, z + fz * d, 0.3).pen <= 0;
-      if (clear || i === 5) {
-        c.x = x;
-        c.z = z;
-        c.yaw = yaw;
-        c.speed = 0;
-        c.steer = 0;
-        c.lean = 0;
-        return;
-      }
-    }
-  }
-
-  private finishMount(): void {
-    const c = this.ctl;
-    this.mode = "ride";
-    this.k = 0;
-    this.kick = 0;
-    c.hold = false;
-    c.speed = 0;
-    c.steer = 0;
-    c.lean = 0;
-    this.speed = 0;
-    if (!this.lockRiding && document.pointerLockElement === this.canvas) document.exitPointerLock();
-    this.chase.handoff(this.prevCam);
-  }
-
-  /** Circle obstacles (trunks, poles, signs, posts) + the parked bike; houses are boxes, see free(). */
-  private circles(x: number, z: number, withBike: boolean): { pen: number; nx: number; nz: number } {
+  /** Circle obstacles (trunks, poles, signs, posts, bollards); houses are boxes, see free(). */
+  private circles(x: number, z: number): { pen: number; nx: number; nz: number } {
     const out = { pen: 0, nx: 0, nz: 0 };
     const test = (cx: number, cz: number, r: number) => {
       const dx = x - cx, dz = z - cz;
@@ -429,10 +297,6 @@ export class Explore {
       }
     };
     for (const k of this.bay.colliders) if (k.r <= 1.2 && Math.abs(k.z - z) < 3 && Math.abs(k.x - x) < 3) test(k.x, k.z, k.r);
-    if (withBike) {
-      const c = this.ctl, fx = -Math.sin(c.yaw), fz = -Math.cos(c.yaw);
-      for (const d of [0.55, 0, -0.5]) test(c.x + fx * d, c.z + fz * d, 0.2);
-    }
     return out;
   }
 
@@ -466,18 +330,18 @@ export class Explore {
   }
 
   private free(x: number, z: number): boolean {
-    return this.bay.groundAt(x, z) !== null && this.bay.roofAt(x, z, BODY_R) === 0;
+    return this.bay.groundAt(x, z, this.y) !== null && this.bay.roofAt(x, z, BODY_R) === 0;
   }
 
   private move(dx: number, dz: number): void {
     let nx = this.x + dx, nz = this.z + dz;
     for (let it = 0; it < 2; it++) {
-      const c = this.circles(nx, nz, true);
+      const c = this.circles(nx, nz);
       if (c.pen <= 0) break;
       nx += c.nx * c.pen;
       nz += c.nz * c.pen;
     }
-    // Stuck somewhere odd (teleport, summoned bike): let her walk out.
+    // Stuck somewhere odd (teleport): let her walk out.
     if (this.free(nx, nz) || !this.free(this.x, this.z)) {
       this.x = nx;
       this.z = nz;
@@ -487,7 +351,7 @@ export class Explore {
     const u0 = this.x - roadX(this.z);
     const tries: [number, number][] = [[roadX(this.z + dz) + u0, this.z + dz], [this.x + dx, this.z], [this.x, this.z + dz]];
     for (const [tx, tz] of tries) {
-      if (this.free(tx, tz) && this.circles(tx, tz, true).pen < 0.002) {
+      if (this.free(tx, tz) && this.circles(tx, tz).pen < 0.002) {
         this.x = tx;
         this.z = tz;
         return;
@@ -497,54 +361,15 @@ export class Explore {
   }
 
   update(dt: number, input: Input, time: number): void {
-    const c = this.ctl;
     switch (this.mode) {
-      case "braking":
-        if (Math.abs(c.speed) <= 0.25) this.startDismount();
-        break;
-      case "dismount":
-        this.k = Math.min(1, this.k + dt / DISMOUNT_T);
-        if (this.k >= 1) this.mode = "walk";
-        break;
       case "walk":
         this.locomotion(dt, input);
-        break;
-      case "approach": {
-        this.approachT += dt;
-        const p = this.standSpot(this.side);
-        const dx = p.x - this.x, dz = p.z - this.z;
-        const d = Math.hypot(dx, dz);
-        if (d > 0.05 && this.approachT < 4) {
-          this.steerToward(Math.atan2(-dx, -dz), dt, 9);
-          this.speed = damp(this.speed, Math.min(1.1, d * 2.2 + 0.25), 6, dt);
-          const step = Math.min(d, this.speed * dt);
-          this.x += (dx / d) * step;
-          this.z += (dz / d) * step;
-        } else {
-          this.speed = damp(this.speed, 0, 10, dt);
-          const err = this.steerToward(c.yaw, dt, 7);
-          if ((Math.abs(err) < 0.06 && this.speed < 0.15) || this.approachT > 5) {
-            this.x = p.x;
-            this.z = p.z;
-            this.mode = "mount";
-            this.k = 1;
-            this.speed = 0;
-          }
-        }
-        this.advancePhase(dt);
-        break;
-      }
-      case "mount":
-        this.speed = 0;
-        this.yaw = damp(this.yaw, c.yaw, 12, dt);
-        this.k = Math.max(0, this.k - dt / MOUNT_T);
-        if (this.k <= 0) this.finishMount();
         break;
       case "board":
         this.k = Math.min(1, this.k + dt / BOARD_T);
         if (this.k >= 1) {
           this.mode = "boat";
-          if (!this.lockRiding && document.pointerLockElement === this.canvas) document.exitPointerLock();
+          if (!this.lockAboard && document.pointerLockElement === this.canvas) document.exitPointerLock();
           this.chase.handoff("chase");
         }
         break;
@@ -560,9 +385,6 @@ export class Explore {
     }
     const onFoot = this.onFoot;
     const boating = this.mode === "board" || this.mode === "boat" || this.mode === "leave";
-    // Parked bike: kickstand swings down as she steps off, the bike settles onto it, bars turn in.
-    const park = this.mode === "dismount" ? smooth01(this.k / 0.55) : this.mode === "mount" ? smooth01((this.k - 0.35) / 0.5) : this.offBike ? 1 : 0;
-    this.kick = park;
     let seat = 0;
     if (boating && this.boat) {
       // From the shore point to the bench (or back): a couple of steps, over the gunwale, sit down.
@@ -585,7 +407,7 @@ export class Explore {
       if (this.mode !== "boat") this.advancePhase(dt);
       this.idleLook(dt);
     } else if (onFoot) {
-      const g = this.bay.groundAt(this.x, this.z);
+      const g = this.bay.groundAt(this.x, this.z, this.y);
       if (g) {
         this.y = damp(this.y, g.h, 12, dt);
         this.surface = g.kind;
@@ -595,11 +417,9 @@ export class Explore {
       this.idleLook(dt);
     }
     const f = this.foot;
-    f.blend = this.mode === "dismount" || this.mode === "mount" ? this.k : this.offBike ? 1 : 0;
     f.seat = seat;
     f.grip = seat > 0 ? this.grip : undefined;
     f.wind = boating && this.boat ? Math.abs(this.boat.u) : 0;
-    f.side = this.side;
     f.speed = this.speed;
     f.phase = this.phase;
     f.run = this.run;
@@ -608,49 +428,6 @@ export class Explore {
     f.lookUp = this.lookUp;
     f.time = time;
     G.uPush.value.set(this.x, this.z, 0.85, onFoot && !boating ? 1 : 0);
-    // Hint: the nearer of bike and boat, or stepping ashore once she has slowed by a landing.
-    let text = "";
-    if (this.mode === "walk") {
-      const d = this.bikeDistance, hb = this.boat ? this.boat.hullDistance(this.x, this.z) : 1e9;
-      if (this.nearBoat && !(d < MOUNT_RANGE && d < hb)) text = "F — boat";
-      else if (d < MOUNT_RANGE) text = "F — ride";
-    } else if (this.mode === "boat" && this.boat && Math.hypot(this.boat.u, this.boat.v) < LEAVE_SPEED && this.canLeaveHere()) text = "F — step ashore";
-    const near = text !== "";
-    if (near) this.hint.textContent = text;
-    if (near !== this.hintOn) {
-      this.hintOn = near;
-      this.hint.style.opacity = near ? "1" : "0";
-    }
-  }
-
-  private leaveCheckT = 0;
-  private leaveOk = false;
-  /** Is there a landing beside the boat (checked a few times a second)? */
-  private canLeaveHere(): boolean {
-    const b = this.boat!;
-    const now = performance.now();
-    if (now - this.leaveCheckT < 250) return this.leaveOk;
-    this.leaveCheckT = now;
-    if (Math.hypot(b.x - BERTH.x, b.z - BERTH.z) < 6) return (this.leaveOk = true);
-    this.leaveOk = false;
-    for (let r = 1.4; r <= 4.3 && !this.leaveOk; r += 0.7)
-      for (let i = 0; i < 20; i++) {
-        const a = (i / 20) * Math.PI * 2;
-        const x = b.x + Math.cos(a) * r, z = b.z + Math.sin(a) * r;
-        if (b.hullDistance(x, z) >= 0.45 && this.free(x, z)) {
-          this.leaveOk = true;
-          break;
-        }
-      }
-    return this.leaveOk;
-  }
-
-  /** Bike overrides while parked: kickstand, lean onto it, bars turned in. */
-  get parkLean(): number {
-    return PARK_LEAN * this.kick;
-  }
-  get parkSteer(): number {
-    return PARK_STEER * this.kick * this.side;
   }
 
   private steerToward(target: number, dt: number, rate: number): number {
@@ -768,10 +545,6 @@ export class Explore {
     this.pivot.x = damp(this.pivot.x, head.x, 9, dt);
     this.pivot.z = damp(this.pivot.z, head.z, 9, dt);
     this.pivot.y = damp(this.pivot.y, head.y, 5, dt);
-    if (this.mode === "dismount" && this.touched <= 0) {
-      this.oDist = damp(this.oDist, 3.4, 1.6, dt);
-      this.oPitch = damp(this.oPitch, 0.16, 1.6, dt);
-    }
     const cp = Math.cos(this.oPitch);
     const dir = new THREE.Vector3(Math.sin(this.oYaw) * cp, Math.sin(this.oPitch), Math.cos(this.oYaw) * cp);
     // Pull in ahead of houses, trunks and the ground; ease back out.

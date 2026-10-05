@@ -6,12 +6,11 @@
  * Heights: the road is the y = 0 datum; mean sea level sits at SEA_Y below it.
  */
 export const SEA_Y = -3.0;
-/** Road ends: north end (+z) and harbour end (-z). The bike stays between them. */
+/** Road ends: north end (+z) and harbour end (-z). */
 export const ROAD_Z0 = 170;
 export const ROAD_Z1 = -230;
 export const ROAD_HALF = 2.4; // asphalt half width
 export const RIBBON_HALF = 3.6; // road mesh half width (edges blend into kerb / verge)
-export const RAIL = 2.75; // invisible guide rail: max |u| for the bike
 
 /** How far the road bows inland at the middle of the bay. */
 const BOW = 45;

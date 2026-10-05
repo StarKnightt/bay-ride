@@ -1,16 +1,10 @@
 import { brown, makeLoop, mulberry32, normRms, pink, white, type Rng } from "./dsp";
 
-/** Everything a layer needs to know about the ride, already defaulted and clamped. */
+/** Everything a layer needs to know about the listener, already defaulted and clamped. */
 export interface RideState {
-  speed: number; // m/s
-  crank: number; // crank revolutions / s
-  wheel: number; // wheel revolutions / s
-  pedal: number; // 0 coasting … 1 pedalling
-  brake: number; // 0 … 1
+  speed: number; // walking speed, m/s
   steer: number; // -1 left … 1 right
-  bump: number; // impulse strength this frame (0 = none)
-  roughness: number; // 0 smooth asphalt … 1 rough
-  /** Overall travel speed of the listener (bike, feet or boat), m/s — drives the wind. */
+  /** Overall travel speed of the listener (feet or boat), m/s — drives the wind. */
   move: number;
   shore: number; // distance to the breaking shoreline, m
   shorePan: number; // -1 shore to the left … 1 to the right

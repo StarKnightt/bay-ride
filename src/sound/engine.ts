@@ -1,5 +1,4 @@
 import { WindLayer } from "./air";
-import { BikeLayer } from "./bike";
 import { BoatLayer } from "./boat";
 import { clamp, reverbIR, smoothstep, vnoise } from "./dsp";
 import { GullLayer } from "./gulls";
@@ -8,21 +7,17 @@ import { Music, type MoodName } from "./music";
 import { LapLayer, ShoreLayer } from "./sea";
 import { Steps, type StepSurface } from "./steps";
 
-export type LayerName = "bike" | "wind" | "shore" | "lap" | "boat" | "gulls";
-export const LAYER_NAMES: LayerName[] = ["bike", "wind", "shore", "lap", "boat", "gulls"];
-export type SoundEvent = "bell" | "bump" | "gull" | "slap";
+export type LayerName = "wind" | "shore" | "lap" | "boat" | "gulls";
+export const LAYER_NAMES: LayerName[] = ["wind", "shore", "lap", "boat", "gulls"];
+export type SoundEvent = "gull" | "slap";
 export type { MoodName } from "./music";
 
 /** Raw per-frame input; anything left undefined falls back to a sensible default. */
 export interface EngineInput {
-  speed: number;
-  crank: number;
-  wheel: number;
-  pedal: number;
-  brake: number;
+  /** Walking speed on foot, m/s (the wind follows it ashore). */
+  speed?: number;
+  /** -1 … 1, turning (the wind swings a little toward it). */
   steer?: number;
-  bump?: number;
-  roughness?: number;
   move?: number;
   shore?: number;
   shorePan?: number;
@@ -55,7 +50,6 @@ export class SoundEngine {
   readonly music: Music | null;
   /** Final node of the chain (after the safety clipper) — tap it for metering. */
   readonly output: AudioNode;
-  private readonly bike: BikeLayer;
   private readonly boat: BoatLayer;
   private readonly gulls: GullLayer;
   private readonly steps: Steps;
@@ -68,13 +62,7 @@ export class SoundEngine {
   private lastParams = -1;
   private state: RideState = {
     speed: 0,
-    crank: 0,
-    wheel: 0,
-    pedal: 0,
-    brake: 0,
     steer: 0,
-    bump: 0,
-    roughness: 0.25,
     move: 0,
     shore: 30,
     shorePan: -0.5,
@@ -148,10 +136,9 @@ export class SoundEngine {
     verbIn.connect(conv).connect(verbOut).connect(this.sfx);
     this.verbIn = verbIn;
 
-    this.bike = new BikeLayer(kit);
     this.boat = new BoatLayer(kit);
     this.gulls = new GullLayer(kit);
-    this.layers = { bike: this.bike, wind: new WindLayer(kit), shore: new ShoreLayer(kit), lap: new LapLayer(kit), boat: this.boat, gulls: this.gulls };
+    this.layers = { wind: new WindLayer(kit), shore: new ShoreLayer(kit), lap: new LapLayer(kit), boat: this.boat, gulls: this.gulls };
     this.steps = new Steps(kit, this.sfx, verbIn);
     this.music = opts.music === false ? null : new Music(kit, mix);
     this.solo(null);
@@ -165,13 +152,7 @@ export class SoundEngine {
     const s = this.state;
     const num = (v: number | undefined, d: number, a = 0, b = 1) => (v === undefined || !Number.isFinite(v) ? d : clamp(v, a, b));
     s.speed = num(inp.speed, 0, 0, 40);
-    s.crank = num(inp.crank, 0, 0, 10);
-    s.wheel = num(inp.wheel, s.speed / (2 * Math.PI * 0.34), 0, 20);
-    s.pedal = num(inp.pedal, 0);
-    s.brake = num(inp.brake, 0);
     s.steer = num(inp.steer, 0, -1, 1);
-    s.bump = num(inp.bump, 0, 0, 2);
-    s.roughness = num(inp.roughness, 0.25);
     s.boat = num(inp.boat, s.boat);
     s.throttle = num(inp.throttle, s.throttle);
     s.boatSpeed = num(inp.boatSpeed, s.boatSpeed, 0, 30);
@@ -225,14 +206,6 @@ export class SoundEngine {
     this.sfx.gain.value = name === "music" ? 0 : 1;
   }
 
-  ringBell(when: number): void {
-    this.bike.ringBell(when);
-  }
-
-  bump(when: number, strength: number): void {
-    this.bike.bump(when, strength, this.state);
-  }
-
   /** Hull meeting a swell, strength 0…1. */
   slap(when: number, strength: number): void {
     this.boat.slap(when, strength);
@@ -257,10 +230,6 @@ export class SoundEngine {
 
   trigger(ev: SoundEvent, when: number): void {
     switch (ev) {
-      case "bell":
-        return this.bike.ringBell(when);
-      case "bump":
-        return this.bike.bump(when, 0.8, this.state);
       case "gull":
         return this.gulls.call(when, (this.kit.rng() - 0.5) * 1.4, 0.7);
       case "slap":

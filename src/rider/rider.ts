@@ -1,15 +1,14 @@
 import * as THREE from "three";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
-import { ID, M, beam, box, cyl, merge, prep, sphere, xf } from "../world/geo";
+import { ID, M, beam, box, merge, prep, sphere, xf } from "../world/geo";
 import { G, uber } from "../render/materials";
 import { LAYER_SHADOW } from "../render/lightpasses";
-import { BB, Bike, CRANK, HEAD_BOT, SEAT } from "./bike";
-
-export { BIKE, PARK_LEAN, PARK_STEER } from "./bike";
 
 /**
- * Schoolgirl rider on her mamachari (the bicycle itself lives in bike.ts). Bike local frame:
- * forward = -Z, up = +Y, right = +X. Hierarchy: root (world pos, yaw) → lean (roll) → bike, body.
+ * The player character (placeholder until the new character replaces it; see STATE.md, "Character
+ * plug-in points"). Local frame: forward = -Z, up = +Y, right = +X, feet on y = 0.
+ * Hierarchy: walker (world position and yaw, set by the explorer) → body → torso, limbs.
+ * Driven only through update(dt, FootState): walking, standing and seated in the boat.
  */
 
 const SKIN = "#f6d9c5";
@@ -527,26 +526,8 @@ function torsoStrip(xy: [number, number][], side: number, lift: number, w0: numb
   return ribbon(pts, ups, w, th, color, M.cloth, 1);
 }
 
-export interface RiderState {
-  speed: number;
-  steer: number;
-  lean: number;
-  crank: number;
-  wheel: number;
-  pedaling: number;
-  time: number;
-  /** 0 folded … 1 kickstand down (parked). */
-  kick?: number;
-  /** 0..1 smoothed sprint (Shift while riding), for a standing-pedal pose. */
-  sprint?: number;
-}
-
-/** On-foot animation input. The body lives under `walker` whenever blend > 0. */
+/** Animation input for one frame (written by the explorer, rider/onfoot.ts). */
 export interface FootState {
-  /** 0 seated on the bike … 1 standing / walking (raw transition time, staggered per limb inside). */
-  blend: number;
-  /** +1 she steps off / on at the bike's left, -1 at its right. */
-  side: number;
   /** Ground speed (m/s), gait phase (radians, one stride per 2π), 0 walk … 1 run. */
   speed: number;
   phase: number;
@@ -565,7 +546,7 @@ export interface FootState {
   wind?: number;
 }
 
-/** Joint targets for one frame, in the body's parent frame (bike lean space or walker space). */
+/** Joint targets for one frame, in walker space. */
 interface Pose {
   torsoP: THREE.Vector3;
   torsoQ: THREE.Quaternion;
@@ -727,11 +708,8 @@ function lensMaterial(): THREE.ShaderMaterial {
 }
 
 export class Rider {
-  readonly root = new THREE.Group();
-  readonly lean = new THREE.Group();
-  /** On-foot root: her feet on the ground, facing -Z. Add to the scene next to `root`. */
+  /** Her root: feet on the ground, facing -Z. The explorer sets its position and rotation. */
   readonly walker = new THREE.Group();
-  private gripHands: THREE.Mesh[] = [];
   private walkHands: THREE.Group[] = [];
   private lenses: THREE.Mesh[] = [];
   private eyes: THREE.Group[] = [];
@@ -742,17 +720,9 @@ export class Rider {
   private shortLegs: Limb[] = [];
   private fringe: { g: THREE.Group; radial: THREE.Vector3; side: THREE.Vector3; gain: number; ph: number; long: number }[] = [];
   private sway = { a: 0, va: 0, l: 0, vl: 0, yaw: 0, pitch: 0 };
-  private readonly bouquet = new THREE.Group();
-  private bq = { x: 0, vx: 0, z: 0, vz: 0 };
-  private walkShadow!: THREE.Mesh;
-  private onFoot = false;
   private poseA = newPose();
-  private poseB = newPose();
   private poseC = newPose();
   private standK = 0;
-  /** The bicycle (frame, wheels, crank, steer + basket). */
-  readonly bike = new Bike();
-  private steer = this.bike.steer;
   private body = new THREE.Group();
   private torso = new THREE.Group();
   private head = new THREE.Group();
@@ -773,158 +743,17 @@ export class Rider {
   private knees: THREE.Mesh[] = [];
   private elbows: THREE.Mesh[] = [];
   private feet: THREE.Mesh[] = [];
-  /** Wrist points in steer space (hands are modelled on the grips). */
-  private wrists: THREE.Vector3[] = [];
 
   constructor() {
-    this.root.add(this.lean);
-    this.lean.add(this.bike.group);
-    this.buildBasketLoad(0.77, -0.68);
-    this.buildHands();
     this.buildBody();
-    // Blob shadows under the bike and under her feet when she's walking.
-    this.root.add(blobShadow(0.9, 1.9));
-    this.walkShadow = blobShadow(0.75, 0.75);
-    this.walkShadow.visible = false;
-    this.walker.add(this.walkShadow);
+    // Soft blob shadow under her feet.
+    this.walker.add(blobShadow(0.75, 0.75));
   }
 
-  private add(g: THREE.BufferGeometry, parent: THREE.Object3D = this.lean, id: number = ID.bike): THREE.Mesh {
+  private add(g: THREE.BufferGeometry, parent: THREE.Object3D = this.body, id: number = ID.rider): THREE.Mesh {
     const m = mk(g, id);
     parent.add(m);
     return m;
-  }
-
-  /** School satchel (flap, buckle, handle, strap over the rim) + a leek bundle poking out the front. */
-  private buildBasketLoad(floor: number, bz: number): void {
-    const parts: [THREE.BufferGeometry, number][] = [];
-    const BAG = "#6a4630", FLAP = "#553622", STRAP = "#2e1f16";
-    const zc = bz + 0.05, h = 0.235, top = floor + h;
-    const bag = new THREE.Group();
-    bag.position.set(0.01, floor, zc);
-    bag.rotation.set(-0.06, 0.1, 0);
-    const bp: [THREE.BufferGeometry, number][] = [];
-    bp.push([xf(box(0.28, h, 0.1, BAG, M.cloth), 0, h / 2, 0), ID.bike]);
-    bp.push([xf(box(0.286, 0.014, 0.108, FLAP, M.cloth), 0, h + 0.004, 0), ID.rider]);
-    const fs = new THREE.Shape();
-    const fw = 0.143, fh = 0.13, rr = 0.035;
-    fs.moveTo(-fw, 0);
-    fs.lineTo(fw, 0);
-    fs.lineTo(fw, -fh + rr);
-    fs.quadraticCurveTo(fw, -fh, fw - rr, -fh);
-    fs.lineTo(-fw + rr, -fh);
-    fs.quadraticCurveTo(-fw, -fh, -fw, -fh + rr);
-    fs.closePath();
-    const flap = prep(new THREE.ExtrudeGeometry(fs, { depth: 0.01, bevelEnabled: false, curveSegments: 3 }), FLAP, M.cloth);
-    bp.push([xf(flap, 0, h + 0.01, 0.05), ID.rider]);
-    bp.push([xf(box(0.036, 0.03, 0.01, "#c9a45a", M.metal), 0, h - 0.09, 0.063), ID.bike]);
-    bp.push([xf(box(0.012, 0.05, 0.006, STRAP, M.cloth), 0, h - 0.06, 0.063), ID.bike]);
-    const handle = prep(new THREE.TorusGeometry(0.045, 0.008, 5, 10, Math.PI), STRAP, M.cloth);
-    bp.push([xf(handle, 0, h + 0.01, 0), ID.bike]);
-    for (const [g, id] of bp) this.add(g, bag, id);
-    bag.position.sub(HEAD_BOT);
-    this.bike.basketContents.add(bag);
-    // Shoulder strap looped over the basket rim on both sides.
-    for (const s of [-1, 1]) {
-      const a = V(s * 0.135, top - 0.03, zc), b = V(s * 0.172, top + 0.075, zc + 0.01), c = V(s * 0.2, top - 0.02, zc + 0.03);
-      parts.push([beam(a, b, 0.007, STRAP, M.cloth, 5), ID.rider], [beam(b, c, 0.007, STRAP, M.cloth, 5), ID.rider]);
-    }
-    // Leeks: white stalks, pale neck, split green tops.
-    const leeks: [number, number, number, number][] = [[0.125, -0.085, 0.36, -0.7]];
-    leeks.forEach(([x, dz, dx, dzz], k) => {
-      const base = V(x, floor + 0.02, bz + dz);
-      const dir = V(dx, 1, dzz).normalize();
-      const white = base.clone().addScaledVector(dir, 0.3 - k * 0.015);
-      const neck = white.clone().addScaledVector(dir, 0.035);
-      parts.push([xf(sphere(0.014, "#d9ceb0", M.plain, 6, 4), base.x, base.y, base.z), ID.rider]);
-      parts.push([beam(base, white, 0.013, "#f3f1e6", M.plain, 7, 0.012), ID.rider]);
-      parts.push([beam(white, neck, 0.012, "#cfe08f", M.plain, 7, 0.011), ID.flower]);
-      for (let j = 0; j < 3; j++) {
-        const sp = (j - 1) * 0.3 + k * 0.1;
-        const tdir = dir.clone().applyAxisAngle(V(0, 0, 1), sp).applyAxisAngle(V(1, 0, 0), -0.2 - 0.12 * j).normalize();
-        const tip = neck.clone().addScaledVector(tdir, 0.13 + 0.03 * ((j + k) % 2));
-        parts.push([beam(neck, tip, 0.009, j === 1 ? "#4f8a34" : "#3f7a2c", M.plain, 5, 0.0015), ID.flower]);
-      }
-    });
-    for (const [g, id] of parts) this.add(g.translate(-HEAD_BOT.x, -HEAD_BOT.y, -HEAD_BOT.z), this.bike.basketContents, id);
-    this.buildBouquet(V(-0.075, floor + 0.01, bz - 0.075));
-  }
-
-  /**
-   * Little summer bouquet in kraft paper: two sunflowers, cosmos and baby's breath. Its own group
-   * pivots at the basket floor so it can sway on a spring (see update()).
-   */
-  private buildBouquet(base: THREE.Vector3): void {
-    const g = this.bouquet;
-    g.position.copy(base).sub(HEAD_BOT);
-    this.bike.basketContents.add(g);
-    const parts: [THREE.BufferGeometry, number][] = [];
-    const wrap = prep(new THREE.CylinderGeometry(0.058, 0.022, 0.2, 12, 1, true), "#d6c49a", M.cloth);
-    wrap.translate(0, 0.12, 0);
-    wrap.rotateX(-0.12);
-    parts.push([wrap, ID.bike]);
-    parts.push([xf(cyl(0.033, 0.033, 0.018, "#c8342c", M.cloth, 12), 0, 0.075, -0.004), ID.rider]);
-    const flower = (tip: THREE.Vector3, kind: 0 | 1 | 2, tint: string) => {
-      parts.push([beam(V(0, 0.02, 0), tip, 0.0035, "#4a7a30", M.plain, 4), ID.flower]);
-      const dir = tip.clone().normalize();
-      const q = new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), dir.clone().lerp(V(0, 0, 1), 0.35).normalize());
-      const head: THREE.BufferGeometry[] = [];
-      if (kind === 0) {
-        head.push(xf(cyl(0.022, 0.022, 0.012, "#5a3a1a", M.plain, 12), 0, 0.004, 0));
-        for (let i = 0; i < 12; i++) {
-          const a = (i / 12) * Math.PI * 2;
-          const p = box(0.024, 0.004, 0.011, "#f2c230", M.plain);
-          p.translate(0.031, 0, 0);
-          p.rotateY(a);
-          head.push(p);
-        }
-      } else if (kind === 1) {
-        head.push(xf(sphere(0.007, "#f2c230", M.plain, 6, 4), 0, 0.004, 0));
-        for (let i = 0; i < 8; i++) {
-          const p = box(0.02, 0.003, 0.011, tint, M.plain);
-          p.translate(0.014, 0, 0);
-          p.rotateY((i / 8) * Math.PI * 2);
-          head.push(p);
-        }
-      } else {
-        for (let i = 0; i < 7; i++) head.push(xf(sphere(0.0055, "#fbfaf4", M.plain, 5, 3), Math.cos(i * 2.4) * 0.016 * Math.sqrt(i / 7), 0.004 * (i % 3), Math.sin(i * 2.4) * 0.016 * Math.sqrt(i / 7)));
-      }
-      for (const h of head) {
-        h.applyQuaternion(q);
-        h.translate(tip.x, tip.y, tip.z);
-        parts.push([h, kind === 2 ? ID.flower : ID.rider]);
-      }
-    };
-    flower(V(0.004, 0.3, 0.02), 0, "");
-    flower(V(-0.04, 0.25, 0.035), 0, "");
-    flower(V(0.045, 0.27, 0.01), 1, "#f2a0c0");
-    flower(V(-0.022, 0.285, -0.03), 1, "#fbf6f0");
-    flower(V(0.03, 0.23, 0.05), 1, "#e070a0");
-    for (const [x, y, z] of [[-0.06, 0.24, 0.0], [0.06, 0.24, 0.035], [0.015, 0.27, -0.045], [-0.03, 0.22, 0.06], [0.055, 0.21, -0.02]]) flower(V(x, y, z), 2, "");
-    for (const [geo, id] of parts) this.add(geo.scale(1.35, 1.35, 1.35), g, id);
-  }
-
-  /** Mitten hands closed around the grips (steer-space, so they follow the bars exactly). */
-  private buildHands(): void {
-    for (const side of [1, -1]) {
-      const G = V(side * 0.29, 1.05, -0.17);
-      const parts: THREE.BufferGeometry[] = [];
-      const palm = sphere(1, SKIN, M.skin, 14, 10);
-      palm.scale(0.05, 0.035, 0.037);
-      parts.push(palm.translate(G.x, G.y + 0.01, G.z + 0.003));
-      const fingers = sphere(1, SKIN, M.skin, 12, 8);
-      fingers.scale(0.047, 0.025, 0.023);
-      parts.push(fingers.translate(G.x + side * 0.002, G.y - 0.004, G.z - 0.024));
-      const thumb = sphere(1, SKIN, M.skin, 10, 6);
-      thumb.scale(0.014, 0.013, 0.027);
-      thumb.rotateY(side * 0.45);
-      thumb.rotateX(0.35);
-      parts.push(thumb.translate(G.x - side * 0.04, G.y + 0.016, G.z - 0.015));
-      const W = V(side * 0.012, 0.026, 0.034).add(G);
-      parts.push(xf(sphere(0.025, SKIN, M.skin, 10, 6), W.x, W.y, W.z));
-      for (const g of parts) this.gripHands.push(this.add(g.translate(-HEAD_BOT.x, -HEAD_BOT.y, -HEAD_BOT.z), this.steer, ID.skin));
-      this.wrists.push(W.sub(HEAD_BOT));
-    }
   }
 
   // ---------------------------------------------------------------- body
@@ -948,9 +777,10 @@ export class Rider {
 
   private buildBody(): void {
     const b = this.body;
-    this.lean.add(b);
+    this.walker.add(b);
     const rid = ID.rider;
-    const hip = V(0, SEAT.y + 0.1, SEAT.z - 0.02);
+    // Build-time hip point only: the pose sets the torso every frame.
+    const hip = V(0, 1.0, 0.25);
 
     // Torso (leans forward from the hips); the skirt below is attached to its waist every frame.
     this.torso.position.copy(hip);
@@ -1010,10 +840,6 @@ export class Rider {
     pel.scale(0.145, 0.09, 0.115);
     this.pelvis = this.add(pel, b, rid);
     for (let i = 0; i < 2; i++) this.shortLegs.push(new Limb(b, [0.093, 0.092, 0.091], SHORTS, M.cloth, rid));
-    const seat = sphere(0.15, SKIRT, M.cloth, 16, 10);
-    seat.scale(1.05, 0.55, 1.0);
-    seat.translate(hip.x, hip.y - 0.06, hip.z + 0.03);
-    this.seatCover = this.add(seat, b, rid);
 
     // Blouse body: lofted cross-sections (waist, soft bust drape, rounded shoulders).
     {
@@ -1922,12 +1748,11 @@ export class Rider {
 
   /** Hide the skirt from the main view only (keeps its shadow) while the camera swoops in. */
   setSkirtHidden(on: boolean): void {
-    for (const m of [this.skirt, this.seatCover, this.skirtCap, this.pelvis]) {
+    for (const m of [this.skirt, this.skirtCap, this.pelvis]) {
       if (on) m.layers.disable(0);
       else m.layers.enable(0);
     }
   }
-  private seatCover!: THREE.Mesh;
 
   /** World-space eye point (between the eyes, slightly forward). */
   eyeWorld(out: THREE.Vector3): THREE.Vector3 {
@@ -1941,81 +1766,24 @@ export class Rider {
     return out.set(0, 0, 0).applyMatrix4(this.head.matrixWorld);
   }
 
-  update(dt: number, s: RiderState, f?: FootState): void {
-    if (this.bike.crankHold !== null) s = { ...s, crank: this.bike.crankHold };
-    this.lean.rotation.z = s.lean;
-    this.bike.update(dt, s);
-    const fb = f ? Math.min(1, Math.max(0, f.blend)) : 0;
-    this.setOnFoot(fb > 0);
-    this.root.updateMatrixWorld(true);
+  /** One frame: stand, walk or sit in the boat (f.seat), then the cloth, hair and blink follow. */
+  update(dt: number, f: FootState): void {
+    this.walker.updateMatrixWorld(true);
     const P = this.poseA;
-    this.ridePose(s, P);
-    let stand = 0;
-    let gait = [0, 0, 0];
-    if (f && fb > 0) {
-      // Ride pose → walker space, then blend limb by limb: the stand-side foot goes down first, the
-      // body slides off the saddle, and the far foot steps through the low frame last.
-      this.walker.updateMatrixWorld(true);
-      const M = _m1.copy(this.walker.matrixWorld).invert().multiply(this.lean.matrixWorld);
-      _q1.setFromRotationMatrix(M);
-      P.torsoP.applyMatrix4(M);
-      P.torsoQ.premultiply(_q1);
-      for (let i = 0; i < 2; i++) {
-        P.hip[i].applyMatrix4(M);
-        P.ankle[i].applyMatrix4(M);
-        P.wrist[i].applyMatrix4(M);
-        P.kneePole[i].transformDirection(M);
-        P.elbowPole[i].transformDirection(M);
-        P.footQ[i].premultiply(_q1);
-      }
-      const W = this.poseB;
-      this.walkPose(f, W);
-      const seat = Math.min(1, Math.max(0, f.seat ?? 0));
-      if (seat > 0) {
-        this.seatPose(f, this.poseC);
-        blendPose(W, this.poseC, smooth(0, 1, seat));
-      }
-      const near = f.side > 0 ? 1 : 0;
-      const wNear = smooth(0, 0.45, fb), wFar = smooth(0.35, 1, fb), wBody = smooth(0.12, 0.82, fb), wArm = smooth(0.05, 0.62, fb);
-      P.torsoP.lerp(W.torsoP, wBody);
-      P.torsoQ.slerp(W.torsoQ, wBody);
-      P.head.lerp(W.head, wBody);
-      for (let i = 0; i < P.ponyX.length; i++) {
-        P.ponyX[i] += (W.ponyX[i] - P.ponyX[i]) * wBody;
-        P.ponyZ[i] += (W.ponyZ[i] - P.ponyZ[i]) * wBody;
-      }
-      for (let k = 0; k < 2; k++) P.legL[k] += (W.legL[k] - P.legL[k]) * wBody;
-      for (let i = 0; i < 2; i++) {
-        const w = i === near ? wNear : wFar;
-        P.hip[i].lerp(W.hip[i], wBody);
-        if (i === near || w <= 0 || w >= 1) {
-          P.ankle[i].lerp(W.ankle[i], w);
-          if (i === near) P.ankle[i].y += Math.sin(Math.PI * w) * 0.05;
-        } else {
-          // Arc up through the step-through frame.
-          _v1.copy(P.ankle[i]).add(W.ankle[i]).multiplyScalar(0.5);
-          _v1.y += 0.62;
-          _v1.z -= 0.12;
-          _v2.copy(P.ankle[i]);
-          P.ankle[i].copy(_v2.multiplyScalar((1 - w) * (1 - w))).addScaledVector(_v1, 2 * w * (1 - w)).addScaledVector(W.ankle[i], w * w);
-        }
-        P.kneePole[i].lerp(W.kneePole[i], w).normalize();
-        P.footQ[i].slerp(W.footQ[i], w);
-        P.wrist[i].lerp(W.wrist[i], wArm);
-        P.elbowPole[i].lerp(W.elbowPole[i], wArm).normalize();
-        for (let k = 0; k < 2; k++) P.armL[i][k] += (W.armL[i][k] - P.armL[i][k]) * wArm;
-      }
-      const seated = Math.min(1, Math.max(0, f.seat ?? 0));
-      stand = wBody * (1 - seated);
-      gait = [Math.min(1, f.speed / 1.1) * (1 - seated), f.phase, f.run];
+    this.walkPose(f, P);
+    const seated = Math.min(1, Math.max(0, f.seat ?? 0));
+    if (seated > 0) {
+      this.seatPose(f, this.poseC);
+      blendPose(P, this.poseC, smooth(0, 1, seated));
     }
+    const stand = 1 - seated;
+    const gait = [Math.min(1, f.speed / 1.1) * stand, f.phase, f.run];
     this.standK = stand;
     this.springPony(P, dt);
     this.applyPose(P);
     this.ponyOffBack();
-    this.seatCover.visible = fb === 0 && !this.fppArms;
     for (const l of this.lenses) l.layers.mask = this.fppOn ? 0 : 1;
-    this.drapeSkirt(f && fb > 0 ? f.speed : s.speed, s.time, stand, gait);
+    this.drapeSkirt(f.speed, f.time, stand, gait);
     // Shorts: hips just under the waistband, legs over the top of each thigh.
     this.pelvis.position.copy(P.torsoP).add(_v1.set(0, -0.07, 0.005));
     for (let i = 0; i < 2; i++) this.shortLegs[i].set(this.thighA[i].clone().add(_v1.set(0, 0.02, 0)), _v2.copy(this.thighA[i]).lerp(this.thighB[i], 0.16));
@@ -2032,69 +1800,12 @@ export class Rider {
       if (this.blinkK >= 1) this.blinkK = -1;
     }
     for (const e of this.eyes) e.scale.y = 1 - 0.9 * lid;
-    this.swayFringe(dt, s.time, f && fb > 0 ? f.speed : s.speed);
-    // Bouquet: a light spring nodding back with speed, swinging with steering and bumps.
-    {
-      const b = this.bq, sp = Math.abs(s.speed);
-      const tx = -0.05 - Math.min(sp, 8) * 0.018 + Math.sin(s.time * 2.1) * 0.03 * Math.min(1, sp / 3);
-      const tz = -s.steer * 0.25 + Math.sin(s.time * 3.3 + 1) * 0.025 * Math.min(1, sp / 3);
-      const h = Math.min(dt, 1 / 30);
-      b.vx += ((tx - b.x) * 90 - b.vx * 7) * h;
-      b.vz += ((tz - b.z) * 90 - b.vz * 7) * h;
-      b.x += b.vx * h;
-      b.z += b.vz * h;
-      this.bouquet.rotation.set(b.x, 0, b.z);
-    }
+    this.swayFringe(dt, f.time, f.speed);
   }
 
-  /** 0 seated … 1 standing (how far the dismount has got). */
+  /** 0 seated in the boat … 1 standing. */
   get standing(): number {
     return this.standK;
-  }
-
-  /** Move the body between the bike (lean space) and the walker root. */
-  private setOnFoot(on: boolean): void {
-    if (on === this.onFoot) return;
-    this.onFoot = on;
-    (on ? this.walker : this.lean).add(this.body);
-    for (const h of this.gripHands) h.visible = !on;
-    for (const h of this.walkHands) h.visible = on;
-    this.walkShadow.visible = on;
-  }
-
-  /** Seated pedalling pose in lean space (the original riding animation). */
-  private ridePose(s: RiderState, P: Pose): void {
-    const bob = Math.sin(s.crank * 2) * 0.008 * s.pedaling;
-    P.torsoP.set(0, SEAT.y + 0.1 + bob, SEAT.z - 0.02);
-    P.torsoQ.setFromEuler(_e1.set(-0.28 - Math.min(s.speed / 12, 1) * 0.08, 0, Math.sin(s.crank) * 0.025 * s.pedaling, "XYZ"));
-    P.head.set(0.14 + Math.sin(s.time * 0.21) * 0.04, Math.sin(s.time * 0.37) * 0.12 + Math.sin(s.time * 0.13) * 0.1, -s.lean * 0.5);
-    const sp = Math.min(s.speed / 8, 1.2);
-    // Low ponytail: hangs from the nape (undoing the head nod so it stays off her back), wind
-    // lifts it slightly with speed, and a travelling wave sways it.
-    for (let i = 0; i < P.ponyX.length; i++) {
-      const wave = Math.sin(s.time * 3.6 - i * 0.9) * 0.07 * (0.4 + sp);
-      P.ponyX[i] = (i === 0 ? -P.head.x - 0.22 - sp * 0.22 : -0.05 - sp * 0.08) + wave;
-      P.ponyZ[i] = Math.sin(s.time * 2.4 - i * 1.1) * 0.09 * (0.4 + sp) + (i === 0 ? s.steer * 0.3 + s.lean * 0.35 : 0);
-    }
-    // Hip joints sit just under the skirt's waist ring so the open thigh tube never shows above it.
-    const hipBase = _v2.set(0, SEAT.y + 0.035, SEAT.z - 0.03);
-    P.legL[0] = 0.43;
-    P.legL[1] = 0.42;
-    for (let i = 0; i < 2; i++) {
-      const side = i === 0 ? 1 : -1;
-      const a = s.crank + (i === 0 ? 0 : Math.PI);
-      P.ankle[i].set(side * 0.14, BB.y - Math.cos(a) * CRANK + 0.06, BB.z + Math.sin(a) * CRANK + 0.03);
-      P.hip[i].copy(hipBase).add(_v1.set(side * 0.085, 0, 0));
-      P.kneePole[i].set(side * 0.12, 0.4, -1).normalize();
-      P.footQ[i].setFromEuler(_e1.set(-0.15 + Math.sin(a) * 0.25, 0, 0, "XYZ"));
-      const shoulder = SHOULDER(side).applyQuaternion(P.torsoQ).add(P.torsoP);
-      P.wrist[i].copy(this.wrists[i]).applyMatrix4(this.steer.matrix);
-      // Segment lengths follow the reach so the elbow always keeps a relaxed ~18° bend.
-      const reach = shoulder.distanceTo(P.wrist[i]) / (2 * Math.cos((9 * Math.PI) / 180));
-      P.armL[i][0] = reach * 1.04;
-      P.armL[i][1] = reach * 0.96;
-      P.elbowPole[i].set(side * 0.45, -0.8, 0.45).normalize();
-    }
   }
 
   /** Standing / walking / jogging pose in walker space (feet on y = 0, facing -Z). */
@@ -2306,7 +2017,6 @@ const _sp = new THREE.Vector3(), _sr = new THREE.Vector3(), _sq = new THREE.Vect
 const _d1 = new THREE.Vector3(), _d2 = new THREE.Vector3(), _d3 = new THREE.Vector3();
 const _rw = new THREE.Vector3(), _td = new THREE.Vector3(), _tu = new THREE.Vector3(), _ts = new THREE.Vector3(), _tp = new THREE.Vector3();
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3();
-const _m1 = new THREE.Matrix4();
 const clamp = (x: number, a: number, b: number) => Math.min(b, Math.max(a, x));
 const _q1 = new THREE.Quaternion(), _q2 = new THREE.Quaternion();
 

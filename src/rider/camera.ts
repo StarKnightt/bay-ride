@@ -1,9 +1,8 @@
 import * as THREE from "three";
 import type { Rider } from "./rider";
 import { damp } from "../core/rng";
-import { roadX } from "../world/bay/road";
 
-export type CamMode = "chase" | "front" | "flank" | "overhead" | "closeup" | "side" | "sea" | "hill" | "face" | "faceside" | "back" | "custom";
+export type CamMode = "chase" | "front" | "flank" | "face" | "faceside" | "back" | "custom";
 
 const TPP_FOV = 45;
 const FPP_FOV = 70;
@@ -13,32 +12,23 @@ const FPP_NEAR = 0.03;
 /** C cycles these (chase → front tracking → side tracking → chase), orbiting clockwise seen from above. */
 const CYCLE: CamMode[] = ["chase", "front", "flank"];
 /**
- * Tracking rigs in the bike's smoothed-heading frame. `az` is the camera's bearing around the bike
- * (0 = behind, +π/2 = her right, ±π = ahead); look = (forward, right, height) of the aim point.
+ * Tracking rigs around the skiff in its smoothed-heading frame (heights above her waterline). `az`
+ * is the camera's bearing (0 = behind, +π/2 = her right, ±π = ahead); look = (forward, right, height).
  */
-const RIG = {
-  // Ahead and a little to her left (clear of the basket), low: she rides toward the lens, road behind her.
-  front: { az: -2.84, r: 2.05, y: 1.47, look: [0.02, 0.04, 1.52], fov: 35 },
-  // Right-hand profile, the hill behind her.
-  flank: { az: -Math.PI * 1.5 + 0.12, r: 2.75, y: 1.34, look: [0.3, 0, 1.18], fov: 40 },
-} as const;
-/** The same rigs around the skiff (heights above her waterline): she sits low, so wider and lower. */
 const BOAT_RIG = {
   front: { az: -2.72, r: 5.6, y: 1.3, look: [0.2, 0.05, 0.62], fov: 38 },
   flank: { az: -Math.PI * 1.5 + 0.14, r: 5.0, y: 1.05, look: [0.25, 0, 0.55], fov: 40 },
 } as const;
 const BLEND_T = 1.8;
 
-/** What the camera follows: the bike controller, or the boat (with its waterline height and roll). */
+/** What the camera follows: the boat, with its waterline height and roll. */
 export interface CamTarget {
   x: number;
   z: number;
   yaw: number;
   speed: number;
   lean: number;
-  crank: number;
-  pedaling: number;
-  boat?: { y: number; roll: number };
+  boat: { y: number; roll: number };
 }
 /** Mouse look limits: chase orbit bearing, camera elevation (same clamp as the on-foot orbit), first-person head turn. */
 const LOOK_YAW = (150 * Math.PI) / 180;
@@ -60,7 +50,7 @@ interface Polar {
 }
 
 /**
- * Third-person chase camera (low, behind, rider on the left-third line) with an eased blend into
+ * Boat camera: third-person chase (behind and above the skiff) with an eased blend into
  * a first-person view at her eye point. V toggles; `fpp` is the blend target (0 = TPP, 1 = FPP).
  * C cycles cinematic tracking shots; every switch swings around her on an arc (never through her).
  */
@@ -199,11 +189,9 @@ export class ChaseCam {
   update(dt: number, c: CamTarget, t: number, rider: Rider): void {
     const fx = -Math.sin(c.yaw), fz = -Math.cos(c.yaw);
     const boat = c.boat;
-    if (boat) {
-      this.by = !this.init || !this.wasBoat ? boat.y : damp(this.by, boat.y, 1.6, dt);
-    }
-    this.wasBoat = !!boat;
-    const by = boat ? this.by : 0;
+    this.by = !this.init || !this.wasBoat ? boat.y : damp(this.by, boat.y, 1.6, dt);
+    this.wasBoat = true;
+    const by = this.by;
     const rx = Math.cos(c.yaw), rz = -Math.sin(c.yaw); // rider's right
     if (!this.init) this.yaw = c.yaw;
     this.yaw = damp(this.yaw, c.yaw, 2.2, dt);
@@ -215,7 +203,7 @@ export class ChaseCam {
     const fs = this.fast * this.fast * (3 - 2 * this.fast);
     const shake = (Math.sin(t * 23.1) + Math.sin(t * 31.7 + 1.3)) * 0.006 * fs * fs;
     const bob = Math.sin(t * 1.1) * 0.025 + shake;
-    const back = boat ? 5.4 + 0.012 * Math.min(Math.abs(c.speed), 9) ** 2 : 4.2 + 0.4 * fs;
+    const back = 5.4 + 0.012 * Math.min(Math.abs(c.speed), 9) ** 2;
     if (this.pending && this.blend < 0.02) {
       const m = this.pending;
       this.pending = null;
@@ -229,15 +217,9 @@ export class ChaseCam {
     const chaseFov = TPP_FOV + 5.5 * fs;
     let fov = chaseFov;
     // Chase steady state (also the target of arcs back into the chase cam).
-    const chaseP = () =>
-      boat
-        ? new THREE.Vector3(c.x + bx * back + cxr * (sway + 0.3), by + 1.95 + bob * 0.6, c.z + bz * back + czr * (sway + 0.3))
-        : new THREE.Vector3(c.x + bx * back + cxr * (sway + 0.35), 1.5 + bob, c.z + bz * back + czr * (sway + 0.35));
-    const chaseL = () =>
-      boat
-        ? new THREE.Vector3(c.x + fx * 9 + cxr * 1.1, by + 0.5, c.z + fz * 9 + czr * 1.1)
-        : new THREE.Vector3(c.x + fx * 7 + cxr * 1.9, 1.25, c.z + fz * 7 + czr * 1.9);
-    // Bike-frame polar ↔ world, in the smoothed heading (so tracking shots glide through bends).
+    const chaseP = () => new THREE.Vector3(c.x + bx * back + cxr * (sway + 0.3), by + 1.95 + bob * 0.6, c.z + bz * back + czr * (sway + 0.3));
+    const chaseL = () => new THREE.Vector3(c.x + fx * 9 + cxr * 1.1, by + 0.5, c.z + fz * 9 + czr * 1.1);
+    // Boat-frame polar ↔ world, in the smoothed heading (so tracking shots glide through bends).
     const sfx = -bx, sfz = -bz;
     const toPolar = (p: THREE.Vector3, l: THREE.Vector3, fv: number): Polar => {
       const dx = p.x - c.x, dz = p.z - c.z;
@@ -251,7 +233,7 @@ export class ChaseCam {
       l.set(c.x + sfx * q.lf + cxr * q.lr, q.ly, c.z + sfz * q.lf + czr * q.lr);
     };
     const rigPolar = (m: "front" | "flank"): Polar => {
-      const g = boat ? BOAT_RIG[m] : RIG[m];
+      const g = BOAT_RIG[m];
       const drift = m === "front" ? Math.sin(t * 0.43) * 0.05 : Math.sin(t * 0.37) * 0.06;
       return { az: g.az + drift * 0.3, r: g.r + Math.sin(t * 0.29) * 0.04, y: by + g.y + bob * 0.6, lf: g.look[0], lr: g.look[1], ly: by + g.look[2] + Math.sin(t * 0.8) * 0.01, fov: g.fov };
     };
@@ -278,46 +260,18 @@ export class ChaseCam {
         tp = new THREE.Vector3(head.x - fx * 1.3 + rx * 0.2, head.y + 0.1, head.z - fz * 1.3 + rz * 0.2);
         tl = head.clone().setY(head.y - 0.25);
         break;
-      case "overhead": {
-        // Steepest allowed look-down (55°), behind her: an outfit / modesty check view.
-        const r = 2.4, pitch = 0.96;
-        tp = new THREE.Vector3(c.x - fx * r * Math.cos(pitch), 1.25 + r * Math.sin(pitch), c.z - fz * r * Math.cos(pitch));
-        tl = new THREE.Vector3(c.x, 1.25, c.z);
-        break;
-      }
-      case "closeup":
-        tp = new THREE.Vector3(c.x + rx * 2.1 + fx * 1.5, 1.2, c.z + rz * 2.1 + fz * 1.5);
-        tl = new THREE.Vector3(c.x + fx * 0.05, 0.95, c.z + fz * 0.05);
-        break;
-      case "side":
-        tp = new THREE.Vector3(c.x - rx * 3.0 + fx * 0.6, 1.25, c.z - rz * 3.0 + fz * 0.6);
-        tl = new THREE.Vector3(c.x, 0.9, c.z);
-        break;
-      case "sea": {
-        // From the promenade, looking out across the bay.
-        const z = c.z - 6;
-        tp = new THREE.Vector3(roadX(z) - 4.2, 1.5, z);
-        tl = new THREE.Vector3(roadX(z - 26) - 60, -2.5, z - 26);
-        break;
-      }
       case "custom": // capture tooling: an exact eye + target, relative to the rider
         tp = this.customPos.clone().add(new THREE.Vector3(c.x, 0, c.z));
         tl = this.customLook.clone().add(new THREE.Vector3(c.x, 0, c.z));
         break;
-      case "hill": {
-        const z = c.z;
-        tp = new THREE.Vector3(roadX(z) - 1.0, 1.6, z);
-        tl = new THREE.Vector3(roadX(z - 22) + 10, 2.6, z - 22);
-        break;
-      }
       default:
         hard = false;
-        // Low chase: 1.5 m high, 4.2 m back, aimed 0.6 m right so she sits on the left third.
+        // Chase: behind and above the skiff, aimed a little right so she sits on the left third.
         tp = chaseP();
         tl = chaseL();
     }
     if (this.tr) {
-      // Arc transition: interpolate bearing / radius / height around the bike, never the straight line.
+      // Arc transition: interpolate bearing / radius / height around the boat, never the straight line.
       const tr = this.tr;
       if (tr.k < 0) {
         const l = this.cam.position.clone().add(new THREE.Vector3(0, 0, -4).applyQuaternion(this.cam.quaternion));
@@ -344,7 +298,7 @@ export class ChaseCam {
       const q: Polar = {
         az: tr.from.az + (a1 - tr.from.az) * e,
         r: tr.from.r + (to.r - tr.from.r) * e,
-        // Lift a little mid-swing so the arc clears the handlebars and basket.
+        // Lift a little mid-swing so the arc clears the outboard and the gunwale.
         y: tr.from.y + (to.y - tr.from.y) * e + Math.sin(Math.PI * e) * 0.18,
         lf: tr.from.lf + (to.lf - tr.from.lf) * e,
         lr: tr.from.lr + (to.lr - tr.from.lr) * e,
@@ -396,7 +350,7 @@ export class ChaseCam {
     // Orbit the damped chase rig around a pivot at her chest (applied after the follow damping, so
     // a fast flick swings around her rather than cutting through).
     const pT = this.pos.clone(), lT = this.look.clone();
-    const pivotY = boat ? by + 0.85 : 1.2;
+    const pivotY = by + 0.85;
     if (Math.abs(this.lYawS) > 1e-4 || Math.abs(this.lPitchS) > 1e-4) {
       const pv = new THREE.Vector3(c.x, pivotY, c.z);
       const o = pT.clone().sub(pv);
@@ -420,44 +374,28 @@ export class ChaseCam {
       const lim = this.clear.obstruct(pv, dir, dist);
       this.capD = lim < this.capD ? lim : damp(this.capD, lim, 2.5, dt);
       pT.copy(pv).addScaledVector(dir, Math.min(dist, this.capD));
-      lT.y = Math.max(lT.y, boat ? by + 0.4 : 0.8);
+      lT.y = Math.max(lT.y, by + 0.4);
     } else this.capD = 1e9;
     // TPP orientation.
     this.m4.lookAt(pT, lT, new THREE.Vector3(0, 1, 0));
     this.qT.setFromRotationMatrix(this.m4);
     if (this.mode === "chase") this.qT.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -c.lean * 0.12));
 
-    // FPP: at her eyes, looking down the road; bob with the pedal stroke, roll into turns.
+    // FPP: at her eyes, riding the hull's motion; the horizon tilts a little with the roll.
     const target = this.mode === "chase" && !this.tr ? this.fpp : 0;
     const k = this.blendInit ? 1 - Math.exp(-dt / 0.14) : 1;
     this.blendInit = true;
     this.blend += (target - this.blend) * k;
     if (Math.abs(target - this.blend) < 0.002) this.blend = target;
     const e = this.blend * this.blend * (3 - 2 * this.blend);
-    // Upright eye point over the saddle (her leaning head would put the bars straight below).
     rider.eyeWorld(this.eye);
-    if (boat) {
-      // Seated in the boat: her eye rides the hull's motion; the horizon tilts a little with the roll.
-      this.eye.x += fx * 0.04;
-      this.eye.z += fz * 0.04;
-      this.eye.y += 0.03;
-      const fl = new THREE.Vector3(this.eye.x + fx * 10, this.eye.y - 1.6, this.eye.z + fz * 10);
-      this.m4.lookAt(this.eye, fl, new THREE.Vector3(0, 1, 0));
-      this.qF.setFromRotationMatrix(this.m4);
-      this.qF.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -boat.roll * 0.7));
-    } else {
-      this.eye.x -= fx * 0.22;
-      this.eye.z -= fz * 0.22;
-      // ±2 cm bob on each downstroke, and a small side-to-side weight shift per crank revolution.
-      this.eye.y = 1.52 + Math.sin(c.crank * 2) * 0.02 * c.pedaling;
-      const shift = Math.sin(c.crank) * 0.012 * c.pedaling;
-      this.eye.x += fz * shift;
-      this.eye.z -= fx * shift;
-      const fl = new THREE.Vector3(this.eye.x + fx * 10, this.eye.y - 4.2, this.eye.z + fz * 10);
-      this.m4.lookAt(this.eye, fl, new THREE.Vector3(0, 1, 0));
-      this.qF.setFromRotationMatrix(this.m4);
-      this.qF.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), c.lean * 0.8 + Math.sin(c.crank) * 0.008 * c.pedaling));
-    }
+    this.eye.x += fx * 0.04;
+    this.eye.z += fz * 0.04;
+    this.eye.y += 0.03;
+    const fl = new THREE.Vector3(this.eye.x + fx * 10, this.eye.y - 1.6, this.eye.z + fz * 10);
+    this.m4.lookAt(this.eye, fl, new THREE.Vector3(0, 1, 0));
+    this.qF.setFromRotationMatrix(this.m4);
+    this.qF.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -boat.roll * 0.7));
     if (this.fYawS || this.fPitchS) {
       this.qF.premultiply(new THREE.Quaternion().setFromAxisAngle(_Y, this.fYawS));
       this.qF.multiply(new THREE.Quaternion().setFromAxisAngle(_X, this.fPitchS));
