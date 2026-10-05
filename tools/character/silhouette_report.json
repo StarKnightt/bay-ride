@@ -1,0 +1,29 @@
+{
+ "iou": 0.683,
+ "bands_width_over_height": {
+  "hat_brim": {
+   "concept": 0.146,
+   "model": 0.146
+  },
+  "head": {
+   "concept": 0.186,
+   "model": 0.217
+  },
+  "shoulders": {
+   "concept": 0.193,
+   "model": 0.254
+  },
+  "waist": {
+   "concept": 0.269,
+   "model": 0.279
+  },
+  "shorts_hem": {
+   "concept": 0.24,
+   "model": 0.229
+  },
+  "calves": {
+   "concept": 0.209,
+   "model": 0.172
+  }
+ }
+}

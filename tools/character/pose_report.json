@@ -1,0 +1,769 @@
+{
+ "reach": {
+  "skin_bust": {
+   "edge_ratio_p001": 0.551,
+   "edge_ratio_p999": 2.012,
+   "folded_edges_pct": 0.7
+  },
+  "ear_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "ear_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "arm_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger0_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger1_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger2_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger3_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger4_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "arm_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger0_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger1_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger2_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger3_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger4_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hair": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hair_cap": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt": {
+   "edge_ratio_p001": 0.074,
+   "edge_ratio_p999": 2.248,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_collar": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.34,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_sleeve_L": {
+   "edge_ratio_p001": 0.207,
+   "edge_ratio_p999": 5.077,
+   "folded_edges_pct": 1.15
+  },
+  "shirt_cuff_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_sleeve_R": {
+   "edge_ratio_p001": 0.207,
+   "edge_ratio_p999": 5.081,
+   "folded_edges_pct": 0.82
+  },
+  "shirt_cuff_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hat": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hat_ribbon": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hat_tail_0": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hat_tail_1": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "glasses": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  }
+ },
+ "squat": {
+  "skin_bust": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "ear_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "ear_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "arm_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger0_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger1_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger2_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger3_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger4_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "leg_L": {
+   "edge_ratio_p001": 0.283,
+   "edge_ratio_p999": 1.93,
+   "folded_edges_pct": 0.43
+  },
+  "foot_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "arm_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger0_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger1_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger2_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger3_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger4_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "leg_R": {
+   "edge_ratio_p001": 0.283,
+   "edge_ratio_p999": 1.93,
+   "folded_edges_pct": 0.43
+  },
+  "foot_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hair": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hair_cap": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shorts": {
+   "edge_ratio_p001": 0.093,
+   "edge_ratio_p999": 5.212,
+   "folded_edges_pct": 1.32
+  },
+  "shorts_band": {
+   "edge_ratio_p001": 0.653,
+   "edge_ratio_p999": 1.408,
+   "folded_edges_pct": 0.0
+  },
+  "shorts_loops": {
+   "edge_ratio_p001": 0.766,
+   "edge_ratio_p999": 1.323,
+   "folded_edges_pct": 0.0
+  },
+  "shorts_cuff_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shorts_cuff_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "cami": {
+   "edge_ratio_p001": 0.501,
+   "edge_ratio_p999": 1.488,
+   "folded_edges_pct": 0.0
+  },
+  "cami_straps": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt": {
+   "edge_ratio_p001": 0.387,
+   "edge_ratio_p999": 1.983,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_collar": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_sleeve_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_cuff_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_sleeve_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_cuff_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_knot": {
+   "edge_ratio_p001": 0.981,
+   "edge_ratio_p999": 1.742,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_tail_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_tail_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "sandal_sole_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "sandal_straps_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "sandal_sole_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "sandal_straps_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hat": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hat_ribbon": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hat_tail_0": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hat_tail_1": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "glasses": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  }
+ },
+ "twist": {
+  "skin_bust": {
+   "edge_ratio_p001": 0.387,
+   "edge_ratio_p999": 4.379,
+   "folded_edges_pct": 0.71
+  },
+  "ear_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "ear_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "arm_L": {
+   "edge_ratio_p001": 0.494,
+   "edge_ratio_p999": 1.296,
+   "folded_edges_pct": 0.0
+  },
+  "finger0_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger1_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger2_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger3_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger4_L": {
+   "edge_ratio_p001": 0.999,
+   "edge_ratio_p999": 1.129,
+   "folded_edges_pct": 0.0
+  },
+  "arm_R": {
+   "edge_ratio_p001": 0.77,
+   "edge_ratio_p999": 1.085,
+   "folded_edges_pct": 0.0
+  },
+  "finger0_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger1_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger2_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger3_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger4_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.015,
+   "folded_edges_pct": 0.0
+  },
+  "hair": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hair_cap": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shorts": {
+   "edge_ratio_p001": 0.999,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shorts_band": {
+   "edge_ratio_p001": 0.999,
+   "edge_ratio_p999": 1.006,
+   "folded_edges_pct": 0.0
+  },
+  "shorts_loops": {
+   "edge_ratio_p001": 0.999,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "cami": {
+   "edge_ratio_p001": 0.89,
+   "edge_ratio_p999": 1.298,
+   "folded_edges_pct": 0.0
+  },
+  "cami_straps": {
+   "edge_ratio_p001": 0.693,
+   "edge_ratio_p999": 1.378,
+   "folded_edges_pct": 0.0
+  },
+  "shirt": {
+   "edge_ratio_p001": 0.811,
+   "edge_ratio_p999": 1.535,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_collar": {
+   "edge_ratio_p001": 0.659,
+   "edge_ratio_p999": 1.266,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_sleeve_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_cuff_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_sleeve_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_cuff_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hat": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hat_ribbon": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hat_tail_0": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "hat_tail_1": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "glasses": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  }
+ },
+ "kick": {
+  "leg_L": {
+   "edge_ratio_p001": 0.927,
+   "edge_ratio_p999": 1.234,
+   "folded_edges_pct": 0.0
+  },
+  "foot_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "arm_R": {
+   "edge_ratio_p001": 0.37,
+   "edge_ratio_p999": 1.585,
+   "folded_edges_pct": 0.41
+  },
+  "finger0_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger1_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger2_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger3_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger4_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shorts": {
+   "edge_ratio_p001": 0.039,
+   "edge_ratio_p999": 8.386,
+   "folded_edges_pct": 0.4
+  },
+  "shorts_cuff_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt": {
+   "edge_ratio_p001": 0.664,
+   "edge_ratio_p999": 1.744,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_sleeve_R": {
+   "edge_ratio_p001": 0.527,
+   "edge_ratio_p999": 3.3,
+   "folded_edges_pct": 0.66
+  },
+  "shirt_cuff_R": {
+   "edge_ratio_p001": 0.632,
+   "edge_ratio_p999": 1.859,
+   "folded_edges_pct": 0.0
+  },
+  "sandal_sole_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "sandal_straps_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  }
+ },
+ "reach_mod": {
+  "arm_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger0_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger1_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger2_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger3_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger4_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "arm_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger0_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger1_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger2_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger3_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "finger4_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt": {
+   "edge_ratio_p001": 0.459,
+   "edge_ratio_p999": 1.981,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_sleeve_L": {
+   "edge_ratio_p001": 0.323,
+   "edge_ratio_p999": 4.282,
+   "folded_edges_pct": 0.33
+  },
+  "shirt_cuff_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt_sleeve_R": {
+   "edge_ratio_p001": 0.548,
+   "edge_ratio_p999": 3.531,
+   "folded_edges_pct": 0.82
+  },
+  "shirt_cuff_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  }
+ },
+ "kick_mod": {
+  "leg_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "foot_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "leg_R": {
+   "edge_ratio_p001": 0.1,
+   "edge_ratio_p999": 1.628,
+   "folded_edges_pct": 0.22
+  },
+  "foot_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shorts": {
+   "edge_ratio_p001": 0.267,
+   "edge_ratio_p999": 6.82,
+   "folded_edges_pct": 0.66
+  },
+  "shorts_cuff_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shorts_cuff_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "shirt": {
+   "edge_ratio_p001": 0.622,
+   "edge_ratio_p999": 1.072,
+   "folded_edges_pct": 0.0
+  },
+  "sandal_sole_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "sandal_straps_L": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "sandal_sole_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  },
+  "sandal_straps_R": {
+   "edge_ratio_p001": 1.0,
+   "edge_ratio_p999": 1.0,
+   "folded_edges_pct": 0.0
+  }
+ }
+}
