@@ -7,6 +7,7 @@ import { ISLAND, LIGHTHOUSE, WALL_IN, buildIsland, buildRoadRibbon, buildTerrain
 import type { StepSurface } from "../../sound/steps";
 import { LighthouseBeam } from "./beam";
 import { buildHouses } from "./houses";
+import { buildDuneGrass } from "./dunegrass";
 import { buildPier, deckH, inPier, pierBlocks, pierContact, pierGround } from "./pier";
 import { beachMaterial } from "../../water/beach";
 import { ROCKS, buildRocks } from "../../water/rocks";
@@ -56,6 +57,7 @@ export class Bay {
     this.root.add(this.lighthouse());
     this.root.add(buildHouses(this.colliders));
     this.root.add(buildPier(this.colliders));
+    this.root.add(buildDuneGrass(this.colliders));
     this.beam = new LighthouseBeam(this.lamp);
     this.root.add(this.beam.group);
   }
