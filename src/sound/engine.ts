@@ -1,16 +1,20 @@
 import { WindLayer } from "./air";
 import { BoatLayer } from "./boat";
 import { clamp, reverbIR, smoothstep, vnoise } from "./dsp";
-import { GullLayer } from "./gulls";
+import { GullLayer, type GullPlace } from "./gulls";
 import { Kit, type Env, type Layer, type RideState } from "./kit";
+import { FishLayer, InsectLayer } from "./life";
 import { Music, type MoodName } from "./music";
 import { LapLayer, ShoreLayer } from "./sea";
+import type { Place } from "./spot";
 import { Steps, type StepSurface } from "./steps";
 
-export type LayerName = "wind" | "shore" | "lap" | "boat" | "gulls";
-export const LAYER_NAMES: LayerName[] = ["wind", "shore", "lap", "boat", "gulls"];
+export type LayerName = "wind" | "shore" | "lap" | "boat" | "gulls" | "fish" | "insects";
+export const LAYER_NAMES: LayerName[] = ["wind", "shore", "lap", "boat", "gulls", "fish", "insects"];
 export type SoundEvent = "gull" | "slap";
 export type { MoodName } from "./music";
+export type { GullPlace } from "./gulls";
+export type { Place } from "./spot";
 
 /** Raw per-frame input; anything left undefined falls back to a sensible default. */
 export interface EngineInput {
@@ -25,11 +29,14 @@ export interface EngineInput {
   pier?: number;
   pierPan?: number;
   boat?: number;
+  /** −1 full astern … 1 full ahead … 1.35 past full (Shift). */
   throttle?: number;
   boatSpeed?: number;
   slap?: number;
   evening?: number;
   night?: number;
+  /** 0 … 1 how much grass round the listener (night insects). */
+  grass?: number;
 }
 
 export interface EngineOptions {
@@ -41,8 +48,11 @@ export interface EngineOptions {
 }
 
 const PARAM_RATE = 1 / 30;
-/** Hard output ceiling: −3.5 dBFS. */
+/** Hard output ceiling: −3.5 dBFS (the curve tops out at 0.6671, −3.52 dBFS). */
 const CEIL = 0.668;
+
+/** A finite input clamped to [a, b], else the default `d`. */
+const num = (v: number | undefined, d: number, a = 0, b = 1): number => (v === undefined || !Number.isFinite(v) ? d : clamp(v, a, b));
 
 export class SoundEngine {
   readonly kit: Kit;
@@ -52,7 +62,10 @@ export class SoundEngine {
   readonly output: AudioNode;
   private readonly boat: BoatLayer;
   private readonly gulls: GullLayer;
+  private readonly shore: ShoreLayer;
+  private readonly fish: FishLayer;
   private readonly steps: Steps;
+  private readonly env: Env = { gust: 0, turb: 0 };
   private readonly volume: GainNode;
   private readonly mix: GainNode;
   private readonly sfx: GainNode;
@@ -75,6 +88,7 @@ export class SoundEngine {
     slap: 0,
     evening: 0.5,
     night: 0,
+    grass: 0,
   };
 
   constructor(
@@ -138,7 +152,9 @@ export class SoundEngine {
 
     this.boat = new BoatLayer(kit);
     this.gulls = new GullLayer(kit);
-    this.layers = { wind: new WindLayer(kit), shore: new ShoreLayer(kit), lap: new LapLayer(kit), boat: this.boat, gulls: this.gulls };
+    this.shore = new ShoreLayer(kit);
+    this.fish = new FishLayer(kit);
+    this.layers = { wind: new WindLayer(kit), shore: this.shore, lap: new LapLayer(kit), boat: this.boat, gulls: this.gulls, fish: this.fish, insects: new InsectLayer(kit) };
     this.steps = new Steps(kit, this.sfx, verbIn);
     this.music = opts.music === false ? null : new Music(kit, mix);
     this.solo(null);
@@ -150,11 +166,10 @@ export class SoundEngine {
     if (this.lazy && this.kit.pending) this.kit.pump(3);
     dt = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
     const s = this.state;
-    const num = (v: number | undefined, d: number, a = 0, b = 1) => (v === undefined || !Number.isFinite(v) ? d : clamp(v, a, b));
     s.speed = num(inp.speed, 0, 0, 40);
     s.steer = num(inp.steer, 0, -1, 1);
     s.boat = num(inp.boat, s.boat);
-    s.throttle = num(inp.throttle, s.throttle);
+    s.throttle = num(inp.throttle, s.throttle, -1, 1.35);
     s.boatSpeed = num(inp.boatSpeed, s.boatSpeed, 0, 30);
     s.move = num(inp.move, Math.max(s.speed, s.boat * s.boatSpeed), 0, 40);
     s.shore = num(inp.shore, s.shore, 0, 5000);
@@ -165,15 +180,15 @@ export class SoundEngine {
     s.slap = num(inp.slap, 0, 0, 2);
     s.evening = num(inp.evening, s.evening);
     s.night = num(inp.night, s.night);
+    s.grass = num(inp.grass, s.grass);
 
-    const env: Env = {
-      gust: smoothstep(0.3, 0.85, 0.55 * vnoise(now / 9, 21) + 0.45 * vnoise(now / 23, 22)),
-      turb: vnoise(now * 3.3, 23),
-    };
-    for (const n of LAYER_NAMES) this.layers[n].events(now, dt, s, env);
+    const env = this.env;
+    env.gust = smoothstep(0.3, 0.85, 0.55 * vnoise(now / 9, 21) + 0.45 * vnoise(now / 23, 22));
+    env.turb = vnoise(now * 3.3, 23);
+    for (let i = 0; i < LAYER_NAMES.length; i++) this.layers[LAYER_NAMES[i]].events(now, dt, s, env);
     if (this.lastParams < 0 || now - this.lastParams >= PARAM_RATE || now < this.lastParams) {
       this.lastParams = now;
-      for (const n of LAYER_NAMES) this.layers[n].params(now, s, env);
+      for (let i = 0; i < LAYER_NAMES.length; i++) this.layers[LAYER_NAMES[i]].params(now, s, env);
       this.music?.tick(now);
     }
   }
@@ -211,9 +226,39 @@ export class SoundEngine {
     this.boat.slap(when, strength);
   }
 
-  /** One footstep on `surface` (0…1.5 strength) — used while she explores on foot. */
-  footstep(when: number, surface: StepSurface, strength: number): void {
-    this.steps.play(when, surface, strength);
+  /** One footstep on `surface` (0…1.5 strength) — used while she explores on foot. `depth`: water over the ground, m. */
+  footstep(when: number, surface: StepSurface, strength: number, depth = 0): void {
+    this.steps.play(when, surface, strength, depth);
+  }
+
+  /** Landing from a jump or a drop (`k` 0.3…1 how hard) on `surface`. */
+  land(when: number, surface: StepSurface, k: number, depth = 0): void {
+    this.steps.land(when, surface, k, depth);
+  }
+
+  /** The push-off of a jump from `surface`. */
+  takeoff(when: number, surface: StepSurface, k: number, depth = 0): void {
+    this.steps.takeoff(when, surface, k, depth);
+  }
+
+  /** The shoreline's own wave near the listener: "break" offshore or "runup" on the sand (size in m, wave number). */
+  shoreWave(when: number, kind: "break" | "runup", size: number, wave: number): void {
+    this.shore.shoreEvent(when, kind, size, wave, this.state);
+  }
+
+  /** Who places the gull calls (the game: its actual gulls); null = distant, unplaced calls. */
+  set gullPlacer(fn: ((dur: number, out: GullPlace) => boolean) | null) {
+    this.gulls.placer = fn;
+  }
+
+  /** A perched gull takes off at `at`; its first wing beat peaks FLUTTER_LEAD s after `when`. */
+  gullTakeoff(when: number, at: Place, rate = 1): void {
+    this.gulls.flutter(when, at, rate);
+  }
+
+  /** A leaping fish leaves the water (`entering` false) or falls back in, at `at`. */
+  fishSplash(when: number, entering: boolean, at: Place, size: number): void {
+    this.fish.splash(when, entering, at, size);
   }
 
   startMusic(now: number, delay?: number): void {
@@ -231,7 +276,8 @@ export class SoundEngine {
   trigger(ev: SoundEvent, when: number): void {
     switch (ev) {
       case "gull":
-        return this.gulls.call(when, (this.kit.rng() - 0.5) * 1.4, 0.7);
+        this.gulls.call(when, (this.kit.rng() - 0.5) * 1.4, 0.7);
+        return;
       case "slap":
         return this.boat.slap(when, 0.8);
     }

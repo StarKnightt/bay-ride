@@ -17,6 +17,7 @@ export interface RideState {
   slap: number; // hull slap impulse this frame (0 = none)
   evening: number; // 0 midday … 1 dusk
   night: number; // 0 day … 1 night
+  grass: number; // 0 … 1 how much grass round the listener (night insects)
 }
 
 /** Shared environment signals computed once per tick by the engine. */

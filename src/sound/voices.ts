@@ -133,3 +133,130 @@ export const gull: Gen = (r, sr) => {
   filt(d, new Biq("lp", sr, 2600, 0.6));
   return mono(fadeIn(d, sr, 0.01), sr);
 };
+
+/** Wing beats per second of a gull taking off (the life system's flap rate). */
+export const FLUTTER_HZ = 2.7;
+/** Each beat peaks this long after it starts: beat k peaks at k / FLUTTER_HZ + FLUTTER_LEAD. */
+export const FLUTTER_LEAD = 0.035;
+
+/**
+ * A gull taking off close by: soft wing beats at the flap rate, each a padded "whup" of air on the
+ * downstroke (low, muffled noise with a little body), fading as it climbs away. No feather hiss.
+ */
+export const flutter: Gen = (r, sr) => {
+  const beats = 7 + Math.floor(r() * 3);
+  const P = 1 / FLUTTER_HZ;
+  const d = new Float32Array(Math.floor(sr * (beats * P + 0.4)));
+  const bp = new Biq("bp", sr, rr(r, 420, 560), 0.9);
+  const lp = new Biq("lp", sr, 900, 0.6);
+  const len = Math.floor(0.22 * sr);
+  for (let k = 0; k < beats; k++) {
+    const i0 = Math.max(0, Math.floor((k * P + rr(r, -0.006, 0.006)) * sr));
+    const a = (k === 0 ? 1 : 0.85) * Math.pow(0.8, k) * rr(r, 0.85, 1.1);
+    const f0 = rr(r, 120, 160);
+    for (let i = 0; i < len && i0 + i < d.length; i++) {
+      const t = i / sr;
+      const e = a * (t < FLUTTER_LEAD ? smooth(t / FLUTTER_LEAD) : Math.exp(-(t - FLUTTER_LEAD) / 0.07));
+      const w = r() * 2 - 1;
+      d[i0 + i] += e * (bp.run(w) * 0.9 + lp.run(w) * 0.35 + 0.25 * sn(f0 * t));
+    }
+  }
+  filt(d, new Biq("lp", sr, 1800, 0.6));
+  filt(d, new Biq("hp", sr, 90, 0.6));
+  return mono(fadeIn(d, sr, 0.005), sr);
+};
+
+/** A few drops falling back on the water: tiny rising bubble pings, quiet and rounded. */
+function drops(d: Float32Array, sr: number, r: Rng, count: number, t0: number, t1: number, f0: number, f1: number, amp: number): void {
+  const at = Math.max(1, Math.floor(0.0025 * sr));
+  for (let k = 0; k < count; k++) {
+    const i0 = Math.floor(rr(r, t0, t1) * sr);
+    const f = rr(r, f0, f1), tau = rr(r, 0.008, 0.02), a = amp * rr(r, 0.4, 1);
+    const n = Math.min(d.length - i0, Math.floor(tau * 6 * sr));
+    let ph = 0;
+    for (let i = 0; i < n; i++) {
+      const t = i / sr;
+      ph += (f * (1 + 0.5 * Math.min(1, t / (tau * 3)))) / sr;
+      d[i0 + i] += a * (i < at ? i / at : 1) * Math.exp(-t / tau) * sn(ph);
+    }
+  }
+}
+
+// ───────────────────────────── fish ─────────────────────────────
+
+/** A small fish breaking the surface on its way up: a soft wet "plip" and a few drops. */
+export const fishOut: Gen = (r, sr) => {
+  const d = new Float32Array(Math.floor(sr * 0.45));
+  const bp = new Biq("bp", sr, rr(r, 900, 1300), 0.9);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    d[i] = bp.run(r() * 2 - 1) * (t < 0.006 ? smooth(t / 0.006) : Math.exp(-(t - 0.006) / 0.035)) * 0.8;
+  }
+  drops(d, sr, r, 3 + Math.floor(r() * 3), 0.05, 0.3, 1000, 2000, 0.25);
+  filt(d, new Biq("lp", sr, 3000, 0.6));
+  return mono(d, sr, 0.85);
+};
+
+/** The fish falling back in: a small splash, the rounded "plop" of the air pocket closing (pitch rising), drops. */
+export const fishIn: Gen = (r, sr) => {
+  const d = new Float32Array(Math.floor(sr * 0.6));
+  const bp = new Biq("bp", sr, rr(r, 600, 900), 0.8);
+  const lo = new Biq("lp", sr, 500, 0.7);
+  for (let i = 0; i < d.length; i++) {
+    const t = i / sr;
+    const w = r() * 2 - 1;
+    const splash = t < 0.008 ? smooth(t / 0.008) : Math.exp(-(t - 0.008) / 0.07);
+    const body = t < 0.01 ? smooth(t / 0.01) : Math.exp(-(t - 0.01) / 0.05);
+    d[i] = bp.run(w) * splash * 0.7 + lo.run(w) * body * 0.5;
+  }
+  const f0 = rr(r, 260, 380), i0 = Math.floor(rr(r, 0.012, 0.025) * sr), n = Math.floor(0.25 * sr);
+  let ph = 0;
+  for (let i = 0; i < n && i0 + i < d.length; i++) {
+    const t = i / sr;
+    ph += (f0 * (1 + 1.1 * Math.min(1, t / 0.06))) / sr;
+    d[i0 + i] += 0.6 * smooth(t / 0.006) * Math.exp(-t / 0.045) * sn(ph);
+  }
+  drops(d, sr, r, 4 + Math.floor(r() * 4), 0.12, 0.42, 800, 1700, 0.22);
+  filt(d, new Biq("lp", sr, 2800, 0.6));
+  filt(d, new Biq("hp", sr, 80, 0.6));
+  return mono(d, sr);
+};
+
+// ───────────────────────────── insects ─────────────────────────────
+
+/**
+ * Night insects in the grass, far and faint: a few tree-cricket trills (sine pulses around 2.3–2.9 kHz,
+ * 13–19 a second, each a raised cosine, so nothing clicks or buzzes), some steady with a slow swell,
+ * some in short chirps. One channel per call: the two channels hear different crickets. Seamless loop.
+ */
+export const crickets =
+  (secs: number): Gen =>
+  (r, sr) => {
+    const fade = Math.floor(sr * 0.5);
+    const n = Math.floor(sr * secs) + fade;
+    const d = new Float32Array(n);
+    for (let c = 0; c < 3; c++) {
+      const f = rr(r, 2300, 2900);
+      const pr = rr(r, 13, 19);
+      const amp = c === 0 ? 1 : rr(r, 0.3, 0.7);
+      const trill = r() < 0.5;
+      const chirpP = rr(r, 0.55, 0.9), chirpN = 3 + Math.floor(r() * 3);
+      const swellP = rr(r, 3, 6), swellPh = r();
+      let ph = r();
+      for (let i = 0; i < n; i++) {
+        const t = i / sr;
+        ph += f / sr;
+        const pp = t * pr;
+        const kp = Math.floor(pp);
+        const pf = pp - kp;
+        if (pf >= 0.45) continue;
+        // chirps: whole pulses gated by when each pulse starts (never cut mid-pulse)
+        if (!trill && Math.floor(((kp / pr) % chirpP) * pr) >= chirpN) continue;
+        const e = 0.5 - 0.5 * sn(pf / 0.45 + 0.25);
+        d[i] += amp * e * (trill ? 0.55 + 0.45 * sn(t / swellP + swellPh) : 1) * sn(ph);
+      }
+    }
+    filt(d, new Biq("hp", sr, 1500, 0.6));
+    filt(d, new Biq("lp", sr, 3600, 0.6));
+    return [normRms(makeLoop(d, fade), 0.15)];
+  };
