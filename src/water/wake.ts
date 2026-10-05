@@ -323,9 +323,15 @@ Wake wakeShade(vec2 q, float px, float pxm){
     boil *= (0.6 + 0.6 * vnoise(vec2(w.odo * 0.3, w.y * 1.4))) * (1.0 + 0.9 * exp(-max(xs, 0.0) / 1.5));
     float boilF = wakeLace(vec2(w.y * 1.2, w.odo) + vec2(0.0, w.age * 0.5), clamp(boil * 0.8, 0.0, 1.0), 5.0, pxL, 1.0);
     float wA2 = wPe * 1.5 + 0.25;
-    o.aer = w.churn * behind * exp(-max(xs, 0.0) / 9.0) * exp(-ay * ay / (wA2 * wA2)) * (0.8 + 0.4 * vnoise(vec2(w.y * 0.8, w.odo * 0.5))) * fade;
-    float wS = max(0.75 + 0.05 * max(xs, 0.0), pxW);
-    o.slick = max(w.churn, S * 0.6) * 0.75 * exp(-w.age / 10.0) * exp(-ay * ay / (wS * wS)) * smoothstep(-1.0, 1.0, xs) * fade;
+    // The aerated band and the slick have soft edges that wander in and out along the track,
+    // never a ruled boundary, and the slick is patchy: calm lanes with chop creeping back in.
+    float edgeN = vnoise(vec2(w.odo * 0.22, sd * 3.0)) - 0.5, edgeF = vnoise(vec2(w.odo * 0.9, w.y * 0.6 + 4.0)) - 0.5;
+    float ayA = max(ay + edgeN * 0.5 * wA2 + edgeF * 0.25 * wA2, 0.0);
+    o.aer = w.churn * behind * exp(-max(xs, 0.0) / 9.0) * exp(-ayA * ayA / (wA2 * wA2)) * (0.8 + 0.4 * vnoise(vec2(w.y * 0.8, w.odo * 0.5))) * fade;
+    float wS = max((0.75 + 0.05 * max(xs, 0.0)) * (0.75 + 0.5 * vnoise(vec2(w.odo * 0.12, sd * 7.0))), pxW);
+    float ayS = max(ay + (edgeN * 0.7 + edgeF * 0.35) * wS, 0.0);
+    o.slick = max(w.churn, S * 0.6) * 0.75 * exp(-w.age / 10.0) * exp(-ayS * ayS / (wS * wS)) * smoothstep(-1.0, 1.0, xs) * fade
+            * (0.55 + 0.45 * smoothstep(0.25, 0.65, vnoise(vec2(w.odo * 0.35, w.y * 0.9) + 2.0)));
     o.foam = max(arm, max(boilF, trans));
     // The slick is glassy: the wake's waves lie flat across it.
     o.grad *= 1.0 - 0.75 * clamp(o.slick * 1.3, 0.0, 1.0);
@@ -347,6 +353,15 @@ Wake wakeShade(vec2 q, float px, float pxm){
     float sharpD = smoothstep(0.5, 0.95, cD) - 0.55 * smoothstep(-0.4, -0.95, cD);
     float sk = smoothstep(8.0, 16.0, lamD / pxm);
     o.crest = clamp(mix(cT, sharpT, sk) * inf.z + mix(cD, sharpD, sk) * inf.w, -1.0, 1.0) * smoothstep(0.005, 0.05, aMax);
+    // Near the eye a soft crest spans the whole V: broken into patches, its sides fraying out
+    // irregularly short of the arms, and its light side held down, so it never lays a pale
+    // straight-edged sheet between them.
+    float brkC = 0.3 + 0.7 * smoothstep(0.2, 0.7, vnoise(vec2(w.odo * 0.35, w.y * 0.6) + 6.0));
+    float edgeC = 1.0 - smoothstep(0.45, 0.95, ay / max(yA, 0.05) + edgeN * 0.6 + edgeF * 0.3);
+    float nearC = 1.0 - smoothstep(0.06, 0.3, pxm);
+    float breakC = mix(1.0, brkC * edgeC, nearC);
+    o.crest *= breakC * (o.crest > 0.0 ? 1.0 - 0.45 * nearC : 1.0);
+    tTone *= breakC * (tTone > 0.0 ? 1.0 - 0.45 * nearC : 1.0);
     // The arms' own swell: a darker line just outside the foam (the wave's face turned to the
     // eye) and a lighter one on it. Thin and soft near; far off, where the waves can no longer be
     // drawn, it is what carries the V (at least a couple of pixels wide).
@@ -374,8 +389,7 @@ Wake wakeShade(vec2 q, float px, float pxm){
       fan *= graze * swA * smoothstep(2.0, 8.0, x);
     }
     o.crest = clamp(o.crest - mix(0.9, 1.3, graze) * swA * exp(-dO * dO) + 0.5 * swA * prof * smoothstep(0.05, 0.3, pxm)
-                    + 2.4 * graze * swA * exp(-dC * dC * 1.2) + 3.0 * fan + 0.75 * tTone * inV, -1.0, 1.0);
-  }
+                    + 2.4 * graze * swA * exp(-dC * dC * 1.2) + 3.0 * fan + 0.75 * tTone * inV, -1.0, 1.0);  }
   // The hull: a thin broken collar of foam hugging the waterline, piled up at the bow when she
   // moves, and a faint darker line right against the planking. Nothing reaches past about a
   // metre, and the stern is left to the propeller's boil.

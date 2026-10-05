@@ -405,7 +405,7 @@ const FS = /* glsl */ `
       // The rows wander (a warp continuous round the viewer), so the marks never sit on a grid.
       vec2 vd = V.xz / max(length(V.xz), 1e-4);
       vec2 fw = fanD + vec2(0.006 * (sin(vd.x * 23.0 + fanD.x * 41.0) + sin(vd.y * 37.0 - fanD.x * 67.0 + 1.3)), 0.0);
-      dabs = oFanDabs(fw, uTime, gust) * dabK * crestK * (1.0 - wk.slick);
+      dabs = oFanDabs(fw, uTime, gust) * dabK * crestK * (1.0 - 0.6 * wk.slick);
     }
     gU += fwd * dabs * 0.06;
     // Near the eye the chop is painted as readable strokes, so the water never reads as glass.
@@ -413,7 +413,8 @@ const FS = /* glsl */ `
     // The bay in front of the beach is chopped too once it is past the surf.
     float stC = max(chopK, smoothstep(1.5, 4.0, s.h) * (1.0 - smoothstep(0.05, 0.3, s.brk + s.foam)) * 0.85);
     float stK = stC * (1.0 - smoothstep(90.0, 260.0, dist)) * smoothstep(0.02, 0.05, -V.y) * (1.0 - 0.4 * uNight);
-    if (stK > 0.01) strokes = oStrokes(V, uTime, gust) * stK * crestK * (1.0 - wk.slick);
+    // The slick keeps a sparser set of strokes: calmer water, not a painted-over sheet.
+    if (stK > 0.01) strokes = oStrokes(V, uTime, gust) * stK * crestK * (1.0 - 0.6 * wk.slick);
     gU += fwd * strokes * 0.05;
     // Break bands across the mirror (open water only), animated with the swell.
     // Only where the mirror shows at a grazing angle; looking steeply down it is not seen.
@@ -512,7 +513,7 @@ const FS = /* glsl */ `
     // light's hue at a low sun (warm grey-gold, never slate); the slick beyond it a touch darker
     // and glassier.
     float colL = dot(col, vec3(0.2126, 0.7152, 0.0722));
-    vec3 aerC = mix(vec3(colL), col, 0.7) * 1.2 + 0.02 * (1.0 - uNight);
+    vec3 aerC = mix(vec3(colL), col, 0.75) * mix(1.06, 1.2, warmSky) + 0.01 * (1.0 - uNight);
     aerC = mix(aerC, colL * 1.25 * sunHue + 0.02, 0.6 * warmSky);
     col = mix(col, aerC, max(wk.aer * 0.55, wk.brk * 0.65));
     col *= 1.0 - 0.07 * wk.slick * (1.0 - wk.aer);
@@ -956,7 +957,7 @@ const FS = /* glsl */ `
     col *= (1.0 + wk.crest * mix(0.2, 0.38, smoothstep(0.1, 0.8, pxM)) * (1.0 - 0.5 * farK)) * (1.0 - 0.22 * wk.contact);
     // Seen low across the water the glassy slick reads as a lane: a shade darker than the
     // sparkling chop by day, a little paler under the moon.
-    col *= 1.0 + wk.slick * max(grazing, 0.35) * mix(-0.16, 0.2, uNight);
+    col *= 1.0 + wk.slick * max(grazing, 0.35) * mix(-0.22, 0.2, uNight);
     float foamW = step(foam, wk.foam) * step(0.002, wk.foam);
     foam = max(foam, wk.foam);
     if (foam > 0.002) {
@@ -1000,8 +1001,7 @@ const FS = /* glsl */ `
     }
     col = applyFog(col, vWPos);
     // The far sea melts into the horizon haze: sky and sea meet at a soft light line.
-    col = mix(col, skyH, smoothstep(1800.0, 3800.0, dist) * 0.85);
-    gColor = vec4(col, 1.0);
+    col = mix(col, skyH, smoothstep(1800.0, 3800.0, dist) * 0.85);    gColor = vec4(col, 1.0);
     vec3 vn = normalize((viewMatrix * vec4(Nw, 0.0)).xyz);
     gNormal = vec4(vn.xy * 0.5 + 0.5, uId / 32.0, 0.0);
   }`;

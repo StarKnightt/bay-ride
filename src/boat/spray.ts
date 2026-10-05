@@ -125,15 +125,23 @@ export class Spray {
         void main(){
           vec2 p = vUv * 2.0 - 1.0;
           float r = length(p);
-          float a;
+          float a, life = clamp(vF.x, 0.0, 1.0);
           if (vF.w > 0.5) {
-            // A veil: ragged soft edges, thinner in places, never a solid shape.
-            float rag = vnoise(vec2(p.y * 2.5 + vF.y * 30.0, p.x * 1.5)) - 0.5;
-            a = (1.0 - smoothstep(0.45, 1.0, r + rag * 0.5)) * (0.5 + 0.5 * vnoise(p * 3.0 + vF.y * 17.0)) * 0.72;
+            // A sheet of spray: a flat, hard-edged shape tapering to a sharp tip, torn ragged,
+            // with a clean hole or two.
+            float wdt = mix(1.0, 0.18, clamp(p.y * 0.5 + 0.5, 0.0, 1.0));
+            float rv = length(vec2(p.x / wdt, p.y)) + (vnoise(vec2(p.y * 2.5 + vF.y * 30.0, p.x * 1.5)) - 0.5) * 0.45;
+            float hv = vnoise(p * 3.0 + vF.y * 17.0);
+            // Dying sheets shrink and tear rather than going see-through.
+            float m = min(0.8 * sqrt(life) - rv, (hv - 0.28 - 0.4 * (1.0 - life)) * 2.0);
+            float fw = max(fwidth(m), 1e-3) * 0.75;
+            a = smoothstep(-fw, fw, m) * 0.95;
           } else {
-            a = (1.0 - smoothstep(0.35, 1.0, r)) * 0.85;
+            float rd = 0.7 * sqrt(life);
+            float fw = max(fwidth(r), 1e-3) * 0.75;
+            a = 1.0 - smoothstep(rd - fw, rd + fw, r);
           }
-          a *= clamp(vF.x, 0.0, 1.0) * mix(1.0, 0.6, uNight);
+          a *= mix(1.0, 0.6, uNight);
           if (a < 0.01) discard;
           vec3 V = normalize(vWPos - cameraPosition);
           vec3 Nw = normalize(vec3(p.x * 0.5, 0.7, p.y * 0.5));
@@ -213,15 +221,23 @@ export class Spray {
           // curling sheet at the stem when she runs, sinking aft along the hull.
           float bowK = smoothstep(0.35, 0.85, u) * (1.0 - 0.6 * smoothstep(0.9, 1.0, u));
           float crest = ${(HULL.waterY + 0.005).toFixed(3)} + (0.025 + 0.075 * spd * bowK) * (0.6 + 0.8 * n);
-          float top = 1.0 - smoothstep(crest - 0.03, crest + 0.005, vH);
+          // A painted shape, not a haze: a hard edge one pixel wide, its top torn into sharp
+          // teeth that lean aft, holes cut clean like the arm foam's lace.
+          float teeth = abs(fract(sx * 3.1 + 0.4 * vnoise(vec2(sx * 1.3, vK.z))) * 2.0 - 1.0);
+          float edge = crest + (teeth * teeth - 0.35) * (0.012 + 0.03 * spd * bowK) + (vnoise(vec2(sx * 9.0, vK.z * 5.0)) - 0.5) * 0.012;
+          float aw = max(fwidth(vH), 1e-4) * 0.75;
+          float top = 1.0 - smoothstep(edge - aw, edge + aw, vH);
           if (top < 0.01) discard;
-          // Lacy: holes open up in the sheet, most toward its top.
-          float holes = smoothstep(0.4, 0.6, vnoise(vec2(sx * 4.0, vH * 22.0) + vK.z * 3.0));
-          float a = top * mix(1.0, holes, smoothstep(crest - 0.05, crest, vH) * 0.75 + 0.1);
-          a *= mix(0.85, 0.97, spd) * (0.4 + 0.6 * smoothstep(0.0, 0.3, u)) * mix(1.0, 0.65, uNight);
+          // Holes most toward its top; aft it breaks up into scraps rather than fading.
+          float hn = vnoise(vec2(sx * 4.0, vH * 22.0) + vK.z * 3.0) + 0.35 * (1.0 - smoothstep(crest - 0.06, crest, vH))
+                   - 0.7 * (1.0 - smoothstep(0.0, 0.3, u));
+          float hw = max(fwidth(hn), 1e-3) * 0.75;
+          float a = top * smoothstep(0.42 - hw, 0.42 + hw, hn) * mix(0.97, 0.75, uNight);
           if (a < 0.02) discard;
           vec3 V = normalize(vWPos - cameraPosition);
           vec3 col = waterLit(normalize(vec3(0.0, 1.0, 0.0) + V * -0.3), V, 0.6);
+          // Two tone steps: a lit lip along the crest, the body below a flat shade darker.
+          col *= mix(0.82, 1.0, step(edge - 0.025 - 0.01 * spd, vH));
           col = applyFog(col, vWPos);
           gColor = vec4(col, a);
           gNormal = vec4(0.0);
