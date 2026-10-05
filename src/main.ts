@@ -3,6 +3,7 @@ import { G, specializeUber } from "./render/materials";
 import { Post } from "./render/post";
 import { CharShadow, LAYER_CHAR, LAYER_CHAR_HAT, LAYER_REFLECT, PlanarReflection, SunShadow, onLayers } from "./render/lightpasses";
 import { precompile, warmDraws } from "./render/precompile";
+import { restoreMaterials, useTwins } from "./render/mrtSplit";
 import { leafAtlas } from "./render/leafAtlas";
 import { Profiler } from "./render/profiler";
 import { Bay } from "./world/bay";
@@ -106,6 +107,22 @@ async function step<T>(label: string, weight: number, fn: () => T): Promise<T> {
 }
 await yieldToPaint();
 
+// The sea's program takes by far the longest to compile (tens of seconds on D3D): start it, and its
+// normal-pass twin, before anything else is built. Nothing it compiles against is baked yet.
+const sea = buildSea();
+{
+  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
+  const cam = new THREE.PerspectiveCamera();
+  renderer.setRenderTarget(rt);
+  renderer.compile(sea, cam);
+  useTwins(sea);
+  renderer.compile(sea, cam);
+  restoreMaterials();
+  renderer.setRenderTarget(null);
+  rt.dispose();
+}
+await yieldToPaint();
+
 const scene = new THREE.Scene();
 const bay = await Bay.build(yieldToPaint, (label, ms) => {
   bootLog.push([label, Math.round(ms)]);
@@ -118,7 +135,6 @@ scene.add(bay.root);
   bootLog.push(["the sea", Math.round(performance.now() - s)]);
   loader.advance(W_BUILD * 0.15);
 }
-const sea = buildSea();
 scene.add(sea);
 const buoys = new Buoys();
 bay.root.add(buoys.group);
@@ -132,6 +148,10 @@ onLayers(rider.walker, LAYER_CHAR, LAYER_REFLECT);
 rider.walker.traverse((o) => {
   if (o.userData.noCast) o.layers.disable(LAYER_CHAR);
   if (o.userData.shadowProxy) o.layers.set(LAYER_CHAR_HAT);
+  // Integer skin indices read as floats make ANGLE rebuild the vertex shader at the first draw.
+  const g = (o as THREE.Mesh).geometry;
+  const si = g?.attributes.skinIndex as THREE.BufferAttribute | undefined;
+  if (si && !(si.array instanceof Float32Array) && !si.normalized) g.setAttribute("skinIndex", new THREE.BufferAttribute(Float32Array.from(si.array), si.itemSize));
 });
 scene.add(rider.walker);
 const boat = new Boat(bay);
@@ -184,19 +204,20 @@ if (SHOT) {
 {
   const s = performance.now();
   let done = 0;
-  await precompile(renderer, scene, chase.cam, post, [shadow, charShadow, ...charShadow.hatPass], (f) => {
+  const parts = [sea, ...bay.root.children, sky.far, sky.group, sky.motes, rider.walker, boat.root, spray.mesh, moor.group, trail.group];
+  const passes = [shadow, charShadow, ...charShadow.hatPass];
+  await precompile(renderer, scene, chase.cam, post, passes, parts, (f) => {
     loader.advance((f - done) * W_COMPILE);
     done = f;
-  }, yieldToPaint);
+  }, yieldToPaint, (label, ms) => bootLog.push([label, Math.round(ms)]));
   bootLog.push(["compile", Math.round(performance.now() - s)]);
-  const parts = [...bay.root.children, sea, sky.far, sky.group, sky.motes, rider.walker, boat.root, spray.mesh, moor.group, trail.group];
   let tp = performance.now();
-  await warmDraws(renderer, scene, chase.cam, post, [shadow, charShadow, ...charShadow.hatPass], parts, (i) => {
+  await warmDraws(renderer, scene, chase.cam, post, passes, parts, reflection.rt, (i) => {
     const n = performance.now();
     bootLog.push([`draw${i}`, Math.round(n - tp)]);
     tp = n;
     loader.advance(W_DRAW / parts.length);
-  }, yieldToPaint, [reflection.rt]);
+  }, yieldToPaint);
 }
 
 const audio = new RideAudio();
@@ -510,6 +531,7 @@ window.__ready = false;
 window.__ride = {
   renderer,
   scene,
+  camera: chase.cam,
   /** The character and her controller (tests: foot contacts, grip error). */
   rider,
   explore,

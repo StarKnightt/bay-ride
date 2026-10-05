@@ -157,7 +157,9 @@ export class PlanarReflection {
 
   constructor(w: number, h: number) {
     // Multisampled: at half resolution unresolved edges step in blocks once magnified on the water.
-    this.rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, count: 2, samples: 4 });
+    // Colour only: the scene materials' second output (normal/id) has no target here, which keeps
+    // their link-time pixel shaders valid for this pass (see mrtSplit.ts).
+    this.rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 4 });
     this.cam.layers.set(LAYER_REFLECT);
     REFL.uRefl.value = this.rt.textures[0];
     REFL.uReflOn.value = 1;

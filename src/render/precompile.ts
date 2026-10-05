@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Post } from "./post";
+import { restoreMaterials, useTwins } from "./mrtSplit";
 
 /** A depth pass that draws its layer with one override material (sun shadow, her shadow). */
 export interface ShadowPass {
@@ -8,10 +9,19 @@ export interface ShadowPass {
   readonly mat: THREE.Material;
 }
 
+/** Resolves on the next frame (or after `ms` if frames stop, as in a hidden tab). */
+export type NextFrame = () => Promise<void>;
+
+/** Programs compiling at once besides the ones already started (see precompile). */
+const MAX_COMPILING = 4;
+
 /**
- * Compile every shader variant play will use (scene into the MRT target, the shadow override on
- * each mesh kind, every post pass offscreen + on screen) through the parallel-compile path,
- * reporting 0…1 as programs finish, so no frame stalls on a compile later.
+ * Start compiling every program play uses, a mesh at a time with at most MAX_COMPILING in flight,
+ * and wait for all of them without ever blocking on one: ANGLE links on worker threads
+ * (KHR_parallel_shader_compile), and a program is only drawn once it reports ready. Covers each
+ * part's colour materials and their normal-pass twins (both for the scene's render targets), the
+ * shadow overrides per mesh kind, and every post pass's material on a quad laid out like the
+ * passes' own (no normals: a normal attribute changes the program). Reports 0…1 as programs finish.
  */
 export async function precompile(
   renderer: THREE.WebGLRenderer,
@@ -19,16 +29,38 @@ export async function precompile(
   camera: THREE.Camera,
   post: Post,
   shadows: ShadowPass[],
+  parts: THREE.Object3D[],
   onProgress: (f: number) => void,
-  pause: () => Promise<void>,
+  nextFrame: NextFrame,
+  log?: (label: string, ms: number) => void,
 ): Promise<void> {
   const prev = renderer.getRenderTarget();
+  const programs = () => (renderer.info.programs ?? []) as unknown as { isReady(): boolean }[];
+  // Programs already compiling (the sea, started first) are left to finish at full speed: the D3D
+  // compiler barely scales across threads, so a flood of others would stretch the longest one.
+  const early = new Set(programs());
+  const busy = () => programs().filter((p) => !early.has(p) && !p.isReady()).length;
+  const s0 = performance.now();
+  for (const p of parts) {
+    const units: THREE.Object3D[] = [];
+    p.traverse((o) => {
+      if ((o as THREE.Mesh).material) units.push(o);
+    });
+    for (const o of units) {
+      while (busy() >= MAX_COMPILING) await nextFrame();
+      const n = programs().length;
+      renderer.setRenderTarget(post.mrt);
+      renderer.compile(o, camera, scene);
+      useTwins(o);
+      renderer.compile(o, camera, scene);
+      restoreMaterials();
+      renderer.setRenderTarget(prev);
+      if (programs().length > n) await nextFrame();
+    }
+  }
+  log?.("compile submitted", performance.now() - s0);
 
-  renderer.setRenderTarget(post.mrt);
-  renderer.compile(scene, camera);
-  await pause();
-
-  // Shadow passes render the scene with an override material: the variants differ per mesh kind.
+  // Shadow passes draw with an override material: its program differs per mesh kind.
   for (const sp of shadows) {
     const swapped: [THREE.Mesh, THREE.Material | THREE.Material[]][] = [];
     scene.traverse((o) => {
@@ -41,48 +73,58 @@ export async function precompile(
     renderer.setRenderTarget(sp.rt);
     renderer.compile(scene, sp.cam);
     for (const [m, mat] of swapped) m.material = mat;
-    await pause();
+    renderer.setRenderTarget(prev);
+    await nextFrame();
   }
 
-  const quads = new THREE.Scene();
-  const plane = new THREE.PlaneGeometry(2, 2);
-  const seen = new Set<THREE.Material>();
-  const take = (v: unknown) => {
-    if (v instanceof THREE.Material && !seen.has(v)) {
-      seen.add(v);
-      quads.add(new THREE.Mesh(plane, v));
-    }
+  // Post passes: every material each pass holds, drawn offscreen; the last enabled pass to the screen.
+  const quad = new THREE.BufferGeometry();
+  quad.setAttribute("position", new THREE.Float32BufferAttribute([-1, 3, 0, -1, -1, 0, 3, -1, 0], 3));
+  quad.setAttribute("uv", new THREE.Float32BufferAttribute([0, 2, 0, 0, 2, 0], 2));
+  const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  const compileQuads = (mats: Set<THREE.Material>, target: THREE.WebGLRenderTarget | null) => {
+    const quads = new THREE.Scene();
+    for (const m of mats) quads.add(new THREE.Mesh(quad, m));
+    renderer.setRenderTarget(target);
+    renderer.compile(quads, ortho);
   };
-  for (const pass of post.composer.passes)
+  const passMaterials = (pass: object) => {
+    const out = new Set<THREE.Material>();
+    const take = (v: unknown) => {
+      if (v instanceof THREE.Material && !(v instanceof THREE.MeshBasicMaterial)) out.add(v);
+    };
     for (const v of Object.values(pass)) {
       if (Array.isArray(v)) v.forEach(take);
       else take(v);
       take((v as { material?: unknown } | null)?.material);
     }
-  const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
-  renderer.setRenderTarget(post.composer.renderTarget1);
-  renderer.compile(quads, ortho);
-  renderer.setRenderTarget(null);
-  renderer.compile(quads, ortho);
+    return out;
+  };
+  const passes = post.composer.passes;
+  const offscreen = new Set<THREE.Material>();
+  for (const pass of passes) for (const m of passMaterials(pass)) offscreen.add(m);
+  compileQuads(offscreen, post.composer.renderTarget1);
+  const last = [...passes].reverse().find((p) => p.enabled);
+  if (last) compileQuads(passMaterials(last), null);
   renderer.setRenderTarget(prev);
-  plane.dispose();
+  quad.dispose();
 
-  const programs = renderer.info.programs ?? [];
-  const pending = () => programs.filter((p) => !(p as unknown as { isReady(): boolean }).isReady()).length;
-  const total = Math.max(1, programs.length);
-  for (let left = pending(); left > 0; left = pending()) {
+  const all = programs();
+  const total = Math.max(1, all.length);
+  for (;;) {
+    const left = all.filter((p) => !p.isReady()).length;
     onProgress(1 - left / total);
-    await new Promise((r) => setTimeout(r, 40));
+    if (left === 0) break;
+    await nextFrame();
   }
-  onProgress(1);
 }
 
 /**
- * Draw each part of the scene once, alone and unculled, into every target kind it is drawn into
- * during play: buffer uploads and the driver's deferred per-draw shader variants (ANGLE builds them
- * at the first real draw) land here in small slices instead of mid-play. Meshes that start empty
- * (footprints, ripple rings, spray) get one instance for the warm draw, or they would first draw,
- * and stall, at the first footstep or the first throttle.
+ * Draw each part of the scene once, alone and unculled, into every target it is drawn into during
+ * play, one part per frame: geometry and texture uploads land here in small slices instead of in
+ * the first frame of play. Meshes that start empty (footprints, ripple rings, spray) get one
+ * instance for the warm draw, or they would first draw, and upload, at the first footstep or the
+ * first throttle.
  */
 export async function warmDraws(
   renderer: THREE.WebGLRenderer,
@@ -91,9 +133,9 @@ export async function warmDraws(
   post: Post,
   shadows: ShadowPass[],
   parts: THREE.Object3D[],
+  reflection: THREE.WebGLRenderTarget,
   onPart: (i: number) => void,
-  pause: () => Promise<void>,
-  extraTargets: THREE.WebGLRenderTarget[] = [],
+  nextFrame: NextFrame,
 ): Promise<void> {
   const culled: THREE.Object3D[] = [];
   const restore: (() => void)[] = [];
@@ -121,10 +163,9 @@ export async function warmDraws(
   const prev = renderer.getRenderTarget();
   for (let i = 0; i < parts.length; i++) {
     parts.forEach((p, j) => (p.visible = j === i));
-    for (const rt of [post.mrt, ...extraTargets]) {
-      renderer.setRenderTarget(rt);
-      renderer.render(scene, camera);
-    }
+    post.renderScene(scene, camera);
+    renderer.setRenderTarget(reflection);
+    renderer.render(scene, camera);
     const po = scene.overrideMaterial;
     for (const sp of shadows) {
       scene.overrideMaterial = sp.mat;
@@ -134,7 +175,7 @@ export async function warmDraws(
     scene.overrideMaterial = po;
     renderer.setRenderTarget(prev);
     onPart(i);
-    await pause();
+    await nextFrame();
   }
   parts.forEach((p, j) => (p.visible = vis[j]));
   for (const o of culled) o.frustumCulled = true;

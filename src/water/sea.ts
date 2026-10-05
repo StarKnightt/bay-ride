@@ -48,27 +48,26 @@ const VS = /* glsl */ `
   ${WAVES_GLSL}
   ${WAKE_GLSL}
   uniform vec2 uGridO;
+  uniform float uBand;
   out vec3 vWPos;
   out vec2 vFoc;
   void main(){
     vec4 wp = modelMatrix * vec4(position, 1.0);
-#ifdef DISC
-    wp.xz += uGridO;
-    wp.y = W_SEA;
-#endif
+    if (uBand < 0.5) {
+      wp.xz += uGridO;
+      wp.y = W_SEA;
+    }
     // The swell and the longer chop move the surface (the same height the water query returns);
     // far out the mesh is too coarse to carry them and the shading alone draws the waves.
     float camK = 1.0 - smoothstep(280.0, 650.0, length(wp.xz - cameraPosition.xz));
     float hv = W_SEA - wField(wp.xz).r;
-#ifdef BAND_MESH
-    // The surface settles flat into the last metre of depth and tucks just under the sand: on the
-    // beach itself the swash sheet takes over (beach.ts), so the sea never floods the sand.
-    // The tuck depth wanders along the shore so the meeting line with the sand is never ruled.
-    float tuck = 0.035 + 0.05 * vnoise(wp.xz * vec2(0.09, 0.23)) + 0.22 * smoothstep(0.25, 0.85, vnoise(vec2(wp.z * 0.03, wp.x * 0.05 + 2.0))) + 0.08 * vnoise(vec2(wp.z * 0.09, 4.0));
-    wp.y += wEta(wp.xz, uTime) * camK * smoothstep(0.0, 0.8, hv) - tuck * (1.0 - smoothstep(0.0, 1.0, hv));
-#else
-    if (camK > 0.0) wp.y += wEta(wp.xz, uTime) * camK * smoothstep(0.0, 0.8, hv);
-#endif
+    if (uBand > 0.5) {
+      // The surface settles flat into the last metre of depth and tucks just under the sand: on the
+      // beach itself the swash sheet takes over (beach.ts), so the sea never floods the sand.
+      // The tuck depth wanders along the shore so the meeting line with the sand is never ruled.
+      float tuck = 0.035 + 0.05 * vnoise(wp.xz * vec2(0.09, 0.23)) + 0.22 * smoothstep(0.25, 0.85, vnoise(vec2(wp.z * 0.03, wp.x * 0.05 + 2.0))) + 0.08 * vnoise(vec2(wp.z * 0.09, 4.0));
+      wp.y += wEta(wp.xz, uTime) * camK * smoothstep(0.0, 0.8, hv) - tuck * (1.0 - smoothstep(0.0, 1.0, hv));
+    } else if (camK > 0.0) wp.y += wEta(wp.xz, uTime) * camK * smoothstep(0.0, 0.8, hv);
     // The boat's wake lifts the surface a little near the eye.
     float cd = length(wp.xz - cameraPosition.xz);
     if (cd < 260.0) wp.y += wakeHeight(wp.xz, max(0.02, cd * 0.0009)) * (1.0 - smoothstep(150.0, 260.0, cd)) * smoothstep(0.3, 1.5, hv);
@@ -91,6 +90,8 @@ const FS = /* glsl */ `
   uniform float uReflY;
   uniform vec4 uRocks[${SKIRT_MAX}];
   uniform vec4 uBuoys[${BUOY_MAX}];
+  // 1 on the surf band along the beach, 0 on the open-sea grid round the camera (one program for both).
+  uniform float uBand;
   in vec3 vWPos;
   in vec2 vFoc;
 
@@ -335,12 +336,10 @@ const FS = /* glsl */ `
   }
 
   void main(){
-#ifdef DISC
-    {
+    if (uBand < 0.5) {
       float u = vWPos.x - coastRoadX(vWPos.z) - coastWaterU(vWPos.z);
       if (vWPos.z > ${BAND.z0.toFixed(1)} && vWPos.z < ${BAND.z1.toFixed(1)} && u > ${(BAND.outer + 0.4).toFixed(1)}) discard;
     }
-#endif
     vec2 q = vWPos.xz;
     vec3 V = normalize(vWPos - cameraPosition);
     float dist = length(vWPos - cameraPosition);
@@ -969,13 +968,11 @@ const FS = /* glsl */ `
     }
     // The last half metre of depth hands over to the beach's swash foam, so the lace carries on
     // across the waterline instead of stopping at it.
-#ifdef BAND_MESH
     float hA = 0.02 + max(-u, 0.0) * 0.07;
-    if (hA < 0.6 && s.rock < 0.2) {
+    if (uBand > 0.5 && hA < 0.6 && s.rock < 0.2) {
       WSwash sw = wSwash(q, -s.h, uTime, px);
       foam = mix(sw.foam, foam, max(smoothstep(0.15, 0.6, hA), smoothstep(0.0, 0.2, s.rock)));
     }
-#endif
     // The wake: painted crest tone, the dark water against the hull, then its foam.
     col *= (1.0 + wk.crest * mix(0.2, 0.38, smoothstep(0.1, 0.8, pxM)) * (1.0 - 0.5 * farK)) * (1.0 - 0.22 * wk.contact);
     // Seen low across the water the glassy slick reads as a lane: a shade darker than the
@@ -1031,16 +1028,45 @@ const FS = /* glsl */ `
     gNormal = vec4(vn.xy * 0.5 + 0.5, uId / 32.0, 0.0);
   }`;
 
+/**
+ * The sea's normal-pass twin (render/mrtSplit.ts): the water's id and no ink mask, with the plain up
+ * vector for its normal. The ink pass never inks inside the water (mask 0), so the wave normal only
+ * ever met the ink at shoreline edge pixels, where the id step decides the line anyway; recomputing
+ * it would cost the twin most of the sea shader.
+ */
+const NORMAL_FS = /* glsl */ `
+  layout(location = 1) out vec4 gNormal;
+  uniform float uId;
+  uniform float uBand;
+  in vec3 vWPos;
+  in vec2 vFoc;
+  ${COAST_GLSL}
+  void main(){
+    if (uBand < 0.5) {
+      float u = vWPos.x - coastRoadX(vWPos.z) - coastWaterU(vWPos.z);
+      if (vWPos.z > ${BAND.z0.toFixed(1)} && vWPos.z < ${BAND.z1.toFixed(1)} && u > ${(BAND.outer + 0.4).toFixed(1)}) discard;
+    }
+    // Reads every varying, so the vertex stage (and the depth it lands on) is built as for colour.
+    if (vFoc.x < -1e30) discard;
+    vec3 vn = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+    gNormal = vec4(vn.xy * 0.5 + 0.5, uId / 32.0, 0.0);
+  }`;
+
 const SKIRTS = { value: rockSkirts() };
 
-function material(defines: Record<string, string>): THREE.ShaderMaterial {
-  return new THREE.ShaderMaterial({
+/**
+ * The sea material for the surf band (`band`) or the open-sea grid: one program for both (the
+ * switch is a uniform), so the longest compile in the game happens once.
+ */
+function material(band: boolean): THREE.ShaderMaterial {
+  const m = new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...G, ...DEPTH, ...REFL, ...WAKE_U, uRocks: SKIRTS, uBuoys: BUOY_U, uGridO: GRID_UNIFORM, uId: { value: ID.water }, uMask: { value: 0 } },
-    defines,
+    uniforms: { ...G, ...DEPTH, ...REFL, ...WAKE_U, uRocks: SKIRTS, uBuoys: BUOY_U, uGridO: GRID_UNIFORM, uBand: { value: band ? 1 : 0 }, uId: { value: ID.water }, uMask: { value: 0 } },
     vertexShader: VS,
     fragmentShader: FS,
   });
+  m.userData.normalFS = NORMAL_FS;
+  return m;
 }
 
 function steps(a: number, b: number, d: number): number[] {
@@ -1077,7 +1103,7 @@ function buildBand(): THREE.Mesh {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   g.setIndex(new THREE.BufferAttribute(idx, 1));
-  const m = new THREE.Mesh(g, material({ BAND_MESH: "1" }));
+  const m = new THREE.Mesh(g, material(true));
   m.frustumCulled = false;
   return m;
 }
@@ -1113,7 +1139,7 @@ function buildOpenGrid(): THREE.Mesh {
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
   g.setIndex(new THREE.BufferAttribute(idx, 1));
-  const m = new THREE.Mesh(g, material({ DISC: "1" }));
+  const m = new THREE.Mesh(g, material(false));
   m.frustumCulled = false;
   return m;
 }

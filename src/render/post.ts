@@ -6,6 +6,7 @@ import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { TOD_GRADE } from "./todUniforms";
 import { G, SAFE_GLSL } from "./materials";
 import { Paint } from "./paint";
+import { renderSplit } from "./mrtSplit";
 import type { Profiler } from "./profiler";
 
 const FS_VS = /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
@@ -25,6 +26,8 @@ export class Post {
   /** Anisotropic Kuwahara paint filter ahead of the ink pass (null with ?kuwahara=0). */
   readonly paint: Paint | null;
   prof: Profiler | null = null;
+  /** Scene in one two-target pass (?mrt1), for comparing against the split passes. */
+  singlePass = new URLSearchParams(location.search).has("mrt1");
   private wrapped = false;
   sceneCalls = 0;
   sceneTris = 0;
@@ -269,8 +272,41 @@ export class Post {
     this.sharpen.uniforms.uTexel.value.set(1 / W, 1 / H);
   }
 
+  /**
+   * The scene into the MRT in two passes (see mrtSplit.ts): colour with only target 0 enabled, then
+   * the normal/id target through the materials' normal-only twins. Never both targets at once: that
+   * makes ANGLE rebuild each material's pixel shader in the middle of a frame. Returns the draw
+   * calls and triangles of the colour passes.
+   */
+  renderScene(scene: THREE.Scene, camera: THREE.Camera): [number, number] {
+    const rd = this.renderer;
+    const gl = rd.getContext() as WebGL2RenderingContext;
+    const autoClear = rd.autoClear;
+    rd.setRenderTarget(this.mrt);
+    rd.clear();
+    rd.autoClear = false;
+    G.uDither.value = this.mrt.samples === 0 ? 1 : 0;
+    if (this.singlePass) {
+      // ?mrt1: both targets in one pass, as before the split (comparison captures only; slow boot).
+      const c = rd.info.render.calls, t = rd.info.render.triangles;
+      rd.render(scene, camera);
+      G.uDither.value = 0;
+      rd.autoClear = autoClear;
+      return [rd.info.render.calls - c, rd.info.render.triangles - t];
+    }
+    // three unbinds the target after resolving it: bind again before each change of draw buffers.
+    const stats = renderSplit(rd, scene, camera, this.mrt, (normals) => {
+      rd.setRenderTarget(this.mrt);
+      gl.drawBuffers(normals ? [gl.NONE, gl.COLOR_ATTACHMENT1] : [gl.COLOR_ATTACHMENT0, gl.NONE]);
+    });
+    rd.setRenderTarget(this.mrt);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+    G.uDither.value = 0;
+    rd.autoClear = autoClear;
+    return stats;
+  }
+
   render(scene: THREE.Scene, camera: THREE.Camera, time: number): void {
-    const c0 = this.renderer.info.render.calls, t0 = this.renderer.info.render.triangles;
     const pf = this.prof?.on ? this.prof : null;
     if (pf && !this.wrapped) {
       this.wrapped = true;
@@ -285,15 +321,10 @@ export class Post {
       });
     }
     pf?.begin("scene", this.renderer);
-    const rd = this.renderer;
-    rd.setRenderTarget(this.mrt);
-    rd.clear();
-    G.uDither.value = this.mrt.samples === 0 ? 1 : 0;
-    rd.render(scene, camera);
-    G.uDither.value = 0;
+    const cs = performance.now();
+    [this.sceneCalls, this.sceneTris] = this.renderScene(scene, camera);
+    pf?.cpuMark("scene", performance.now() - cs);
     pf?.end("scene", this.renderer);
-    this.sceneCalls = this.renderer.info.render.calls - c0;
-    this.sceneTris = this.renderer.info.render.triangles - t0;
     pf?.begin("paint", this.renderer);
     const painted = this.paint?.render(this.renderer) ?? false;
     pf?.end("paint", this.renderer);
