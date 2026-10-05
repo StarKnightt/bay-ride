@@ -26,6 +26,10 @@ export const SHOTS: Record<number, Shot> = {
   4: { name: "lighthouse", eye: v(-82, SEA_Y + 1.3, 74), look: v(LIGHTHOUSE.x - 6, SEA_Y + 11, LIGHTHOUSE.z + 12), fov: 50 },
   // High, wide establishing view of the whole bay.
   5: { name: "establishing", eye: v(215, 100, 250), look: v(-90, 2, -80), fov: 46 },
+  // Test views (not critic shots): grazing eye height along the road and along the dry sand,
+  // where fine surface detail is the first thing to shimmer.
+  6: { name: "road grazing", eye: v(roadX(10) + 0.6, 1.62, 10), look: v(roadX(70) + 0.6, 0.9, 70), fov: 50 },
+  7: { name: "beach grazing", eye: v(roadX(30) - 13, SEA_Y + 3.4, 30), look: v(roadX(90) - 15, SEA_Y + 2.2, 90), fov: 50 },
 };
 
 export interface CaptureParams {

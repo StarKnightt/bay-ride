@@ -48,13 +48,16 @@ export function beachMaterial(): THREE.ShaderMaterial {
         vec3 N = normalize(vN);
         vec2 q = vWPos.xz;
         float px = sqrt(length(dFdx(q)) * length(dFdy(q)));
+        // Fine sand detail fades by the long axis of the footprint: at a grazing angle the mean
+        // underestimates it many times over and the detail aliases into streaks along the view.
+        gFoot = max(length(dFdx(vWPos)), length(dFdy(vWPos)));
         float zs = beachZs(q);
         WSwash w = wSwash(q, zs, uTime, px);
 
         // Sand: pale and warm when dry; wet it is a deeper, richer version of the same sand (35-40%
         // darker on screen, nudged cool), one gradient from fresh-wet at the water to drying above.
         float n1 = vnoise(q * 0.45), n2 = vnoise(q * 2.7 + 3.0);
-        float keep = 1.0 - smoothstep(0.02, 0.08, px);
+        float keep = 1.0 - smoothstep(0.04, 0.14, gFoot);
         vec3 dry = vec3(0.8, 0.69, 0.44) * (0.94 + 0.08 * n1 + 0.05 * (n2 - 0.5) * keep);
         float patchy = 0.8 + 0.4 * vnoise(q * 0.7 + 9.0);
         float wet = clamp(max(w.wet, 0.8 * w.mem * patchy), 0.0, 1.0);

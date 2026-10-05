@@ -118,6 +118,13 @@ vec3 applyFog(vec3 col, vec3 wpos){
   return mix(col, fc, f * 0.9);
 }
 
+// Metres per pixel along the surface's longest screen-space axis (set at the top of main, outside
+// any branch). At a grazing angle this is many times the distance-based estimate, and fine detail
+// has to go flat long before it shimmers.
+float gFoot = 0.0;
+// 1 while a pattern of freq cycles per metre is resolvable at this pixel, 0 when it would alias.
+float footKeep(float freq){ return 1.0 - smoothstep(0.2, 0.5, gFoot * freq); }
+
 // Directional brush strokes that stick to the surface (world space, planar by dominant normal).
 float brush(vec3 wp, vec3 n){
   vec3 an = abs(n);
@@ -126,7 +133,7 @@ float brush(vec3 wp, vec3 n){
   float c = cos(ang), s = sin(ang);
   vec2 q = mat2(c, -s, s, c) * p;
   // Band-limited by pixel footprint: stroke octaves fade to their mean before they can alias.
-  float fp = length(wp - cameraPosition) * 0.0011;
+  float fp = max(length(wp - cameraPosition) * 0.0011, gFoot);
   float k1 = 1.0 - smoothstep(0.25, 0.6, fp * 6.0), k2 = 1.0 - smoothstep(0.25, 0.6, fp * 13.0);
   return 0.5 + (vnoise(q * vec2(1.1, 6.0)) - 0.5) * 0.6 * k1 + (vnoise(q * vec2(2.3, 13.0)) - 0.5) * 0.4 * k2;
 }
@@ -188,7 +195,10 @@ float gSoftCast = 0.0;
 float gForm = 0.0;
 vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt, float soft, vec3 shTint){
   float br = brush(wpos, N);
-  float t = dot(N, uSunDir) + (br - 0.5) * 0.32 * paint + jitter;
+  // Flat ground under a low sun sits inside the light ramp: stroke noise on the terminator would
+  // draw its isolines there as swirling contours, so up-facing surfaces take only a little.
+  float flatK = 1.0 - 0.75 * smoothstep(0.7, 0.95, N.y);
+  float t = dot(N, uSunDir) + (br - 0.5) * 0.32 * paint * flatK + jitter;
   float sv = shadowVis(wpos, N);
   // Skin (the only very soft material): cast shadows from hair/cap fall softly, no hard seams.
   if (soft > 0.12 || gSoftCast > 0.5) sv = mix(sv, 1.0, 0.45);
@@ -413,6 +423,7 @@ float aaStep(float e, float x){ float w = fwidth(x) * 0.7 + 1e-5; return smooths
 float aaKeep(float x){ return 1.0 - smoothstep(0.15, 0.45, fwidth(x)); }
 
 void main(){
+  gFoot = max(length(dFdx(vWPos)), length(dFdy(vWPos)));
   vec3 N = normalize(vN);
   if (!gl_FrontFacing && vMat != 17 && vMat != 21) N = -N;
   vec3 base = vCol;
@@ -562,14 +573,14 @@ void main(){
     float n = fbm2(vWPos.xz * 0.11);
     float fl = hash12(floor(vWPos.xz * 2.3));
     base *= 0.82 + 0.36 * n;
-    base = mix(base, base * vec3(1.2, 1.2, 0.8), step(0.93, fl) * 0.5);
+    base = mix(base, base * vec3(1.2, 1.2, 0.8), step(0.93, fl) * 0.5 * footKeep(2.3));
     paint = 1.6; rim = 0.0;
   } else if ((HAS(12) && mt == 12)) {    // butterfly (bright, unshaded)
     gColor = vec4(applyFog(base * 0.92, vWPos), 1.0);
     gNormal = vec4(0.5, 0.5, uId / 32.0, -1.0);
     return;
   } else if ((HAS(13) && mt == 13)) {    // stone
-    base *= 0.8 + 0.35 * vnoise(vWPos.xz * 4.0 + vWPos.y * 3.0);
+    base *= 0.8 + 0.35 * mix(0.5, vnoise(vWPos.xz * 4.0 + vWPos.y * 3.0), footKeep(4.0));
     paint = 1.4;
   } else if ((HAS(23) && mt == 23) || (HAS(24) && mt == 24)) { // painted signage from the atlas; 24 = lit (vending, phone)
     vec4 sg = texture(uSignTex, vUv);
@@ -618,7 +629,9 @@ void main(){
     gEmit = mix(base, vec3(1.0, 0.93, 0.8), 0.35) * uNight * 1.3;
   } else if ((HAS(19) && mt == 19)) {    // painted distant mountains: authored colour, soft top-lit gradient
     float h = clamp(vObj.y / 160.0, 0.0, 1.0);
+    float f0 = gFoot; gFoot *= 0.05;
     vec3 c = base * (0.9 + 0.18 * h) * (0.94 + 0.12 * brush(vWPos * 0.05, N));
+    gFoot = f0;
     vec3 V = normalize(vWPos - cameraPosition);
     c = mix(c * uFarTint, skyColor(normalize(vec3(V.x, 0.02, V.z))), 0.25 * (1.0 - h) + uFarHaze * (1.0 - 0.5 * h));
     // At night far land stays a silhouette darker than the sky behind it.
@@ -903,6 +916,7 @@ export function roadMaterial(): THREE.ShaderMaterial {
         return vec2(d2 - d, h);
       }
       void main(){
+        gFoot = max(length(dFdx(vWPos)), length(dFdy(vWPos)));
         float u = vUv.x, v = vUv.y;
         float n = fbm2(vec2(u * 0.9, v * 0.3));
         float jag = (vnoise(vec2(v * 0.55, 3.0 + sign(u) * 9.0)) - 0.5) * 0.55 + (vnoise(vec2(v * 2.6, 7.0 + sign(u) * 5.0)) - 0.5) * 0.22;
@@ -912,7 +926,7 @@ export function roadMaterial(): THREE.ShaderMaterial {
         float lf = fbm2(vec2(u * 0.18, v * 0.045) + 3.7);
         vec3 asph = mix(vec3(0.15, 0.114, 0.092), vec3(0.19, 0.145, 0.1), smoothstep(0.3, 0.7, lf));
         asph *= 0.9 + 0.2 * n;
-        float sp = vnoise(vec2(u, v) * 6.0) * 0.6 + vnoise(vec2(u, v) * 17.0) * 0.4;
+        float sp = mix(0.5, vnoise(vec2(u, v) * 6.0), footKeep(6.0)) * 0.6 + mix(0.5, vnoise(vec2(u, v) * 17.0), footKeep(17.0)) * 0.4;
         asph *= 0.94 + 0.1 * sp;
         // Faint polished tyre tracks (slightly lighter, wavering).
         float tw = (vnoise(vec2(v * 0.08, 1.0)) - 0.5) * 0.3;
@@ -922,7 +936,7 @@ export function roadMaterial(): THREE.ShaderMaterial {
         vec2 pc = cell(vec2(u * 0.7, v * 0.2) + vec2(vnoise(vec2(v * 0.3, u)) * 0.6, 0.0));
         float patchy = step(0.8, pc.y) * step(abs(u), 2.2) * smoothstep(0.02, 0.12, pc.x);
         asph *= mix(1.0, pc.y > 0.9 ? 0.9 : 1.06, patchy);
-        float seam = (1.0 - smoothstep(0.0, 0.025, pc.x)) * step(0.8, pc.y) * step(abs(u), 2.2);
+        float seam = (1.0 - smoothstep(0.0, 0.025, pc.x)) * step(0.8, pc.y) * step(abs(u), 2.2) * footKeep(8.0);
         asph *= 1.0 - seam * 0.18;
         // Darker worn/oily edges before the crumbling margin.
         asph *= 1.0 - 0.18 * smoothstep(1.5, 2.25, abs(u) + jag * 0.5);
@@ -930,10 +944,10 @@ export function roadMaterial(): THREE.ShaderMaterial {
         float cr = abs(vnoise(vec2(u * 2.4, v * 0.8) * 2.2) - 0.5);
         float edgeK = smoothstep(1.2, 2.3, abs(u));
         float crack = (1.0 - smoothstep(0.0, 0.01 + 0.01 * edgeK, cr)) * step(0.62 - 0.3 * edgeK, vnoise(vec2(u, v) * 0.35 + 4.0));
-        asph *= 1.0 - crack * 0.35;
+        asph *= 1.0 - crack * 0.35 * footKeep(14.0);
         // Faded, broken edge line remnant.
         float line = (1.0 - smoothstep(0.05, 0.08, abs(abs(u) - 2.05))) * step(0.45, vnoise(vec2(v * 0.25, sign(u) * 3.0)));
-        line *= 0.16 * (0.4 + 0.6 * vnoise(vec2(u * 20.0, v * 3.0))) * step(0.5, vnoise(vec2(v * 1.7, u)));
+        line *= 0.16 * (0.4 + 0.6 * mix(0.5, vnoise(vec2(u * 20.0, v * 3.0)), footKeep(20.0))) * step(0.5, vnoise(vec2(v * 1.7, u)));
         asph = mix(asph, vec3(0.62, 0.6, 0.55), line);
         vec3 dirt = mix(vec3(0.24, 0.19, 0.11), vec3(0.33, 0.27, 0.17), vnoise(vec2(u, v) * 1.8));
         // Hill side: grass verge; sea side: the promenade paving (matches the terrain colours).

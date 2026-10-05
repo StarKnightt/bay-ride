@@ -189,7 +189,7 @@ export class Post {
           vec2 fc = gl_FragCoord.xy;
           float paper = vn(fc * 0.35) * 0.5 + vn(fc * 0.09 + 7.0) * 0.5;
           float fib = vn(vec2(fc.x * 0.02, fc.y * 0.6));
-          s *= 0.975 + paper * 0.04 + fib * 0.012;
+          s *= 0.978 + paper * 0.04 + fib * 0.006;
           s += (h12(fc) - 0.5) * 0.01;
           gl_FragColor = vec4(clamp(s, 0.0, 1.0), 1.0);
         }`,
