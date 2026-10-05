@@ -15,14 +15,6 @@ import type { SunShadow } from "../render/lightpasses";
  */
 export const PRESETS = ["morning", "noon", "golden", "sunset", "dusk", "night"] as const;
 export type Preset = (typeof PRESETS)[number];
-export const PRESET_LABELS: Record<Preset, string> = {
-  morning: "morning",
-  noon: "noon",
-  golden: "golden hour",
-  sunset: "sunset",
-  dusk: "dusk",
-  night: "night",
-};
 
 type RGB = [number, number, number];
 interface Look {

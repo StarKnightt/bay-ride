@@ -1,31 +1,28 @@
 /**
- * Start veil: a calm paper-coloured screen with the title and a thin progress line while the bay
- * builds and the shaders compile; then "click to start" (the gesture that unlocks audio).
+ * Start veil: a calm paper-coloured screen with one thin progress line while the bay builds and the
+ * shaders compile. Once ready the veil clears to the opening view behind it, the line shrinks to a
+ * softly breathing dash, and a click or key anywhere starts (the gesture that unlocks audio).
  */
 export class Loader {
   private el: HTMLElement;
   private bar: HTMLElement;
-  private line: HTMLElement;
   progress = 0;
 
   constructor(private skip: boolean) {
     this.el = document.getElementById("loader")!;
     this.bar = this.el.querySelector(".bar i") as HTMLElement;
-    this.line = this.el.querySelector(".line") as HTMLElement;
     if (skip) this.el.classList.add("quiet");
   }
 
-  advance(w: number, label?: string): void {
+  advance(w: number, _label?: string): void {
     this.progress = Math.min(1, this.progress + w);
     this.bar.style.transform = `scaleX(${this.progress.toFixed(3)})`;
-    if (label) this.line.textContent = label;
   }
 
   /** Built: wait for a click / key, then call `go` (true when it was a pointer gesture). */
   ready(go: (viaPointer: boolean) => void): void {
     this.progress = 1;
     this.bar.style.transform = "scaleX(1)";
-    this.line.textContent = "click to start";
     this.el.classList.add("ready");
     const done = (viaPointer: boolean) => {
       removeEventListener("pointerdown", onPtr);
