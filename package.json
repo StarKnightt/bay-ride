@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 5430 --strictPort",
     "typecheck": "tsc --noEmit",
-    "shoot": "node scripts/shoot.mjs"
+    "shoot": "node scripts/shoot.mjs",
+    "deploy:gh-pages": "pnpm build && node scripts/deploy-gh-pages.mjs"
   },
   "dependencies": {
     "three": "^0.186.0"

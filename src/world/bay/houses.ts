@@ -314,7 +314,7 @@ function balcony(c: Ctx, s: HouseSpec, f: Face, y: number): void {
   const { out } = c;
   const rail = s.shutters ? "#f2efe6" : "#3a3f40";
   out.push(f.box(0, y - 0.06, 0.45, 3.4, 0.12, 0.9, "#cfc8ba", M.stone));
-  // French doors behind it.
+  // Glazed double doors behind it.
   out.push(f.box(0, y + 1.05, 0.04, 1.3, 2.0, 0.08, "#20262c", M.glass));
   out.push(f.box(0, y + 2.1, 0.07, 1.46, 0.08, 0.12, FRAME_W));
   for (const sg of [-1, 1]) out.push(f.box(sg * 0.69, y + 1.05, 0.07, 0.08, 2.0, 0.12, FRAME_W));
