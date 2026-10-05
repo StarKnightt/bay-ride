@@ -249,7 +249,8 @@ export class Fish {
       const slope = (4 * l.H * (1 - 2 * s)) / l.L;
       this.e.set(-Math.atan(slope), Math.atan2(l.dx, l.dz), Math.sin(tau * 9) * 0.25, "YXZ");
       this.q.setFromEuler(this.e);
-      this.m.compose(this.p, this.q, this.s.setScalar(l.s * 1.2));
+      // A small fish: 22-35 cm.
+      this.m.compose(this.p, this.q, this.s.setScalar(l.s * 0.8));
       this.fish.setMatrixAt(c, this.m);
     }
     this.fish.instanceMatrix.needsUpdate = true;

@@ -54,7 +54,7 @@ function wildTrees(layout: Layout): TreeRegion[] {
     for (let i = 0; i < 5; i++) {
       const a = r() * Math.PI * 2, d = range(r, 5, 11);
       const tx = x + Math.cos(a) * d, tz = z + Math.sin(a) * d;
-      if (ok(tx, tz, 1)) hill(tz).push({ x: tx, z: tz, kind: "bush", scale: range(r, 0.9, 1.5), seed: seed() });
+      if (ok(tx, tz, 1)) hill(tz).push({ x: tx, z: tz, kind: "bush", scale: range(r, 0.8, 1.3), seed: seed() });
     }
     layout.spot(x + range(r, -6, 6), z + range(r, -6, 6), 3, 14, ["daisy", "pink", "fern", "lavender"]);
   }
@@ -76,7 +76,7 @@ function wildTrees(layout: Layout): TreeRegion[] {
     const z = range(r, -280, 245), u = 8 + Math.pow(r(), 1.5) * 130, x = roadX(z) + u;
     if (!onHill(x, z) || !ok(x, z, 1.2, 0.36)) continue;
     k++;
-    hill(z).push({ x, z, kind: "bush", scale: range(r, 0.8, 1.6), seed: seed() });
+    hill(z).push({ x, z, kind: "bush", scale: range(r, 0.7, 1.25), seed: seed() });
   }
   // Seaside pines on the headlands, shrubs in their lee.
   for (const [zc, list] of [[262, hn], [-298, hs]] as const) {
@@ -90,7 +90,7 @@ function wildTrees(layout: Layout): TreeRegion[] {
       if (r() < 0.6) {
         const a = r() * Math.PI * 2;
         const bx = x + Math.cos(a) * 3.5, bz = z + Math.sin(a) * 3.5;
-        if (groundY(bx, bz) > SEA_Y + 3) list.push({ x: bx, z: bz, kind: "bush", scale: range(r, 0.9, 1.4), seed: seed() });
+        if (groundY(bx, bz) > SEA_Y + 3) list.push({ x: bx, z: bz, kind: "bush", scale: range(r, 0.8, 1.2), seed: seed() });
       }
     }
   }
