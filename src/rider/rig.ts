@@ -155,11 +155,20 @@ export function skin(g: THREE.BufferGeometry, fn: WeightFn): THREE.BufferGeometr
 }
 
 /** Two-bone IK: joint position for a chain a → c of lengths l1, l2 bending toward `pole`. */
-export function ik(a: THREE.Vector3, c: THREE.Vector3, l1: number, l2: number, pole: THREE.Vector3, mid: THREE.Vector3): THREE.Vector3 {
+export function ik(
+  a: THREE.Vector3, c: THREE.Vector3, l1: number, l2: number, pole: THREE.Vector3, mid: THREE.Vector3,
+  /** Reach fraction where the soft clamp starts: the limb never straightens fully or stretches. */
+  soft = 0.995,
+  /** Receives the reachable end point (c pulled in along the limb when out of reach). */
+  end?: THREE.Vector3,
+): THREE.Vector3 {
   const d = _ia.subVectors(c, a);
   let len = d.length();
-  len = Math.min(Math.max(len, Math.abs(l1 - l2) + 1e-3), l1 + l2 - 1e-4);
+  const lmax = l1 + l2, k = soft * lmax;
+  if (len > k) len = k + (lmax - k) * (1 - Math.exp(-(len - k) / (lmax - k)));
+  len = Math.min(Math.max(len, Math.abs(l1 - l2) + 1e-3), lmax - 1e-4);
   d.normalize();
+  if (end) end.copy(a).addScaledVector(d, len);
   const cosA = (l1 * l1 + len * len - l2 * l2) / (2 * l1 * len);
   const sinA = Math.sqrt(Math.max(0, 1 - cosA * cosA));
   const perp = _ib.copy(pole).addScaledVector(d, -pole.dot(d));

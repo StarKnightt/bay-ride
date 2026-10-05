@@ -68,7 +68,7 @@ const gaitA = (run: number, speed = 1.3) =>
 export const gaitCycle = (run: number, speed = 1.3) => (2 * gaitA(run, speed)) / gaitDuty(run);
 
 const SIDE = [1, -1];
-const REACH = (THIGH + SHIN) * 0.994;
+const REACH = (THIGH + SHIN) * 0.99;
 /** Foot pivots relative to the ankle (bind, flat): heel and ball contact points. */
 const HEEL = V(0, -ANKLE_H, 0.045);
 const BALL = new THREE.Vector3().subVectors(J.ball(1), J.ankle(1)).setX(0).add(V(0, -0.022, 0));
@@ -137,7 +137,7 @@ class Foot {
   kind = "wood";
 }
 
-const _e = new THREE.Euler();
+const _e = new THREE.Euler(), _e2 = new THREE.Euler();
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _q3 = new THREE.Quaternion();
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3();
 const _m = new THREE.Matrix4(), _mi = new THREE.Matrix4();
@@ -170,6 +170,7 @@ export class Rider {
   private feet = [new Foot(), new Foot()];
   private feetInit = false;
   private standK = 1;
+  private idleK = 1;
   private fppOn = false;
   private fppArms = false;
   private simAcc = 0;
@@ -208,7 +209,7 @@ export class Rider {
     add("skinUpper", skins.slice(0, 2), uber(ID.skin, 1, THREE.FrontSide, 0, true));
     add("skinLimbs", skins.slice(2), uber(ID.skin, 1, THREE.FrontSide, 0, true));
     add("face", [headGeo(() => [[B.head, 1]])], faceMaterial(ID.eye));
-    add("hair", underHat(hairParts(rig, this.hair, B.head)), uber(ID.hair, 0.6, THREE.FrontSide, 0, true));
+    add("hair", underHat(hairParts(rig, this.hair, B.head)), uber(ID.hair, 0.85, THREE.FrontSide, 0, true));
     add("shirt", shirtParts(rig, B, this.cloth), uber(ID.rider, 1, THREE.DoubleSide, 0, true));
     add("cami", camiParts(rig, B), uber(ID.top, 0.7, THREE.FrontSide, 0, true));
     add("shorts", [...shortsParts(rig, B), ...sandalParts(rig, B)], uber(ID.shorts, 1, THREE.DoubleSide, 0, true));
@@ -352,14 +353,18 @@ export class Rider {
     const mv = clamp(f.speed / 1.1, 0, 1);
     const idle = 1 - smooth(0.0, 0.35, f.speed);
     // Contrapposto: weight on one leg, shifting every so often (+1 = on her right leg).
-    const sup = Math.tanh(3 * Math.sin((t * 2 * Math.PI) / 17 + 0.7));
+    // Mostly on her right leg, easing toward even now and then; the free left leg forward and out.
+    const sup = 0.62 + 0.38 * Math.tanh(3 * Math.sin((t * 2 * Math.PI) / 17 + 0.7));
     const breath = Math.sin(t * 1.55);
+    const sway = Math.sin(t * 0.47) * 0.6 + Math.sin(t * 0.83 + 1.3) * 0.4;
+    this.idleK = idle;
     const turnLean = clamp(f.turn * f.speed * 0.03, -0.1, 0.1);
-    const pelvisRoll = (0.042 * Math.sin(ph - 0.15)) * mv + 0.05 * sup * idle - turnLean;
-    P.pelvisP.set(0.017 * mv * Math.sin(ph) + 0.022 * sup * idle, 0, -0.01 * idle);
-    qEuler(-0.025 - 0.03 * mv - 0.08 * run, 0.075 * mv * Math.cos(ph) - 0.05 * sup * idle, pelvisRoll, P.pelvisQ);
-    qEuler(0.03 + 0.025 * idle, -0.06 * mv * Math.cos(ph), -pelvisRoll * 0.45, P.spineQ);
-    qEuler(0.035 + 0.008 * breath * idle - 0.04 * run, -0.06 * mv * Math.cos(ph), -pelvisRoll * 0.35 + 0.012 * Math.sin(t * 0.37) * idle, P.chestQ);
+    const pelvisRoll = (0.042 * Math.sin(ph - 0.15)) * mv + (0.085 * sup + 0.008 * sway) * idle - turnLean;
+    P.pelvisP.set(0.017 * mv * Math.sin(ph) + (0.03 * sup + 0.004 * sway) * idle, 0, -0.008 * idle);
+    qEuler(-0.025 - 0.03 * mv - 0.08 * run, 0.075 * mv * Math.cos(ph) - 0.09 * sup * idle, pelvisRoll, P.pelvisQ);
+    // Shoulders counter the hips (tilted the other way), the chest turned back toward the front.
+    qEuler(0.03 + 0.02 * idle, -0.06 * mv * Math.cos(ph) + 0.05 * sup * idle, -pelvisRoll * (0.45 + 0.35 * idle), P.spineQ);
+    qEuler(0.035 + 0.008 * breath * idle - 0.04 * run, -0.06 * mv * Math.cos(ph) + 0.03 * sup * idle, -pelvisRoll * (0.35 + 0.25 * idle) + 0.012 * Math.sin(t * 0.37) * idle, P.chestQ);
     // Head steadied against the body's sway, plus the explorer's glances (or a gaze target).
     const look = this.lookYaw, lookUp = this.lookPitch;
     qEuler(-0.04 + lookUp * 0.35, 0.05 * mv * Math.cos(ph) + look * 0.4, pelvisRoll * 0.25, P.neckQ);
@@ -370,10 +375,16 @@ export class Rider {
       P.kneePole[i].set(s * 0.1, 0.05, -1).normalize();
       // Arms swing opposite to the same-side leg; relaxed, elbows soft, a slow idle sway.
       const swing = mv * (0.13 + 0.06 * run) * Math.cos(ph + (i === 0 ? 0 : Math.PI));
-      const sway = idle * 0.008 * Math.sin(t * 0.8 + i * 1.9);
-      P.wrist[i].set(s * (0.088 + 0.012 * mv), -0.468 + 0.12 * run + Math.max(0, -swing) * 0.18, 0.022 + swing + sway - 0.12 * run);
-      P.elbowPole[i].set(s * 0.35, -0.1, 1).normalize();
-      P.handDir[i].set(s * 0.12, -1, -0.12 - 0.5 * Math.max(0, -swing)).normalize();
+      const drift = idle * 0.008 * Math.sin(t * 0.8 + i * 1.9);
+      // Idle: elbows soft and a little out, hands forward of the thighs (the right one nearer).
+      const ix = i === 0 ? 0.075 : 0.07, iy = i === 0 ? -0.435 : -0.45, iz = i === 0 ? -0.06 : -0.03;
+      P.wrist[i].set(
+        s * (ix + (0.088 + 0.012 * mv - ix) * (1 - idle)),
+        iy + (-0.468 - iy) * (1 - idle) + 0.12 * run + Math.max(0, -swing) * 0.18,
+        iz + (0.022 - iz) * (1 - idle) + swing + drift - 0.12 * run,
+      );
+      P.elbowPole[i].set(s * (0.35 + 0.12 * idle), -0.1, 1).normalize();
+      P.handDir[i].set(s * (0.12 - 0.06 * idle), -1, -0.12 - 0.25 * idle - 0.5 * Math.max(0, -swing)).normalize();
       P.thumbDir[i].set(-s * 0.15, 0, -1).normalize();
       P.curl[i] = 0.42 + 0.1 * run + 0.05 * Math.sin(t * 0.6 + i);
       P.thumb[i] = 0.25;
@@ -416,7 +427,7 @@ export class Rider {
     }
     // Left hand on the tiller grip, knuckles up; right hand on the right knee (or the hat brim when
     // the wind tugs at it).
-    if (f.grip) P.wrist[1].copy(f.grip).add(V(-0.01, 0.065, 0.01));
+    if (f.grip) P.wrist[1].copy(f.grip).add(_v.set(-0.01, 0.065, 0.01));
     else P.wrist[1].set(-0.25, 0.48, -0.12);
     P.elbowPole[1].set(-0.6, -0.55, 0.55).normalize();
     P.handDir[1].set(0.2, -0.95, -0.15).normalize();
@@ -502,7 +513,7 @@ export class Rider {
     const w = this.walker;
     const M = w.matrixWorld;
     _mi.copy(M).invert();
-    const wyaw = new THREE.Euler().setFromQuaternion(w.quaternion, "YXZ").y;
+    const wyaw = _e2.setFromQuaternion(w.quaternion, "YXZ").y;
     const run = f.run, duty = gaitDuty(run);
     const mv = clamp(f.speed / 1.1, 0, 1);
     const walking = f.speed > 0.22;
@@ -513,9 +524,10 @@ export class Rider {
       if (g) ft.kind = g.kind;
       return g ? g.h : w.position.y;
     };
-    // Idle stance targets (walker space): right foot a touch ahead, toes out.
-    const idleT = (i: number, out: THREE.Vector3) => out.set(SIDE[i] * 0.1, ANKLE_H, i === 0 ? -0.04 : 0.03);
-    const idleYaw = (i: number) => -SIDE[i] * (i === 0 ? 0.17 : 0.12);
+    // Idle stance targets (walker space): weight on the right foot under her, the free left foot
+    // a little forward and out, toes turned out.
+    const idleT = (i: number, out: THREE.Vector3) => (i === 0 ? out.set(0.088, ANKLE_H, 0.02) : out.set(-0.118, ANKLE_H, -0.075));
+    const idleYaw = (i: number) => (i === 0 ? -0.12 : 0.34);
     if (!this.feetInit) {
       // Start planted where an idle stance (or the stride, if moving) puts them.
       for (let i = 0; i < 2; i++) {
@@ -616,7 +628,7 @@ export class Rider {
     void duty;
     // Start where it is now (heel already up from the roll-off).
     _v.copy(ft.pw).applyMatrix4(_mi);
-    const wyaw = new THREE.Euler().setFromQuaternion(this.walker.quaternion, "YXZ").y;
+    const wyaw = _e2.setFromQuaternion(this.walker.quaternion, "YXZ").y;
     const pitch = -0.45 * mv;
     this.ankleAt(_v, wrapA(ft.yaw - wyaw), pitch, _v2, _q3);
     ft.from.copy(_v2).applyMatrix4(M);
@@ -636,7 +648,8 @@ export class Rider {
     for (let i = 0; i < 2; i++) {
       _v.subVectors(J.hip(SIDE[i]), J.hipC).applyQuaternion(P.pelvisQ);
       const dx = P.ankle[i].x - (P.pelvisP.x + _v.x), dz = P.ankle[i].z - (P.pelvisP.z + _v.z);
-      const reach = Math.sqrt(Math.max(0, REACH * REACH - dx * dx - dz * dz));
+      const R = REACH * (1 - 0.006 * this.idleK);
+      const reach = Math.sqrt(Math.max(0, R * R - dx * dx - dz * dz));
       hy = Math.min(hy, P.ankle[i].y + reach - _v.y);
     }
     P.pelvisP.y = Math.min(hy, J.hipC.y + 0.01) - 0.004;
@@ -666,7 +679,7 @@ export class Rider {
     for (let i = 0; i < 2; i++) {
       const s = SIDE[i];
       const hip = _v.subVectors(J.hip(s), J.hipC).applyQuaternion(Dh).add(P.pelvisP);
-      const knee = ik(hip, P.ankle[i], THIGH, SHIN, P.kneePole[i], _v2);
+      const knee = ik(hip, P.ankle[i], THIGH, SHIN, P.kneePole[i], _v2, 0.985, P.ankle[i]);
       R.setFrame(B.thigh[i], hip, _v3.subVectors(knee, hip), P.kneePole[i]);
       R.setFrame(B.shin[i], knee, _v3.subVectors(P.ankle[i], knee), P.kneePole[i]);
       R.setDelta(B.foot[i], P.ankle[i], P.footQ[i]);
@@ -681,17 +694,14 @@ export class Rider {
       const s = SIDE[i];
       const sh = _vs.subVectors(J.shoulder(s), J.chest).applyQuaternion(Dc).add(Hc).add(P.shrug[i]);
       const wr = _vw.copy(P.wrist[i]).addScaledVector(sh, P.wristRel[i]);
-      _v3.subVectors(wr, sh);
-      const L = _v3.length(), Lmax = UPPER + FORE - 1e-3;
-      if (L > Lmax) wr.copy(sh).addScaledVector(_v3, Lmax / L);
       // Hands stay clear of her hips and the shorts.
       if (this.standK > 0.3) {
         _v4.copy(wr).sub(P.pelvisP);
         const lat = _v4.x * s;
-        const need = 0.215 * smooth(P.pelvisP.y - 0.25, P.pelvisP.y - 0.05, wr.y) * smooth(P.pelvisP.y + 0.28, P.pelvisP.y + 0.12, wr.y);
+        const need = 0.205 * smooth(P.pelvisP.y - 0.25, P.pelvisP.y - 0.05, wr.y) * smooth(P.pelvisP.y + 0.28, P.pelvisP.y + 0.12, wr.y);
         if (lat < need) wr.x += s * (need - lat);
       }
-      const elbow = ik(sh, wr, UPPER, FORE, P.elbowPole[i], _v2);
+      const elbow = ik(sh, wr, UPPER, FORE, P.elbowPole[i], _v2, 0.965, wr);
       R.setFrame(B.upper[i], sh, _v3.subVectors(elbow, sh), _v4.copy(P.elbowPole[i]).negate());
       const foreFront = _v4.copy(P.elbowPole[i]).negate().lerp(P.thumbDir[i], 0.5);
       R.setFrame(B.fore[i], elbow, _v3.subVectors(wr, elbow), foreFront);
@@ -722,7 +732,7 @@ export class Rider {
     if (!this.spheres.length) {
       this.spheres = [
         { b: B.head, c: HEAD_C.clone().add(V(0, -0.005, 0.004)), r: 0.098 },
-        { b: B.neck, c: V(0, 1.47, 0.012), r: 0.05 },
+        { b: B.neck, c: V(0, 1.455, 0.012), r: 0.052 },
         { b: B.chest, c: V(0, 1.31, 0.04), r: 0.1 },
         { b: B.chest, c: V(0, 1.27, -0.03), r: 0.105 },
         { b: B.upper[0], c: J.shoulder(1).add(V(0, 0.015, 0)), r: 0.074 },
@@ -730,52 +740,32 @@ export class Rider {
         { b: B.chest, c: V(0.105, 1.39, 0.0), r: 0.052 },
         { b: B.chest, c: V(-0.105, 1.39, 0.0), r: 0.052 },
         { b: B.hips, c: V(0, 0.97, -0.02), r: 0.15 },
-        { b: B.thigh[0], c: J.hip(1).lerp(J.knee(1), 0.3), r: 0.085 },
-        { b: B.thigh[1], c: J.hip(-1).lerp(J.knee(-1), 0.3), r: 0.085 },
+        { b: B.thigh[0], c: J.hip(1).lerp(J.knee(1), 0.3), r: 0.095 },
+        { b: B.thigh[1], c: J.hip(-1).lerp(J.knee(-1), 0.3), r: 0.095 },
       ];
       this.sphereW = this.spheres.map((s) => ({ p: new THREE.Vector3(), r: s.r }));
     }
     for (let k = 0; k < this.spheres.length; k++) R.carry(this.spheres[k].b, this.spheres[k].c, this.sphereW[k].p).applyMatrix4(M);
     const SW = this.sphereW;
-    const collideUpper = (p: THREE.Vector3, r: number) => {
-      for (let k = 0; k < 8; k++) {
-        const s = SW[k];
-        _cv.subVectors(p, s.p);
-        const d = _cv.length(), rr = s.r + r;
-        if (d < rr && d > 1e-6) p.addScaledVector(_cv, (rr - d) / d);
-      }
-    };
-    const collideLower = (p: THREE.Vector3, r: number) => {
-      for (let k = 8; k < SW.length; k++) {
-        const s = SW[k];
-        _cv.subVectors(p, s.p);
-        const d = _cv.length(), rr = s.r + r;
-        if (d < rr && d > 1e-6) p.addScaledVector(_cv, (rr - d) / d);
-      }
-    };
     // Apparent wind: the sea breeze (gusting) minus her own motion through the air.
     const t = f.time;
     const gust = 0.5 + 0.5 * Math.sin(t * 0.9) * Math.sin(t * 0.37 + 1.1);
     const wd = G.uWindDir.value;
-    const yaw = new THREE.Euler().setFromQuaternion(this.walker.quaternion, "YXZ").y;
+    const yaw = _e2.setFromQuaternion(this.walker.quaternion, "YXZ").y;
     this.wind.set(wd.x, 0, wd.y).multiplyScalar(1.0 + 1.6 * gust);
-    if (seat > 0.5) this.wind.addScaledVector(V(-Math.sin(yaw), 0, -Math.cos(yaw)), -(f.wind ?? 0));
+    if (seat > 0.5) this.wind.addScaledVector(_v.set(-Math.sin(yaw), 0, -Math.cos(yaw)), -(f.wind ?? 0));
     else this.wind.addScaledVector(this.vel, -1);
     const ws = this.wind.length();
     G.uRiderWind.value.set(ws > 1e-3 ? this.wind.x / ws : 0, ws > 1e-3 ? this.wind.z / ws : 0, ws, gust);
     // Rest shapes this frame (world space).
     const H = this.hair, C = this.cloth;
-    const rest = (ch: Chain, b: number, bind: THREE.Vector3[]) => {
-      for (let j = 0; j < bind.length; j++) R.carry(b, bind[j], ch.rest[j]).applyMatrix4(M);
-    };
-    H.chains.forEach((ch, c) => rest(ch, B.head, H.bind[c]));
-    rest(H.fringe, B.head, H.fringeBind);
-    C.tails.forEach((ch, c) => rest(ch, B.hips, C.tailBind[c]));
-    C.ribbons.forEach((ch, c) => rest(ch, B.head, C.ribbonBind[c]));
-    const all = [...H.chains, H.fringe, ...C.tails, ...C.ribbons];
+    for (let c = 0; c < H.chains.length; c++) this.rest(H.chains[c], B.head, H.bind[c], M);
+    this.rest(H.fringe, B.head, H.fringeBind, M);
+    for (let c = 0; c < C.tails.length; c++) this.rest(C.tails[c], B.hips, C.tailBind[c], M);
+    for (let c = 0; c < C.ribbons.length; c++) this.rest(C.ribbons[c], B.head, C.ribbonBind[c], M);
     const jump = this.simInit && SW[0].p.distanceTo(this.lastHead) > 1.5;
     if (!this.simInit || jump) {
-      for (const ch of all) ch.reset();
+      for (const ch of [...H.chains, H.fringe, ...C.tails, ...C.ribbons]) ch.reset();
       this.simInit = true;
       this.simAcc = 0;
     }
@@ -786,27 +776,42 @@ export class Rider {
       // Drag the gusting breeze through as a force on every chain.
       while (this.simAcc >= h) {
         this.simAcc -= h;
-        for (const ch of H.chains) ch.step(h, this.wind, collideUpper, 0.012);
-        H.fringe.step(h, this.wind, collideUpper, 0.004);
-        for (const ch of C.tails) ch.step(h, this.wind, collideLower, 0.01);
-        for (const ch of C.ribbons) ch.step(h, this.wind, collideUpper, 0.006);
+        for (const ch of H.chains) ch.step(h, this.wind, this.collideUpper, 0.012);
+        H.fringe.step(h, this.wind, this.collideUpper, 0.004);
+        for (const ch of C.tails) ch.step(h, this.wind, this.collideLower, 0.01);
+        for (const ch of C.ribbons) ch.step(h, this.wind, this.collideUpper, 0.006);
       }
     }
     // Bones from the particles (walker space).
     _mi.copy(M).invert();
-    const Dhd = R.delta(B.head, _qe);
-    const place = (ch: Chain, bones: number[], frontFrom: number) => {
-      for (let j = 0; j < bones.length; j++) {
-        const a = _va.copy(ch.p[j]).applyMatrix4(_mi), b = _vb.copy(ch.p[j + 1]).applyMatrix4(_mi);
-        const front = _vc.set(0, 0, 1).applyQuaternion(R.q0[bones[j]]).applyQuaternion(frontFrom === B.head ? Dhd : R.delta(frontFrom, _qf));
-        R.setFrame(bones[j], a, _vd.subVectors(b, a), front);
-      }
-    };
-    H.chains.forEach((ch, c) => place(ch, H.bones[c], B.head));
-    place(H.fringe, H.fringeBones, B.head);
-    C.tails.forEach((ch, c) => place(ch, C.tailBones[c], B.hips));
-    C.ribbons.forEach((ch, c) => place(ch, C.ribbonBones[c], B.head));
+    for (let c = 0; c < H.chains.length; c++) this.place(H.chains[c], H.bones[c], B.head);
+    this.place(H.fringe, H.fringeBones, B.head);
+    for (let c = 0; c < C.tails.length; c++) this.place(C.tails[c], C.tailBones[c], B.hips);
+    for (let c = 0; c < C.ribbons.length; c++) this.place(C.ribbons[c], C.ribbonBones[c], B.head);
   }
+  private rest(ch: Chain, b: number, bind: THREE.Vector3[], M: THREE.Matrix4): void {
+    for (let j = 0; j < bind.length; j++) this.rig.carry(b, bind[j], ch.rest[j]).applyMatrix4(M);
+  }
+  /** Chain bones from the particles (walker space; _mi holds the inverse walker matrix). */
+  private place(ch: Chain, bones: number[], frontFrom: number): void {
+    const R = this.rig, D = R.delta(frontFrom, _qf);
+    for (let j = 0; j < bones.length; j++) {
+      const a = _va.copy(ch.p[j]).applyMatrix4(_mi), b = _vb.copy(ch.p[j + 1]).applyMatrix4(_mi);
+      const front = _vc.set(0, 0, 1).applyQuaternion(R.q0[bones[j]]).applyQuaternion(D);
+      R.setFrame(bones[j], a, _vd.subVectors(b, a), front);
+    }
+  }
+  private collide(p: THREE.Vector3, r: number, k0: number, k1: number): void {
+    const SW = this.sphereW;
+    for (let k = k0; k < Math.min(k1, SW.length); k++) {
+      const s = SW[k];
+      _cv.subVectors(p, s.p);
+      const d = _cv.length(), rr = s.r + r;
+      if (d < rr && d > 1e-6) p.addScaledVector(_cv, (rr - d) / d);
+    }
+  }
+  private readonly collideUpper = (p: THREE.Vector3, r: number) => this.collide(p, r, 0, 8);
+  private readonly collideLower = (p: THREE.Vector3, r: number) => this.collide(p, r, 8, 99);
   private lastHead = new THREE.Vector3();
 
   // ---------------------------------------------------------------- face

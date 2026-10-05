@@ -127,8 +127,8 @@ export const J = {
   waist: V(0, 1.06, 0.004),
   chest: V(0, 1.2, 0.01),
   neck: V(0, 1.405, 0.014),
-  head: V(0, 1.488, 0.004),
-  crown: V(0, 1.69, 0.0),
+  head: V(0, 1.47, 0.004),
+  crown: V(0, 1.672, 0.0),
   shoulder: (s: number) => V(s * 0.168, 1.372, 0.012),
   elbow: (s: number) => V(s * 0.202, 1.103, 0.03),
   wrist: (s: number) => V(s * 0.226, 0.858, 0.012),
@@ -203,10 +203,10 @@ export function buildSkeleton(rig: Rig): Bones {
  */
 const TORSO: number[][] = [
   [0.835, 0.05, 0.035, 0.04],
-  [0.865, 0.128, 0.066, 0.082],
-  [0.905, 0.156, 0.08, 0.099],
-  [0.955, 0.165, 0.083, 0.104],
-  [1.005, 0.154, 0.079, 0.09],
+  [0.865, 0.134, 0.068, 0.088],
+  [0.905, 0.165, 0.082, 0.107],
+  [0.955, 0.173, 0.084, 0.112],
+  [1.005, 0.159, 0.08, 0.094],
   [1.055, 0.133, 0.072, 0.074],
   [1.1, 0.121, 0.068, 0.067],
   [1.15, 0.125, 0.073, 0.069],
@@ -226,7 +226,7 @@ const _t3 = [0, 0, 0];
 /** Bust drape: two soft lobes on the front, tasteful and modest. */
 export function bust(x: number, y: number): number {
   const dy = y - 1.255;
-  return 0.018 * Math.exp(-(((Math.abs(x) - 0.056) / 0.048) ** 2)) * Math.exp(-((dy / (dy > 0 ? 0.045 : 0.06)) ** 2));
+  return 0.024 * Math.exp(-(((Math.abs(x) - 0.056) / 0.048) ** 2)) * Math.exp(-((dy / (dy > 0 ? 0.045 : 0.06)) ** 2));
 }
 /** Small of the back and the spine groove; shoulder blades. */
 function backShape(x: number, y: number): number {
@@ -296,13 +296,13 @@ export function skinParts(rig: Rig, B: Bones): Geo[] {
   }
   // Neck: slender, a touch forward, into the head behind the jaw; a soft shade under the chin.
   {
-    const a = V(0, 1.37, 0.018), b = V(0, 1.535, 0.0);
-    const rings = tube(a, b, FRONT, 9, 18, (t, ang) => (0.041 - 0.006 * smooth(0.2, 0.8, t) + 0.003 * smooth(0.0, 0.12, 0.12 - t)) * (1 + 0.06 * Math.cos(ang)) * (1 - 0.05 * Math.cos(2 * ang)));
+    const a = V(0, 1.37, 0.018), b = V(0, 1.517, 0.0);
+    const rings = tube(a, b, FRONT, 9, 18, (t, ang) => (0.045 - 0.006 * smooth(0.2, 0.8, t) + 0.003 * smooth(0.0, 0.12, 0.12 - t)) * (1 + 0.06 * Math.cos(ang)) * (1 - 0.05 * Math.cos(2 * ang)));
     const g = loft(rings, false);
     out.push(shade(part(g, SKIN, M.skin, (p) => {
-      const t = (p.y - 1.37) / 0.165;
+      const t = (p.y - 1.37) / 0.147;
       return [[B.chest, 1 - smooth(0.0, 0.35, t)], [B.neck, Math.min(smooth(0.0, 0.35, t), 1 - smooth(0.55, 0.9, t))], [B.head, smooth(0.55, 0.9, t)]];
-    }), (p) => 1 - 0.07 * smooth(1.46, 1.52, p.y) * smooth(0.0, -0.03, p.z)));
+    }), (p) => 1 - 0.07 * smooth(1.445, 1.5, p.y) * smooth(0.0, -0.03, p.z)));
   }
   // Arms: one tube shoulder → wrist (deltoid, slim upper arm, soft elbow, tapering forearm, a
   // flattened wrist), then the hand.
@@ -315,7 +315,7 @@ export function skinParts(rig: Rig, B: Bones): Geo[] {
     const ax = (t: number) => (t < tEl ? top.clone().lerp(el, t / tEl) : el.clone().lerp(wr, (t - tEl) / (1 - tEl)));
     const rad = (t: number, ang: number) => {
       const u = t < tEl ? t / tEl : 1 + (t - tEl) / (1 - tEl);
-      const base = u < 1 ? lerp(0.047, 0.037, smooth(0.15, 0.95, u)) + 0.006 * Math.exp(-(((u - 0.3) / 0.2) ** 2)) : lerp(0.035, 0.022, smooth(1.12, 1.98, u)) + 0.004 * Math.exp(-(((u - 1.25) / 0.15) ** 2));
+      const base = u < 1 ? lerp(0.048, 0.038, smooth(0.15, 0.95, u)) + 0.007 * Math.exp(-(((u - 0.3) / 0.2) ** 2)) : lerp(0.037, 0.022, smooth(1.12, 1.98, u)) + 0.004 * Math.exp(-(((u - 1.25) / 0.15) ** 2));
       const flat = u > 1.6 ? 1 - 0.22 * smooth(1.6, 2.0, u) * Math.abs(Math.sin(ang)) : 1;
       return base * flat;
     };
@@ -366,15 +366,17 @@ export function skinParts(rig: Rig, B: Bones): Geo[] {
         const ca = Math.cos(ang), sa = Math.sin(ang);
         let r: number;
         if (u < 1) {
-          r = lerp(0.07, 0.052, smooth(0.0, 1.0, u)) + 0.008 * Math.exp(-(((u - 0.3) / 0.3) ** 2));
+          r = lerp(0.081, 0.056, smooth(0.0, 1.0, u)) + 0.01 * Math.exp(-(((u - 0.3) / 0.3) ** 2));
           // Inner thigh fuller, outer flatter toward the knee; kneecap in front.
-          r *= 1 + 0.05 * (-sa * s) * (1 - u);
+          r *= 1 + 0.025 * (-sa * s) * (1 - u) + 0.03 * Math.max(0, sa * s) * Math.exp(-(((u - 0.25) / 0.25) ** 2));
+          // Under the shorts (above the hem at u ~ 0.55) slimmer, so it never pokes through them.
+          r *= 1 - 0.16 * (1 - smooth(0.22, 0.48, u)) * (0.7 + 0.3 * Math.max(0, -sa * s));
           r += 0.007 * Math.max(0, ca) ** 3 * Math.exp(-(((u - 0.95) / 0.08) ** 2));
         } else {
           const v = u - 1;
-          r = lerp(0.049, 0.029, smooth(0.0, 0.92, v));
+          r = lerp(0.052, 0.03, smooth(0.0, 0.92, v));
           // Calf at the back (upper third), shin bone in front, a slim ankle.
-          r += 0.016 * Math.max(0, -ca) ** 1.5 * Math.exp(-(((v - 0.28) / 0.17) ** 2));
+          r += 0.021 * Math.max(0, -ca) ** 1.5 * Math.exp(-(((v - 0.28) / 0.17) ** 2));
           r += 0.004 * Math.max(0, -sa * s) * Math.exp(-(((v - 0.3) / 0.2) ** 2));
           r += 0.004 * Math.max(0, ca) ** 3 * Math.exp(-(((v - 0.03) / 0.06) ** 2));
           r *= 1 - 0.1 * smooth(0.75, 1.0, v) * Math.abs(ca);
@@ -385,8 +387,8 @@ export function skinParts(rig: Rig, B: Bones): Geo[] {
     }
     const g = loft(rings, false, true, true);
     out.push(part(g, SKIN, M.skin, (p) => {
-      const wT = smooth(kn.y - 0.035, kn.y + 0.04, p.y);
-      const wH = smooth(hp.y - 0.04, hp.y + 0.05, p.y) * 0.6;
+      const wT = smooth(kn.y - 0.03, kn.y + 0.035, p.y);
+      const wH = smooth(hp.y - 0.04, hp.y + 0.05, p.y) * 0.5;
       return [[B.hips, wH], [B.thigh[k], wT * (1 - wH)], [B.shin[k], (1 - wT) * smooth(an.y - 0.005, an.y + 0.04, p.y)], [B.foot[k], (1 - wT) * (1 - smooth(an.y - 0.005, an.y + 0.04, p.y))]];
     }));
     out.push(foot(rig, B, k));
@@ -417,7 +419,7 @@ function hand(rig: Rig, B: Bones, k: number): Geo[] {
   for (let f = 0; f < 4; f++) {
     const base = V(kn.x + s * 0.001, kn.y + 0.004, kn.z + zs[f] * 0.95);
     const tip = base.clone().add(V(s * 0.003, -lens[f], 0.002 * f - 0.004));
-    const rings = tube(base, tip, V(-s, 0, 0), 9, 10, (t) => lerp(0.0085, 0.0062, t) * (1 - 0.55 * smooth(0.82, 1.0, t)) + 0.0006 * Math.exp(-(((t - 0.45) / 0.06) ** 2)));
+    const rings = tube(base, tip, V(-s, 0, 0), 9, 10, (t) => lerp(0.0079, 0.0058, t) * (1 - 0.55 * smooth(0.82, 1.0, t)) + 0.0006 * Math.exp(-(((t - 0.45) / 0.06) ** 2)));
     const g = loft(rings, false, true, true);
     const mid = base.y - lens[f] * 0.5;
     parts.push(shade(part(g, SKIN, M.skin, (p) => {
