@@ -7,6 +7,7 @@ import { WALL_OUT, terrainH } from "./terrain";
 import { PIER } from "./pier";
 import { rampH } from "./slipway";
 import type { Collider } from "./index";
+import type { Layout } from "../../flora/place";
 
 /**
  * Seaside grasses that move in the wind and part around her: salt-meadow grass with sun-bleached
@@ -88,8 +89,11 @@ function thrift(seed: number): Geo {
 
 const CHUNK = 50;
 
-/** Plant the grasses (call after every collider is registered: none grow through a house). */
-export function buildDuneGrass(colliders: readonly Collider[]): THREE.Group {
+/**
+ * Plant the grasses (call after every collider is registered: none grow through a house). `layout`
+ * keeps them off the town's paving and the shop forecourt.
+ */
+export function buildDuneGrass(colliders: readonly Collider[], layout?: Layout): THREE.Group {
   const group = new THREE.Group();
   group.name = "dune grass";
   const kinds = [saltGrass(11), marram(23), thrift(37)];
@@ -98,7 +102,11 @@ export function buildDuneGrass(colliders: readonly Collider[]): THREE.Group {
   const free = (x: number, z: number) => {
     if (Math.abs(z - PIER.z) < PIER.half + 2.5 && x < PIER.x0 + 6) return false;
     if (rampH(x, z, 0.8) > -Infinity) return false;
-    for (const c of colliders) if ((x - c.x) ** 2 + (z - c.z) ** 2 < (c.r + 0.9) ** 2) return false;
+    if (layout && layout.clearance(x, z, 1) < 0.3) return false;
+    for (const c of colliders) {
+      const dx = x - c.x, dz = z - c.z, rr = c.r + 0.9;
+      if (Math.abs(dx) < rr && Math.abs(dz) < rr && dx * dx + dz * dz < rr * rr) return false;
+    }
     return true;
   };
   const r = mulberry32(4242);

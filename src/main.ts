@@ -31,6 +31,7 @@ import { Hud } from "./ui/hud";
 import { captureParams, poseCamera } from "./capture/shots";
 import { CharDirector, charMode } from "./capture/charcam";
 import { Trail } from "./rider/prints";
+import type { LifeTime } from "./life";
 
 const params = new URLSearchParams(location.search);
 const CAP = captureParams(params);
@@ -267,6 +268,7 @@ const shoreEvents = new ShoreEvents();
 const shadowCenter = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 const _moon = new THREE.Color();
+const lifeT: LifeTime = { t: 0, dt: 0, birds: 1, night: 0 };
 // Warm-up: a few frames behind the veil with the clock frozen (shadow map filled, programs bound).
 const WARM_FRAMES = 8;
 const FADE = 0.45;
@@ -387,6 +389,12 @@ function frame(now: number) {
   sky.follow(chase.cam.position);
   followSea(chase.cam.position);
   buoys.update(t);
+  // Flora detail round the camera, gulls, butterflies, fish, petals, fireflies.
+  lifeT.t = t;
+  lifeT.dt = simDt;
+  lifeT.birds = tod.birds;
+  lifeT.night = tod.night;
+  bay.update(lifeT, chase.cam, px, pz);
   tod.update(dt);
   shoreEvents.update(t, roadX(pz) + waterlineU(pz), pz);
 
@@ -606,6 +614,22 @@ window.__ride = {
       sceneCalls: post.sceneCalls,
       sceneTris: post.sceneTris,
       fps: Math.round(fps),
+    };
+  },
+  /** World detail: build counts, what is drawn now, and the tunables (see VERIFY_TODO, World detail). */
+  get world() {
+    const f = bay.detail.flora, l = bay.life;
+    return {
+      ...bay.detail.stats,
+      grassDrawn: f.meadow.drawn,
+      grassChunks: f.meadow.draws,
+      flowersDrawn: f.flowers.drawn,
+      flowerKinds: f.flowers.counts(),
+      butterflies: l.butterflies.drawn,
+      fishLeaps: l.fish.count,
+      paint: post.paint,
+      tune: bay.detail.tune,
+      setTier: (q: "low" | "med" | "high") => bay.detail.setTier(q),
     };
   },
 };

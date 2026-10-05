@@ -6,8 +6,11 @@ import { ROAD_HALF, ROAD_Z0, ROAD_Z1, RIBBON_HALF, SEA_Y, roadX } from "./road";
 import { ISLAND, LIGHTHOUSE, WALL_IN, buildIsland, buildRoadRibbon, buildTerrain, islandH, meshH } from "./terrain";
 import type { StepSurface } from "../../sound/steps";
 import { LighthouseBeam } from "./beam";
-import { buildHouses } from "./houses";
+import { pavedH } from "./houses";
 import { buildDuneGrass } from "./dunegrass";
+import { WorldDetail } from "../detail";
+import { pathDist } from "../detail/paths";
+import { Life, type LifeTime } from "../../life";
 import { buildPier, deckH, inPier, pierBlocks, pierContact, pierGround, pierWalkH } from "./pier";
 import { beachMaterial } from "../../water/beach";
 import { ROCKS, buildRocks, rockTop } from "../../water/rocks";
@@ -51,8 +54,8 @@ export const WADE = 0.5;
 
 /**
  * The whole bay as one static scene (no streaming): landform, coast road, island, placeholder
- * lighthouse with its night beam, the harbour pier, a few placeholder harbour houses, the swash
- * beach and shore rocks. Later systems add the town and props to `root`.
+ * lighthouse with its night beam, the harbour pier, the swash beach and shore rocks, the town and
+ * every prop and plant (WorldDetail), and the life over it (Life).
  */
 export class Bay {
   readonly root = new THREE.Group();
@@ -62,6 +65,10 @@ export class Bay {
   readonly lamp = new THREE.Vector3();
   /** Turning lighthouse beams and lamp halo (dusk and night). */
   readonly beam: LighthouseBeam;
+  /** The town, road furniture, harbour gear, boulders and all the flora (see world/detail). */
+  readonly detail: WorldDetail;
+  /** Gulls, butterflies, leaping fish, drifting petals and seeds, fireflies (see life/). */
+  readonly life: Life;
 
   constructor() {
     const { terrain, beach } = buildTerrain(beachMaterial());
@@ -70,11 +77,23 @@ export class Bay {
     this.root.add(buildIsland());
     this.root.add(buildRoadRibbon(ROAD_Z0 + 30, ROAD_Z1 - 30, roadMaterial()));
     this.root.add(this.lighthouse());
-    this.root.add(buildHouses(this.colliders, this.boxes));
     this.root.add(buildPier(this.colliders));
-    this.root.add(buildDuneGrass(this.colliders));
+    this.detail = new WorldDetail(this.colliders, this.boxes);
+    this.root.add(this.detail.group);
+    this.root.add(buildDuneGrass(this.colliders, this.detail.layout));
+    this.life = new Life(this.detail.layout, this.detail.flora.flowers.drifts);
+    this.root.add(this.life.group);
     this.beam = new LighthouseBeam(this.lamp);
     this.root.add(this.beam.group);
+  }
+
+  /**
+   * Per frame, once the camera is placed: flora detail and instance packing round the camera,
+   * and the life (gulls take off when she comes close; fish leap where the camera can see them).
+   */
+  update(time: LifeTime, cam: THREE.PerspectiveCamera, px: number, pz: number): void {
+    this.detail.update(cam.position);
+    this.life.update(time, cam, px, pz);
   }
 
   /** Placeholder lighthouse: white tapered tower, red band, gallery, lamp room and cap. */
@@ -111,8 +130,9 @@ export class Bay {
     const u = x - roadX(z);
     const onRoadZ = z < ROAD_Z0 + 30 && z > ROAD_Z1 - 30;
     let kind: StepSurface = "grass";
-    if ((onRoadZ && Math.abs(u) < ROAD_HALF) || rampH(x, z) >= h - 1e-3) kind = "asphalt";
+    if ((onRoadZ && Math.abs(u) < ROAD_HALF) || rampH(x, z) >= h - 1e-3 || pavedH(x, z) >= h - 1e-3) kind = "asphalt";
     else if (onRoadZ && u >= WALL_IN && u < RIBBON_HALF + 0.4) kind = "dirt";
+    else if (u > 4 && u < 140 && pathDist(x, z, 1.2) < 1.0) kind = "dirt";
     else if (h < 0.1 && u < WALL_IN) kind = h < SEA_Y + 0.35 ? "wetsand" : "sand";
     return { h: Math.max(h, SEA_Y - WADE), kind };
   }
@@ -127,12 +147,12 @@ export class Bay {
     return h < SEA_Y - WADE ? NaN : h;
   }
 
-  /** The land as drawn, without the pier: the terrain mesh's triangles, the road ribbon and slipways on them. */
+  /** The land as drawn, without the pier: the terrain mesh's triangles, the road ribbon, slipways and the town's paving. */
   surfaceH(x: number, z: number): number {
     const h = meshH(x, z);
     const u = x - roadX(z);
     const road = Math.abs(u) < RIBBON_HALF && z < ROAD_Z0 + 30 && z > ROAD_Z1 - 30 ? 0.02 : -Infinity;
-    return Math.max(h, road, rampH(x, z));
+    return Math.max(h, road, rampH(x, z), u > 4 && u < 60 ? pavedH(x, z) : -Infinity);
   }
 
   /** Inside a building footprint grown by `pad` m? Returns its ridge height, or 0. */

@@ -3,6 +3,7 @@ import { M, ID, prep } from "../geo";
 import { uber } from "../../render/materials";
 import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../../render/lightpasses";
 import { RIBBON_HALF, ROAD_Z0, ROAD_Z1, SEA_Y, pnoise, roadX, smooth } from "./road";
+import { pathDist } from "../detail/paths";
 
 /**
  * Placeholder coastal landform (later systems refine the shoreline, harbour and town ground):
@@ -133,6 +134,7 @@ const C = {
   grassDark: new THREE.Color("#4f7a33"),
   rock: new THREE.Color("#8c8273"),
   rockDark: new THREE.Color("#6a6258"),
+  path: new THREE.Color("#b5a07a"),
 };
 
 function steps(a: number, b: number, d: number): number[] {
@@ -160,6 +162,9 @@ function surface(u: number, z: number, x: number, y: number, slope: number, out:
   }
   if (y > 0.15 || u > 0) {
     out.copy(C.grass).lerp(C.grassDark, smooth(0.3, 0.8, n));
+    // Footpaths over the hill: worn tracks, soft-edged on the grid.
+    const pd = u > 4 && u < 140 ? pathDist(x, z, 3) : 3;
+    if (pd < 2.4) out.lerp(C.path, (1 - smooth(0.5, 2.4, pd)) * 0.8);
     return M.ground;
   }
   if (y < SEA_Y - 0.35) {
