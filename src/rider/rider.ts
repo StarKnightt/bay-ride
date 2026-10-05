@@ -606,7 +606,7 @@ function blendPose(A: Pose, B: Pose, w: number): void {
 }
 
 const SHOULDER = (side: number) => V(side * 0.158, 0.425, -0.006);
-/** Walking leg: thigh + shin (slightly shorter than the pedalling IK so she stands nearly straight). */
+/** Walking leg: thigh + shin (slightly short, so she stands nearly straight). */
 const WALK_LEG = [0.43, 0.42];
 /** Gait: stance fraction and half step (m) for walk (0) … jog (1); cycle = ground covered per stride. */
 const gaitDuty = (run: number) => 0.55 - 0.17 * run;
