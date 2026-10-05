@@ -2,28 +2,28 @@ import * as THREE from "three";
 import { M, prep } from "../world/geo";
 import { Chain, Rig, V, envelope, skin, type WeightFn } from "./rig";
 import { J, type Bones, type Geo, flip, lerp, loft, part, shade, smooth, torsoPt, tube } from "./body";
-import { HEAD_C } from "./head";
+import { HEAD_C, LENS, faceZ, headR, lensPt, lensZ } from "./head";
 
 /**
  * Her summer clothes: a coral camisole, a loose pale sea-green linen shirt worn open with the
  * sleeves rolled above the elbow and its fronts knotted at the waist (two short tails), high-waisted
  * wide cream linen shorts with rolled cuffs, tan leather sandals, and a wide straw hat tipped back
- * with a teal ribbon (bow and two trailing tails) and tortoiseshell sunglasses on the band.
+ * with a teal ribbon (bow and two trailing tails) and tortoiseshell sunglasses worn on her face.
  */
 
 export const COL = {
-  shirt: "#c4e3d6",
-  shirtIn: "#a9cfc0",
-  cami: "#d9755d",
-  shorts: "#efe4cd",
-  shortsSh: "#ddd0b5",
+  shirt: "#bcdcc0",
+  shirtIn: "#a3c8aa",
+  cami: "#ec8466",
+  shorts: "#f3e4c6",
+  shortsSh: "#e0cfae",
   leather: "#a8693c",
   sole: "#6e4529",
   bed: "#c9a27a",
   straw: "#e3c88f",
-  ribbon: "#3d8ea6",
+  ribbon: "#3f9cb2",
   tort: "#5a3218",
-  lens: "#2a1d18",
+  tortAmber: "#a8662c",
 };
 
 const FRONT = V(0, 0, -1);
@@ -47,8 +47,8 @@ export const HAT_M = new THREE.Matrix4().compose(
   new THREE.Quaternion().setFromEuler(new THREE.Euler(0.17, 0.05, -0.035, "YXZ")),
   new THREE.Vector3(1, 1, 1),
 );
-const HAT_CROWN = { rx: 0.097, rz: 0.108, h: 0.088 };
-const BRIM_R = 0.212;
+const HAT_CROWN = { rx: 0.097, rz: 0.108, h: 0.092 };
+const BRIM_R = 0.232;
 /** Bow on the band (hat space), back-left. */
 const BOW = V(-0.078, 0.013, 0.07);
 
@@ -228,7 +228,7 @@ export function shirtParts(rig: Rig, B: Bones, C: ClothRig): Geo[] {
     const s = k === 0 ? 1 : -1;
     const sh = J.shoulder(s), el = J.elbow(s);
     const a = sh.clone().add(V(-s * 0.04, 0.012, 0.0)), b = sh.clone().lerp(el, 0.8);
-    const rings = tube(a, b, FRONT, 14, 22, (t, ang) => (lerp(0.067, 0.055, smooth(0.0, 1.0, t)) + 0.0025 * Math.sin(ang * 5 + t * 9) * t) * (1 + 0.06 * Math.cos(ang) * t));
+    const rings = tube(a, b, FRONT, 14, 22, (t, ang) => (lerp(0.069, 0.06, smooth(0.0, 1.0, t)) + 0.0025 * Math.sin(ang * 5 + t * 9) * t) * (1 + 0.06 * Math.cos(ang) * t));
     const sw: WeightFn = (p) => {
       // Same shoulder blend as the arm skin underneath, so the deltoid never pokes through.
       const wc = smooth(sh.y - 0.06, sh.y + 0.03, p.y) * 0.8;
@@ -237,7 +237,7 @@ export function shirtParts(rig: Rig, B: Bones, C: ClothRig): Geo[] {
     const sg = loft(rings, false);
     out.push(part(sg, COL.shirt, M.linen, sw, (p) => 0.25 * smooth(0.06, 0.2, p.distanceTo(sh))));
     // Inside of the sleeve (seen past the cuff).
-    const ig = loft(tube(sh.clone().lerp(el, 0.55), b, FRONT, 4, 22, () => 0.045), false);
+    const ig = loft(tube(sh.clone().lerp(el, 0.55), b, FRONT, 4, 22, () => 0.0505), false);
     flip(ig);
     out.push(part(ig, COL.shirtIn, M.linen, sw));
     // Rolled cuff: a thick soft band.
@@ -334,8 +334,8 @@ export function shortsParts(rig: Rig, B: Bones): Geo[] {
     };
     const r = (t: number, ang: number) => {
       // Outer side kept inside the hips at the top; the opening wide and soft.
-      const outer = Math.max(0, Math.sin(ang) * s);
-      return lerp(0.084, 0.096, smooth(0.0, 0.6, t)) * (1 - 0.18 * outer * (1 - smooth(0.0, 0.45, t))) + 0.003 * Math.sin(ang * 4 + t * 6) * t + 0.01 * Math.max(0, -Math.cos(ang)) * (1 - t);
+      const outer = Math.max(0, Math.sin(ang) * s), inner = Math.max(0, -Math.sin(ang) * s);
+      return lerp(0.093, 0.105, smooth(0.0, 0.6, t)) * (1 - (0.16 * outer + 0.08 * inner) * (1 - smooth(0.0, 0.45, t))) + 0.003 * Math.sin(ang * 4 + t * 6) * t + 0.01 * Math.max(0, -Math.cos(ang)) * (1 - t);
     };
     const g = loft(tube(a, b, FRONT, 12, 24, r), false);
     out.push(shade(part(g, COL.shorts, M.linen, legW, (p) => 0.3 * smooth(a.y - 0.08, b.y, p.y)), (p) => 1 - 0.06 * smooth(0.6, 1.0, Math.abs(Math.sin(Math.atan2(p.z - hp.z, (p.x - hp.x) * s) * 2)))));
@@ -543,7 +543,7 @@ export function hatParts(head: number, C: ClothRig): { straw: Geo[]; ribbon: Geo
         ups.push(V(-0.92, 0, -0.38).normalize());
       }
       const bones = C.ribbonBones[c];
-      ribbon.push(part(strip(path, ups, (t) => 0.0095 * (1 - 0.2 * t) + 0.003 * smooth(0.9, 1, t), 0.0012), COL.ribbon, M.cloth, (p) => {
+      ribbon.push(part(strip(path, ups, (t) => 0.0098 * (1 - 0.35 * t) + 0.0035 * smooth(0.88, 1, t), 0.0012), COL.ribbon, M.cloth, (p) => {
         const out: [number, number][] = [];
         let tot = 0;
         const ws = bones.map((b, i) => {
@@ -560,43 +560,67 @@ export function hatParts(head: number, C: ClothRig): { straw: Geo[]; ribbon: Geo
       }, (p) => 0.5 * smooth(0.0, 0.08, p.distanceTo(pts[0]))));
     });
   }
-  // Sunglasses resting on the band in front: two rounded lenses, a bridge, temples round the crown.
+  // Sunglasses worn on her face: tortoiseshell acetate frames (heavier brow bar), a keyhole bridge
+  // over the nose, temples back to the ears under the hair. The tinted lenses are painted by the
+  // face shader (same outline, see LENS), so her eyes still read through them.
   {
-    const parts: Geo[] = [];
-    for (const s of [-1, 1]) {
-      const cx = s * 0.03;
-      const a = Math.asin(cx / rx);
-      const c = V(Math.sin(a) * (rx + 0.008), 0.034, -Math.cos(a) * (rz + 0.008));
-      const shp = new THREE.Shape();
-      const W = 0.025, Hh = 0.019;
-      shp.absellipse(0, 0, W, Hh, 0, Math.PI * 2, false, 0);
-      const hole = new THREE.Path();
-      hole.absellipse(0, 0, W - 0.0035, Hh - 0.0035, 0, Math.PI * 2, true, 0);
-      shp.holes.push(hole);
-      const rim = new THREE.ExtrudeGeometry(shp, { depth: 0.003, bevelEnabled: false, curveSegments: 20 });
-      const lensS = new THREE.Shape();
-      lensS.absellipse(0, 0, W - 0.003, Hh - 0.003, 0, Math.PI * 2, false, 0);
-      const lens = new THREE.ShapeGeometry(lensS, 16).rotateY(Math.PI);
-      const orientM = new THREE.Matrix4().compose(c, new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.18, -a, 0, "YXZ")), new THREE.Vector3(1, 1, 1));
-      parts.push(prep(rim.applyMatrix4(orientM), COL.tort, M.lacquer));
-      glasses.push(part(lens.translate(0, 0, -0.0012).applyMatrix4(orientM).applyMatrix4(H), COL.lens, M.lacquer, hw));
-    }
-    const br = new THREE.TorusGeometry(0.008, 0.0016, 6, 10, Math.PI).translate(0, 0.034 + 0.012, -(rz + 0.006));
-    parts.push(prep(br, COL.tort, M.lacquer));
-    for (const s of [-1, 1]) {
-      const pts: THREE.Vector3[] = [];
-      for (let k = 0; k <= 8; k++) {
-        const a = s * (0.6 + (k / 8) * 0.9);
-        pts.push(V(Math.sin(a) * (rx + 0.006), 0.036 - 0.004 * (k / 8), -Math.cos(a) * (rz + 0.006)));
+    const zc = lensZ();
+    const tort = (g: Geo) => {
+      const c = g.attributes.color as THREE.BufferAttribute, pa = g.attributes.position, v = new THREE.Vector3();
+      const dk = new THREE.Color(COL.tort), am = new THREE.Color(COL.tortAmber), o = new THREE.Color();
+      for (let i = 0; i < c.count; i++) {
+        v.fromBufferAttribute(pa, i).sub(HEAD_C);
+        const n = Math.sin(v.x * 610 + 2.1 * Math.sin(v.y * 820)) * Math.sin(v.y * 540 - v.z * 700 + 1.3 * Math.sin(v.x * 1300));
+        o.copy(dk).lerp(am, smooth(0.05, 0.75, n));
+        c.setXYZ(i, o.r, o.g, o.b);
       }
-      const tg = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 8, 0.0015, 5, false);
-      parts.push(prep(tg, COL.tort, M.lacquer));
+      return g;
+    };
+    const NK = 56;
+    for (const s of [-1, 1]) {
+      // Frame front: a flattened ring swept round the lens outline, thicker along the top.
+      const n = V(-LENS.wrap * s, LENS.tilt, 1).normalize();
+      const rings: THREE.Vector3[][] = [];
+      const P = new THREE.Vector3(), Q = new THREE.Vector3(), T = new THREE.Vector3(), Bn = new THREE.Vector3();
+      for (let k = 0; k <= NK; k++) {
+        const a = (k / NK) * Math.PI * 2;
+        lensPt(s, a, zc, 0.0016, P);
+        lensPt(s, a + 0.01, zc, 0.0016, Q);
+        T.subVectors(Q, P).normalize();
+        Bn.crossVectors(T, n).normalize();
+        const top = Math.max(0, Math.sin(a)) ** 2;
+        const rw = 0.0017 + 0.0013 * top, rd = 0.0015 + 0.0005 * top;
+        const ring: THREE.Vector3[] = [];
+        for (let i = 0; i < 8; i++) {
+          const f = (i / 8) * Math.PI * 2;
+          ring.push(P.clone().addScaledVector(Bn, Math.cos(f) * rw).addScaledVector(n, -Math.sin(f) * rd).addScaledVector(Bn, 0.0008 * top * s));
+        }
+        rings.push(ring);
+      }
+      glasses.push(tort(part(loft(rings, false), COL.tort, M.lacquer, hw)));
+      // Temple: hinge at the outer top corner, back along the side of the head to the ear.
+      const hinge = lensPt(s, 0.32, zc, 0.0035);
+      const pts = [hinge, hinge.clone().add(V(s * 0.006, -0.0005, 0.008))];
+      const y0 = hinge.y - HEAD_C.y;
+      const d = new THREE.Vector3();
+      for (let k = 0; k <= 5; k++) {
+        const az = 1.0 + (k / 5) * 0.72;
+        d.set(s * Math.sin(az), (y0 - 0.006 * (k / 5)) / 0.075, -Math.cos(az)).normalize();
+        pts.push(d.clone().multiplyScalar(headR(d) + 0.0045).add(HEAD_C));
+      }
+      d.set(s * Math.sin(1.9), (y0 - 0.02) / 0.075, -Math.cos(1.9)).normalize();
+      pts.push(d.clone().multiplyScalar(headR(d) + 0.003).add(HEAD_C));
+      const tg = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 20, 0.0017, 6, false);
+      tg.deleteAttribute("uv");
+      glasses.push(tort(part(tg, COL.tort, M.lacquer, hw)));
     }
-    for (const g of parts) {
-      g.applyMatrix4(H);
-      skin(g, hw);
-      glasses.push(g);
-    }
+    // Bridge: a keyhole arch over the nose between the inner top corners.
+    const bl = lensPt(-1, Math.PI - 0.42, zc, 0.0016), br = lensPt(1, Math.PI - 0.42, zc, 0.0016);
+    const my = (bl.y + br.y) / 2 + 0.003 - HEAD_C.y;
+    const mid = V(0, my, Math.min(faceZ(0, my) - 0.003, (bl.z + br.z) / 2 - HEAD_C.z - 0.002)).add(HEAD_C);
+    const bg = new THREE.TubeGeometry(new THREE.CatmullRomCurve3([bl, bl.clone().lerp(mid, 0.5).add(V(0, 0.0015, -0.001)), mid, br.clone().lerp(mid, 0.5).add(V(0, 0.0015, -0.001)), br]), 12, 0.0022, 6, false);
+    bg.deleteAttribute("uv");
+    glasses.push(tort(part(bg, COL.tort, M.lacquer, hw)));
   }
   return { straw, ribbon, glasses };
 }
