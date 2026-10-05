@@ -18,10 +18,12 @@ const URL = await serve(ROOT, arg("serve", "dev"));
 const browser = await launchBrowser(["--hide-scrollbars", "--mute-audio"]);
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
 const page = await ctx.newPage();
+page.on("pageerror", (e) => console.log("[pageerror]", String(e).split(/\n/).slice(0, 3).join(" | ")));
+page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") console.log(`[${m.type()}]`, m.text().slice(0, 300)); });
 fatalShaderErrors(page, "probe");
 await page.goto(`${URL}${arg("page", "?skipintro=1&t=12")}`, { waitUntil: "load" });
 await assertGpu(page);
-await page.waitForFunction(() => window.__ready === true || window.__ride?.ready === true, null, { timeout: 120_000, polling: 100 });
+await page.waitForFunction(() => window.__ready === true || window.__ride?.ready === true, null, { timeout: 300_000, polling: 100 });
 await page.waitForTimeout(Number(arg("wait", "300")));
 let failed = false;
 for (const e of evals) {

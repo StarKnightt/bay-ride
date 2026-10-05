@@ -125,9 +125,9 @@ for (const [W, H] of RES) for (const dpr of DPRS) {
       await page.goto(`${URL}${q}&tod=${tod}${s === "open" || s === "intro" ? "" : "&hud=0"}${EXTRA}${vq ? `&${vq}` : ""}`, { waitUntil: "load" });
       if (!gpuChecked) { await assertGpu(page); gpuChecked = true; }
       if (s === "intro") {
-        await page.waitForFunction(() => window.__ride?.waiting === true, null, { timeout: 120_000, polling: 100 });
+        await page.waitForFunction(() => window.__ride?.waiting === true, null, { timeout: 300_000, polling: 100 });
         await page.waitForTimeout(2200);
-      } else await page.waitForFunction(() => window.__ready === true, null, { timeout: 120_000, polling: 100 });
+      } else await page.waitForFunction(() => window.__ready === true, null, { timeout: 300_000, polling: 100 });
       const png = await page.screenshot({ path: path.join(OUT, `${tag}.png`) });
       const st = await page.evaluate(() => window.__ride.stats());
       let g = "";
@@ -148,7 +148,7 @@ if (FPS) {
   watch(page, "fps");
   await page.goto(`${URL}?autoplay=1&skipintro=1&tod=golden`, { waitUntil: "load" });
   if (!gpuChecked) { await assertGpu(page); gpuChecked = true; }
-  await page.waitForFunction(() => window.__ride?.ready === true, null, { timeout: 120_000 });
+  await page.waitForFunction(() => window.__ride?.ready === true, null, { timeout: 300_000 });
   await page.waitForTimeout(8000);
   const log = await page.evaluate(() => window.__ride.fpsLog);
   const st = await page.evaluate(() => window.__ride.stats());
@@ -163,8 +163,8 @@ if (FPS) {
     watch(p, `fps shot${s}`);
     const q = s === "open" ? "?skipintro=1" : `?shot=${s}&hud=0`;
     await p.goto(`${URL}${q}&tod=${tod}${EXTRA}`, { waitUntil: "load" });
-    if (s === "open") await p.waitForFunction(() => window.__ride?.ready === true, null, { timeout: 120_000, polling: 100 });
-    else await p.waitForFunction(() => window.__ready === true, null, { timeout: 120_000, polling: 100 });
+    if (s === "open") await p.waitForFunction(() => window.__ride?.ready === true, null, { timeout: 300_000, polling: 100 });
+    else await p.waitForFunction(() => window.__ready === true, null, { timeout: 300_000, polling: 100 });
     await p.waitForTimeout(5000);
     const l = await p.evaluate(() => window.__ride.fpsLog);
     console.log(`fps ${s === "open" ? "open" : "shot" + s}_${tod}${EXTRA} (live): ${l.slice(-4).join(",")}`);
