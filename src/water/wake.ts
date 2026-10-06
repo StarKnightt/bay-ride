@@ -229,10 +229,14 @@ float wakeLace(vec2 p, float dens, float seed, float px, float threads){
   // Broken into short meandering pieces, so none runs on straight across many cells.
   float r = (1.0 - abs(vnoise(vec2(q.x * 6.0, q.y * 2.1) + 2.0) * 2.0 - 1.0)) * smoothstep(0.3, 0.55, vnoise(vec2(q.x * 2.2, q.y * 0.9) + 13.0));
   float d = clamp(dens, 0.0, 1.0);
-  // Holes stay open even in the densest boil.
-  float th = mix(0.76, 0.32, d);
+  // Holes stay open even in the densest boil. Up close the edges are soft and torn and bubble
+  // holes open inside the thicker clumps: a solid flat-edged blob reads as a paper cut-out.
+  float hn = vnoise(vec2(q.x * 9.0, q.y * 3.2) + seed * 3.1 + 17.0);
+  float th = mix(0.76, 0.32, d) + 0.09 * (hn - 0.5) * fine;
   float aa = 0.012 + px * 5.0;
-  float patchM = smoothstep(th - aa, th + aa, c);
+  float aaP = aa + 0.05 * (1.0 - smoothstep(0.004, 0.02, px));
+  float patchM = smoothstep(th - aaP, th + aaP, c);
+  patchM *= 1.0 - 0.85 * smoothstep(0.6, 0.72, hn) * smoothstep(th, th + 0.22, c) * fine;
   float tw = mix(0.94, 0.82, d);
   float thread = smoothstep(tw - aa * 3.0, tw + aa * 3.0, r) * smoothstep(th - 0.25, th - 0.05, c) * (1.0 - smoothstep(0.012, 0.03, px)) * threads;
   return mix(max(patchM, thread * 0.9), cov, far);
@@ -327,7 +331,8 @@ Wake wakeShade(vec2 q, float px, float pxm){
     // never a ruled boundary, and the slick is patchy: calm lanes with chop creeping back in.
     float edgeN = vnoise(vec2(w.odo * 0.22, sd * 3.0)) - 0.5, edgeF = vnoise(vec2(w.odo * 0.9, w.y * 0.6 + 4.0)) - 0.5;
     float ayA = max(ay + edgeN * 0.5 * wA2 + edgeF * 0.25 * wA2, 0.0);
-    o.aer = w.churn * behind * exp(-max(xs, 0.0) / 9.0) * exp(-ayA * ayA / (wA2 * wA2)) * (0.8 + 0.4 * vnoise(vec2(w.y * 0.8, w.odo * 0.5))) * fade;
+    // Patchy, so the band astern is broken pale water and never one flat wedge.
+    o.aer = w.churn * behind * exp(-max(xs, 0.0) / 9.0) * exp(-ayA * ayA / (wA2 * wA2)) * (0.45 + 0.7 * smoothstep(0.25, 0.7, vnoise(vec2(w.y * 0.8, w.odo * 0.5)))) * fade;
     float wS = max((0.75 + 0.05 * max(xs, 0.0)) * (0.75 + 0.5 * vnoise(vec2(w.odo * 0.12, sd * 7.0))), pxW);
     float ayS = max(ay + (edgeN * 0.7 + edgeF * 0.35) * wS, 0.0);
     o.slick = max(w.churn, S * 0.6) * 0.75 * exp(-w.age / 10.0) * exp(-ayS * ayS / (wS * wS)) * smoothstep(-1.0, 1.0, xs) * fade
