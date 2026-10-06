@@ -139,8 +139,9 @@ function crown(b: Builder, r: Rng, cl: Cluster[], centre: V3, colors: readonly s
     // Every clump has a solid leafy mass (painted with atlas leaves in the shader), its normals
     // bent toward the whole crown's so the canopy shades as one soft volume and holds together at
     // any distance; outer clumps' masses sit deeper inside so their cards still scallop the edge.
-    const inner = k.c.distanceTo(centre) < coreReach;
-    const mass = prep(blob(k.r * (inner ? 0.82 : 0.68), 1, 0.18, r() * 50), _c.set(colors[Math.floor(r() * colors.length)]).multiplyScalar(inner ? 0.78 : 0.88), M.foliage, 0);
+    // Near trees (full card count) keep the mass well inside the cards, else it shows as a bare ball.
+    const inner = k.c.distanceTo(centre) < coreReach, mk = CARD_N < 1 ? 1 : 0.74;
+    const mass = prep(blob(k.r * (inner ? 0.82 : 0.68) * mk, 1, 0.18, r() * 50), _c.set(colors[Math.floor(r() * colors.length)]).multiplyScalar(inner ? 0.78 : 0.88), M.foliage, 0);
     mass.scale(1, squash, 1);
     mass.translate(k.c.x, k.c.y, k.c.z);
     spherize(mass, centre, 0.55, squash < 1 ? 1 / 0.6 : 1);
@@ -193,13 +194,13 @@ function plant(b: Builder, s: TreeSpot, y: number): { trunk: number; h: number }
   let trunk = 0, h = 0;
   if (s.kind === "round" || s.kind === "tall" || s.kind === "hero") {
     const tall = s.kind === "tall", hero = s.kind === "hero";
-    h = hero ? range(r, 4.6, 5.4) : tall ? range(r, 4.8, 5.8) : range(r, 2.8, 3.6);
+    h = hero ? range(r, 4.6, 5.4) : tall ? range(r, 3.6, 4.4) : range(r, 2.6, 3.3);
     const cr = hero ? range(r, 4.2, 4.8) : tall ? range(r, 2.4, 2.9) : range(r, 2.5, 3.1);
     const top = V(range(r, -0.3, 0.3), h, range(r, -0.3, 0.3));
     trunk = hero ? 0.46 : 0.3;
     const sway = swayBy(h + cr * (tall ? 1.7 : 1.3), hero ? 0.7 : 0.9);
     t.geo(bark(V(0, -0.3, 0), top, trunk, trunk * 0.6), null, sway);
-    const centre = V(top.x, h + cr * (tall ? 0.85 : 0.55), top.z);
+    const centre = V(top.x, h + cr * (tall ? 0.75 : 0.5), top.z);
     // Lopsided: the clumps crowd toward one side and one tier sits higher.
     const la = r() * Math.PI * 2, lean = V(Math.cos(la), 0, Math.sin(la)).multiplyScalar(cr * 0.28);
     const n = hero ? 13 : 7 + Math.floor(r() * 3);
@@ -244,14 +245,15 @@ function plant(b: Builder, s: TreeSpot, y: number): { trunk: number; h: number }
     const top = V(range(r, -0.15, 0.15), h, range(r, -0.15, 0.15));
     t.geo(bark(V(0, -0.3, 0), top, trunk, trunk * 0.5), null, sway);
     const cl: Cluster[] = [];
-    const tiers = pop ? 6 : 6 + Math.floor(r() * 2);
+    // Poplar tiers overlap into one column (six spaced clumps read as a stack of beads).
+    const tiers = pop ? 10 : 6 + Math.floor(r() * 2);
     for (let i = 0; i < tiers; i++) {
       const f = i / (tiers - 1), y = h * (pop ? 0.3 + f * 0.78 : 0.22 + f * 0.86);
       const rad = pop ? 1.15 * (1 - 0.55 * Math.abs(f - 0.4) ** 1.5) : 2.1 * (1 - f * 0.82);
       const a = r() * Math.PI * 2, d = rad * 0.18;
       cl.push({ c: V(top.x * f + Math.cos(a) * d, y, top.z * f + Math.sin(a) * d), r: rad * range(r, 0.9, 1.1) });
     }
-    crown(t, r, cl, V(top.x, h * 0.62, top.z), pop ? BROAD : PINE, pop ? 13 : 14, pop ? 40 : 28, pop ? [0.5, 0.72] : [0.55, 0.78], pop ? LEAF_CELL.ovate : LEAF_CELL.lance, sway, pop ? 1 : 0.55, 0.3);
+    crown(t, r, cl, V(top.x, h * 0.62, top.z), pop ? BROAD : PINE, pop ? 8 : 14, pop ? 44 : 28, pop ? [0.5, 0.72] : [0.55, 0.78], pop ? LEAF_CELL.ovate : LEAF_CELL.lance, sway, pop ? 1 : 0.55, 0.3);
   } else {
     // Shrub (or a clipped hedge clump): low clusters of broad leaves, no trunk to speak of.
     const hedge = s.kind === "hedge";

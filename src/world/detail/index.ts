@@ -84,7 +84,7 @@ export class WorldDetail {
  * feet.
  */
 function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
-  const r = mulberry32(7070);
+  const r = mulberry32(7070), rMain = r, rc = mulberry32(7171);
   const parts: THREE.BufferGeometry[] = [];
   const stone = new THREE.Color("#8e877c"), dark = new THREE.Color("#6b665f"), moss = new THREE.Color("#5f7a3a"), lichen = new THREE.Color("#c4b45e");
   const top = new THREE.Color("#b3a88f"), warm = new THREE.Color("#9a8670"), cool = new THREE.Color("#6c7282"), lichenO = new THREE.Color("#c08a4c");
@@ -92,7 +92,7 @@ function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
   const wet = new THREE.Color("#4f4c49");
   let n = 0;
   /** One rounded stone; `shore`: the island's sea-worn rocks, darker, a wet foot, salt lichen, no moss. */
-  const stoneAt = (x: number, z: number, s: number, y: number, shore: boolean) => {
+  const stoneAt = (x: number, z: number, s: number, y: number, shore: boolean, r = rMain, solid = true) => {
     // Smooth, bedded and rounded (never a faceted polyhedron): lumps from a product of sines, the
     // top squashed into a worn dome and the underside flattened into the ground. Colour per vertex,
     // blended across faces: lit warm top, warm flanks, cool underside, moss creeping over the top
@@ -130,7 +130,8 @@ function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
     }
     g.setAttribute("color", new THREE.BufferAttribute(col, 3));
     g.scale(s * range(r, 1.0, 1.5), s * range(r, 0.55, 0.8), s * range(r, 0.9, 1.3));
-    parts.push(xf(g, x, y + s * (shore ? 0.02 : 0.12), z, range(r, -0.15, 0.15), r() * 6.28, range(r, -0.15, 0.15)));
+    parts.push(xf(g, x, y + s * (shore ? 0.02 : 0.04), z, range(r, -0.15, 0.15), r() * 6.28, range(r, -0.15, 0.15)));
+    if (!solid) return;
     colliders.push({ x, z, r: s * 1.1, top: y + s * 0.75, kind: "rock" });
     layout.rect(x - s * 1.1, x + s * 1.1, z - s * 1.1, z + s * 1.1);
   };
@@ -142,6 +143,12 @@ function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
     n++;
     const s = range(r, 0.5, 1.4);
     stoneAt(x, z, s, groundY(x, z), false);
+    // A loose cluster, not a lone pebble: one or two small stones half sunk at its foot.
+    for (let j = 0, nc = 1 + Math.floor(rc() * 2); j < nc; j++) {
+      const a = rc() * 6.28, d = s * range(rc, 1.3, 1.9), cx = x + Math.cos(a) * d, cz = z + Math.sin(a) * d;
+      if (!layout.free(cx, cz, 0.2)) continue;
+      stoneAt(cx, cz, s * range(rc, 0.28, 0.45), groundY(cx, cz) - 0.04, false, rc, false);
+    }
     // A drift of flowers on the sunny side, ferns in the shade.
     layout.spot(x - s * 1.6, z + range(r, -1, 1), s * 1.8, Math.round(8 + s * 8), ["daisy", "yellow", "lavender", "poppy", "pink"]);
     layout.spot(x + s * 1.3, z, s, 4, ["fern", "weed"]);

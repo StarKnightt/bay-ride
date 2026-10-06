@@ -249,7 +249,7 @@ function surface(u: number, z: number, x: number, y: number, slope: number, out:
   // A headland's foot above the beach: sand thinning into grass over a few metres of height. A ramp,
   // not a step: the grid here is metres tall on the slope, and a step sampled at its vertices
   // draws big sand-coloured teeth up the flank.
-  if (u < WALL_OUT - 0.3 && y > 0.15 && y < 4.5) {
+  if (u < 0 && y > 0.15 && y < 4.5) {
     const lo = pnoise(x * 0.05, z * 0.05, 31);
     const t = smooth(0.15, 2.6 + 1.6 * lo, y);
     out.copy(C.grass).lerp(C.grassDark, smooth(0.3, 0.8, n) * 0.6).lerp(C.sandDry, (1 - t) * 0.85);
