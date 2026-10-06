@@ -1071,11 +1071,15 @@ const FS = /* glsl */ `
         float exI = smoothstep(-0.4, 0.7, dot(wDir(0), -di / lI));
         // Uneven lumps (noise, not a regular ripple): narrow wash in the lee, bulging surf on the
         // exposed side, a ragged outer edge, and gaps where the band breaks.
-        float lumpI = vnoise(vec2(an * 18.0, uTime * 0.25)) * 0.65 + vnoise(vec2(an * 47.0 + 3.0, uTime * 0.4)) * 0.35;
+        // Its angular noise is held to its mean once a cell is under a couple of pixels along the
+        // shore (far off they speckle the waterline); tI is the pixel's footprint along it, in radians.
+        float tI = (abs(dot(fwd, vec2(-uI.y, uI.x))) * dM + abs(dot(side, vec2(-uI.y, uI.x))) * hM) / max(lI, 1.0);
+        float lumpI = mix(vnoise(vec2(an * 18.0, uTime * 0.25)), 0.5, smoothstep(0.2, 0.5, 18.0 * tI)) * 0.65
+                    + mix(vnoise(vec2(an * 47.0 + 3.0, uTime * 0.4)), 0.5, smoothstep(0.2, 0.5, 47.0 * tI)) * 0.35;
         float wI = mix(7.0, 15.0, exI) * (0.4 + 1.5 * lumpI * (0.6 + 0.8 * exI)) * (0.9 + 0.2 * s.pulse);
-        wI *= 0.8 + 0.4 * vnoise(vec2(an * 90.0, pI * 0.4 + uTime * 0.5));
+        wI *= 0.8 + 0.4 * mix(vnoise(vec2(an * 90.0, pI * 0.4 + uTime * 0.5)), 0.5, smoothstep(0.2, 0.5, 90.0 * tI));
         float sI = (1.0 - smoothstep(wI * 0.6, wI, pI)) * smoothstep(-7.0, -3.0, dI);
-        sI *= smoothstep(0.18, 0.42, vnoise(vec2(an * 34.0 + 5.0, pI * 0.12 - uTime * 0.3)) + 0.25 * exI + 0.2 * s.pulse);
+        sI *= smoothstep(0.18, 0.42, mix(vnoise(vec2(an * 34.0 + 5.0, pI * 0.12 - uTime * 0.3)), 0.5, smoothstep(0.2, 0.5, 34.0 * tI)) + 0.25 * exI + 0.2 * s.pulse);
         // Wet, shadowed water right at the rock: the sky the waves lift into view there would
         // otherwise read as one even pale line, and the foam lumps show against it.
         float cI = (1.0 - smoothstep(0.5, 4.0, pI)) * smoothstep(-7.0, -3.0, dI);
