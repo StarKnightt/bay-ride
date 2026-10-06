@@ -353,8 +353,13 @@ const FS = /* glsl */ `
     Wake wk = wakeShade(q, px, pxM);
     WSurf s = wSurface(q, uTime, px);
     vec3 cW = wShallowCol();
-    vec2 fwd = normalize(V.xz + 1e-5);
+    // Looking down, V.xz shrinks to nothing and swings with every small camera move, so the view
+    // axis leans on the screen's up direction there (the camera's forward plus up, never zero).
+    vec2 camA = vec2(viewMatrix[0][1] - viewMatrix[0][2], viewMatrix[2][1] - viewMatrix[2][2]);
+    vec2 fwd = normalize(V.xz + 0.3 * camA / max(length(camA), 1e-4));
     vec2 side = vec2(-fwd.y, fwd.x);
+    // Streaks drawn along the view axis read as zebra stripes seen from above.
+    float flatK = 1.0 - smoothstep(0.42, 0.75, -V.y);
 
     // Open water: wind chop over the swell, fading out over the surf zone (the breakers own it).
     float deepK = oDeep(s.h);
@@ -388,7 +393,7 @@ const FS = /* glsl */ `
     float wCr = smoothstep(0.03, 0.12, abs(wk.crest));
     // Long flat ripple strokes (~4 m across by ~0.6 m deep) near the eye: they break the mirrored
     // sky into bands below, and under a low sun the chop's tone too.
-    float bandK = (1.0 - smoothstep(60.0, 420.0, dist)) * (1.0 - smoothstep(0.08, 0.2, pxM)) * chopK;
+    float bandK = (1.0 - smoothstep(60.0, 420.0, dist)) * (1.0 - smoothstep(0.08, 0.2, pxM)) * chopK * flatK;
     float bn = 0.5;
     if (bandK > 0.0) {
       vec2 rq = q - cameraPosition.xz;
@@ -399,7 +404,7 @@ const FS = /* glsl */ `
     // under a low sun the resolved chop alone drew a few big flat-filled shapes (gold mirror and
     // slate facets, a lava-lamp look): there the tone is also broken by those ripple strokes and
     // metre-scale ripples, so it paints as strokes of the chop, its edges a little softer.
-    float brkT = (0.15 + 0.85 * lowSun) * (1.0 - smoothstep(20.0, 160.0, dist)) * chopK;
+    float brkT = (0.15 + 0.85 * lowSun) * (1.0 - smoothstep(20.0, 160.0, dist)) * chopK * flatK;
     float tv = dot(gC, fwd) / max(sigR, 0.004) + ((bn - 0.5) * 2.4 + (r2.x + 0.6 * r2.y) * 0.9) * brkT;
     float aw = fwidth(tv) * 1.5 + 0.1 + 0.12 * lowSun * nearK;
     // Tones wider than the filter can hold fade to flat instead of shimmering.
@@ -417,7 +422,7 @@ const FS = /* glsl */ `
     // Mid-distance, where the chop is too fine to draw, sparse painted comma strokes stand in for
     // it; they are gone before the far band, which stays one smooth gradient.
     float dabs = 0.0;
-    float dabK = chopK * mix(0.6, 1.0, lostF) * smoothstep(0.012, 0.03, -V.y) * (1.0 - smoothstep(320.0, 900.0, dist));
+    float dabK = chopK * mix(0.6, 1.0, lostF) * smoothstep(0.012, 0.03, -V.y) * (1.0 - smoothstep(320.0, 900.0, dist)) * flatK;
     vec2 fanD = oFanD(V);
     // Swell crests gather more chop than the troughs.
     float crestK = mix(0.55, 1.25, smoothstep(-0.3, 0.5, s.swell));
@@ -432,7 +437,7 @@ const FS = /* glsl */ `
     float strokes = 0.0;
     // The bay in front of the beach is chopped too once it is past the surf.
     float stC = max(chopK, smoothstep(1.5, 4.0, s.h) * (1.0 - smoothstep(0.05, 0.3, s.brk + s.foam)) * 0.85);
-    float stK = stC * (1.0 - smoothstep(90.0, 260.0, dist)) * smoothstep(0.02, 0.05, -V.y) * (1.0 - 0.4 * uNight);
+    float stK = stC * (1.0 - smoothstep(90.0, 260.0, dist)) * smoothstep(0.02, 0.05, -V.y) * (1.0 - 0.4 * uNight) * flatK;
     // The slick keeps a sparser set of strokes: calmer water, not a painted-over sheet.
     if (stK > 0.01) strokes = oStrokes(V, uTime, gust) * stK * crestK * (1.0 - 0.6 * wk.slick) * (1.0 - 0.4 * wCr);
     gU += fwd * strokes * 0.05;

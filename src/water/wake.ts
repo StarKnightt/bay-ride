@@ -67,7 +67,7 @@ export function setWake(
     x1 = Math.max(x1, p.x);
     z1 = Math.max(z1, p.z);
   }
-  const reach = n ? Math.min(48, 0.38 * (boat.odo - trail[n - 1].odo) + 6) : 0;
+  const reach = n ? Math.min(72, 0.38 * (boat.odo - trail[n - 1].odo) + 6) : 0;
   WAKE_U.uWakeBox.value.set(x0 - reach, z0 - reach, x1 + reach, z1 + reach);
   const v = Math.max(Math.abs(boat.speed), 1.6);
   WAKE_U.uWakeInfo.value.set(n, boat.odo, Math.abs(boat.speed), 9.81 / (v * v * VIS));
@@ -239,7 +239,8 @@ float wakeLace(vec2 p, float dens, float seed, float px, float threads){
   patchM *= 1.0 - 0.85 * smoothstep(0.6, 0.72, hn) * smoothstep(th, th + 0.22, c) * fine;
   float tw = mix(0.94, 0.82, d);
   float thread = smoothstep(tw - aa * 3.0, tw + aa * 3.0, r) * smoothstep(th - 0.25, th - 0.05, c) * (1.0 - smoothstep(0.012, 0.03, px)) * threads;
-  return mix(max(patchM, thread * 0.9), cov, far);
+  // Thin lace fades rather than shrinking to a few solid flecks (flat white scraps).
+  return mix(max(patchM, thread * 0.9) * mix(0.25, 1.0, smoothstep(0.04, 0.45, d)), cov, far);
 }
 
 Wake wakeShade(vec2 q, float px, float pxm){
@@ -253,7 +254,13 @@ Wake wakeShade(vec2 q, float px, float pxm){
     o.h = wakeKelvin(w, pxm, o.grad, inf);
     float x = w.x, ay = abs(w.y), sd = sign(w.y);
     float S = smoothstep(0.8, 4.5, w.spd);
-    float fade = 1.0 - smoothstep(${MAX_AGE} * 0.6, ${MAX_AGE}, w.age);
+    // Softly to nothing at the box the trail is searched in and at the outer edge of the V, so no
+    // feature is ever cut off by the search range.
+    float bE = min(min(q.x - uWakeBox.x, uWakeBox.z - q.x), min(q.y - uWakeBox.y, uWakeBox.w - q.y));
+    float edgeK = smoothstep(0.0, 12.0, bE) * (1.0 - smoothstep(0.62 * max(x, 0.0) + 1.0, 0.62 * max(x, 0.0) + 4.0, ay));
+    float fade = (1.0 - smoothstep(${MAX_AGE} * 0.45, ${MAX_AGE}, w.age)) * edgeK;
+    o.h *= edgeK;
+    o.grad *= edgeK;
     // Far off, anything narrower than about a pixel and a half would break into dots: it is
     // widened to that and thinned to keep the same weight, so the V still reads as lines.
     float pxW = 2.4 * pxm;
