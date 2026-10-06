@@ -88,7 +88,40 @@ function planter(c: Ctx, x: number, y: number, z: number): void {
   c.colliders.push({ x, z, r: 0.4, top: y + 0.45 });
 }
 
+/** Galvanised bucket with a wire handle. */
+function bucket(c: Ctx, x: number, y: number, z: number, col = "#9aa3a6"): void {
+  c.out.push(xf(cyl(0.17, 0.13, 0.3, col, M.metal, 12), x, y + 0.15, z));
+  c.out.push(xf(cyl(0.18, 0.18, 0.03, "#7d8588", M.metal, 12), x, y + 0.3, z));
+  const h = new THREE.TorusGeometry(0.17, 0.008, 3, 12, Math.PI);
+  h.rotateY(0.6);
+  c.out.push(xf(prep(h, "#5f6669", M.metal), x, y + 0.3, z));
+}
+
+/**
+ * The opening frame's near corners: the camera stands about 6 m landward of her at the berth, so
+ * the deck by the rails at x -82..-85 is the lower left (north rail) and lower right (south rail)
+ * of the first view. Gear there frames it; the berth gap, the stair head and her path stay clear.
+ */
+function openingCorners(c: Ctx): void {
+  const Z = PIER.z, y = PIER.deck, N = Z + PIER.half - 0.36, S = Z - PIER.half + 0.36;
+  // Lower left: a rope coil and a bucket against a rail post, a rod leaning on the rail.
+  ropeCoil(c, -83.2, y, N - 0.05);
+  bucket(c, -83.9, y, N + 0.05);
+  c.colliders.push({ x: -83.5, z: N, r: 0.5, top: y + 0.32 });
+  const rx = -84.9, rz = Z + PIER.half - 0.12;
+  c.out.push(beam(V(rx + 0.5, y + 0.02, N + 0.05), V(rx - 0.25, y + 2.6, rz + 0.25), 0.018, "#3a2e26", M.planks, 5));
+  c.out.push(xf(cyl(0.05, 0.05, 0.05, "#2c3135", M.metal, 8), rx + 0.38, y + 0.42, N + 0.08, Math.PI / 2, 0, 0));
+  c.out.push(beam(V(rx - 0.25, y + 2.6, rz + 0.25), V(rx + 0.38, y + 0.42, N + 0.12), 0.003, "#e8e4da", M.plain, 3));
+  // Lower right: a small crate with a lantern on it and fish boxes, by the south rail.
+  crate(c, -83.6, y, S + 0.04, 0.5, 0.2);
+  c.out.push(xf(box(0.2, 0.26, 0.2, "#f2d796", M.glass), -83.6, y + 0.63, S + 0.04));
+  c.out.push(xf(cyl(0.02, 0.15, 0.1, "#2c3135", M.metal, 8), -83.6, y + 0.81, S + 0.04));
+  fishBoxes(c, -82.9, y, S + 0.02, 2, -0.15);
+  c.colliders.push({ x: -83.25, z: S, r: 0.6, top: y + 0.85 });
+}
+
 function pierClutter(c: Ctx): void {
+  openingCorners(c);
   const Z = PIER.z, y = PIER.deck;
   const N = Z + PIER.half - 0.5, S = Z - PIER.half + 0.5;
   // Crates against the north rail.

@@ -16,7 +16,7 @@ const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
  * The beach dressed: a wrack line at the high-water mark (a broken band of seaweed with dried
  * tufts, shells and small driftwood caught in it), pebble drifts at the wall foot and along the
  * wrack, shells scattered down to the swash, bleached driftwood, tide pools on the exposed shore
- * rocks, and one beach set on the upper sand (a folded umbrella, a striped towel and a basket).
+ * rocks, and one beach set on the upper sand (an open striped parasol, a striped towel and a basket).
  * All of it is landward of the pier end, so nothing stands between her and the sea in the opening.
  * Small debris is unoutlined (the ground's ink group) and casts no shadow, in a few chunks along
  * the beach; the props are one outlined, shadow-casting mesh.
@@ -113,26 +113,76 @@ function driftwood(r: Rng, out: Geo[], x: number, z: number, len: number, rad: n
   }
 }
 
-/** Folded beach umbrella planted in the sand, a little askew. */
+/** A trail of footprints (flat, slightly darker dents) from a to b, left and right alternating. */
+function footprints(out: Geo[], ax: number, az: number, bx: number, bz: number): void {
+  const L = Math.hypot(bx - ax, bz - az), dx = (bx - ax) / L, dz = (bz - az) / L, yaw = Math.atan2(dx, dz);
+  for (let d = 0, i = 0; d < L; d += 0.62, i++) {
+    const s = i % 2 ? 0.1 : -0.1, x = ax + dx * d - dz * s, z = az + dz * d + dx * s;
+    const g = new THREE.SphereGeometry(1, 8, 3, 0, Math.PI * 2, 0, Math.PI / 2);
+    g.scale(0.055, 0.006, 0.12);
+    out.push(xf(prep(g, "#c4ad84", M.plain), x, groundY(x, z) - 0.004, z, 0, yaw, 0));
+  }
+}
+
+/** A sandcastle: a mound, a keep with crenels, two corner towers; a bucket and a spade by it. */
+function sandcastle(out: Geo[], colliders: Collider[], x: number, z: number): void {
+  const g = groundY(x, z), sand = "#dcc596";
+  out.push(xf(cyl(0.55, 0.7, 0.18, sand, M.plain, 14), x, g + 0.06, z));
+  out.push(xf(cyl(0.26, 0.3, 0.3, sand, M.plain, 10), x, g + 0.3, z));
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    out.push(xf(box(0.07, 0.07, 0.07, sand, M.plain), x + Math.cos(a) * 0.22, g + 0.48, z + Math.sin(a) * 0.22, 0, -a, 0));
+  }
+  for (const [ox, oz] of [[0.42, 0.25], [-0.38, -0.3]]) {
+    out.push(xf(cyl(0.11, 0.13, 0.26, sand, M.plain, 8), x + ox, g + 0.2, z + oz));
+    out.push(xf(cyl(0.0, 0.12, 0.14, sand, M.plain, 8), x + ox, g + 0.4, z + oz));
+  }
+  const bx = x + 0.85, bz = z - 0.35, bg = groundY(bx, bz);
+  out.push(xf(cyl(0.12, 0.09, 0.2, "#e84a3a", M.plain, 12), bx, bg + 0.1, bz));
+  out.push(xf(cyl(0.125, 0.125, 0.02, "#f0a030", M.plain, 12), bx, bg + 0.2, bz));
+  out.push(beam(V(bx + 0.25, bg + 0.01, bz + 0.35), V(bx + 0.45, bg + 0.42, bz + 0.6), 0.015, "#3a7ab0", M.plain, 4));
+  out.push(xf(box(0.14, 0.02, 0.18, "#3a7ab0", M.plain), bx + 0.22, bg + 0.03, bz + 0.3, 0, 0.6, 0));
+  colliders.push({ x, z, r: 0.7, top: g + 0.5 });
+}
+
+function flipflops(out: Geo[], x: number, z: number, yaw: number): void {
+  for (const s of [-0.09, 0.09]) {
+    const g = new THREE.CylinderGeometry(1, 1, 1, 10);
+    g.scale(0.05, 0.02, 0.13);
+    out.push(xf(prep(g, "#2f8f8a", M.plain), x + Math.cos(yaw) * s, groundY(x, z) + 0.01, z - Math.sin(yaw) * s, 0, yaw + s, 0));
+  }
+}
+
+function cooler(out: Geo[], colliders: Collider[], x: number, z: number, yaw: number): void {
+  const g = groundY(x, z);
+  out.push(xf(box(0.6, 0.36, 0.38, "#3a7ab0", M.plain), x, g + 0.18, z, 0, yaw, 0));
+  out.push(xf(box(0.62, 0.07, 0.4, "#f4f1ea", M.plain), x, g + 0.39, z, 0, yaw, 0));
+  out.push(xf(box(0.3, 0.04, 0.05, "#f4f1ea", M.plain), x, g + 0.45, z, 0, yaw, 0));
+  colliders.push({ x, z, r: 0.38, top: g + 0.45 });
+}
+
+/** Open beach parasol planted in the sand, a little askew. */
 function umbrella(out: Geo[], colliders: Collider[], x: number, z: number): void {
   const g = groundY(x, z);
   const tilt = V(0.12, 1, 0.05).normalize();
   const top = V(x, g - 0.25, z).addScaledVector(tilt, 2.35);
   out.push(beam(V(x, g - 0.25, z), top, 0.022, "#e8e2d6", M.metal, 6));
-  // The furled canopy: a long narrow cone of coral and cream panels tied round the middle.
-  const c0 = V(x, g - 0.25, z).addScaledVector(tilt, 1.15);
+  // Open canopy: eight coral and cream panels (closed wedges, so the shade side reads from below),
+  // a scalloped teal valance and a finial; big enough to read as a parasol, not a pole.
   const q = new THREE.Quaternion().setFromUnitVectors(V(0, 1, 0), tilt);
-  for (let i = 0; i < 6; i++) {
-    const seg = new THREE.CylinderGeometry(0.035, 0.13, 1.15, 2, 1, true, (i / 6) * Math.PI * 2, Math.PI / 3);
-    seg.translate(0, 0.575, 0);
-    prep(seg, i % 2 ? "#f1e8d2" : "#e8604c", M.cloth);
+  const c0 = top.clone().addScaledVector(tilt, -0.36);
+  for (let i = 0; i < 8; i++) {
+    const seg = new THREE.CylinderGeometry(0.05, 1.15, 0.38, 3, 1, false, (i / 8) * Math.PI * 2, Math.PI / 4);
+    seg.translate(0, 0.19, 0);
+    prep(seg, i % 2 ? "#f4ecd8" : "#e8604c", M.cloth);
     seg.applyQuaternion(q);
     out.push(xf(seg, c0.x, c0.y, c0.z));
   }
-  const tie = cyl(0.085, 0.085, 0.05, "#2f8f8a", M.cloth, 10);
-  tie.applyQuaternion(q);
-  const tp = c0.clone().addScaledVector(tilt, 0.5);
-  out.push(xf(tie, tp.x, tp.y, tp.z));
+  const val = new THREE.CylinderGeometry(1.15, 1.15, 0.1, 24, 1, true);
+  prep(val, "#2f8f8a", M.cloth);
+  val.applyQuaternion(q);
+  const vp = c0.clone().addScaledVector(tilt, -0.05);
+  out.push(xf(val, vp.x, vp.y, vp.z));
   const fin = cyl(0.012, 0.03, 0.08, "#c9b07a", M.metal, 6);
   fin.applyQuaternion(q);
   const fp = top.clone().addScaledVector(tilt, 0.04);
@@ -254,6 +304,19 @@ export function buildBeach(layout: Layout, colliders: Collider[]): THREE.Group {
       driftwood(r, props, lx, lz, 2.4, 0.11);
       colliders.push({ x: lx, z: lz, r: 1.1, top: groundY(lx, lz) + 0.2 });
     }
+    // Near-third interest: a sandcastle with bucket and spade, a footprint trail across the frame,
+    // bigger dune grass drifts at the frame edges.
+    const [cx, cz] = p(4.6, -1.4);
+    if (dry(cx, cz, 0.15)) {
+      sandcastle(props, colliders, cx, cz);
+      layout.rect(cx - 1, cx + 1.3, cz - 1, cz + 1);
+    }
+    const [f0x, f0z] = p(1.6, 2.2), [f1x, f1z] = p(10, -0.6);
+    footprints(props, f0x, f0z, f1x, f1z);
+    for (const [d, s] of [[3.2, 4.3], [2.8, -3.6], [6, 4.8]] as const) {
+      const [x, z] = p(d, s);
+      if (dry(x, z, 0.12)) layout.spot(x, z, 1.1, 16, ["weed", "weed", "thrift", "weed"]);
+    }
     for (let i = 0; i < 90; i++) {
       const [x, z] = p(range(r, 3.2, 8), range(r, -1.5, 5));
       if (dry(x, z)) add(z, r() < 0.55 ? pebble(r, x, z, r() < 0.55) : shell(r, x, z));
@@ -274,7 +337,10 @@ export function buildBeach(layout: Layout, colliders: Collider[]): THREE.Group {
     umbrella(props, colliders, x - 0.3, z + 1.3);
     towel(props, x + 0.6, z - 0.3, 0.35);
     basket(props, colliders, x + 1.75, z + 0.65);
-    layout.rect(x - 0.8, x + 2.1, z - 1.0, z + 1.8);
+    flipflops(props, x + 1.55, z - 0.9, 0.4);
+    cooler(props, colliders, x + 1.1, z + 1.9, 0.3);
+    footprints(props, at(WALL_OUT - 0.4, z + 3.2), z + 3.2, x + 1.3, z - 0.6);
+    layout.rect(x - 0.8, x + 2.1, z - 1.0, z + 2.4);
   }
   // Tide pools on the shore rocks that stand clear of the water.
   for (const rk of ROCKS) {
