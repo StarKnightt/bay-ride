@@ -43,6 +43,10 @@ export const SHOTS: Record<number, Shot> = {
   14: { name: "town lane", eye: v(roadX(-178) + 6, terrainH(roadX(-178) + 6, -178) + 1.65, -178), look: v(roadX(-188) + 60, terrainH(roadX(-188) + 60, -188) + 3, -188), fov: 55 },
   // Standing on the beach under the wall, along the dunes toward each headland's foot.
   15: { name: "dunes north", eye: v(roadX(140) - 15, SEA_Y + 1.8, 140), look: v(roadX(200) - 14, SEA_Y + 1.5, 200), fov: 55 },
+  // Her follow camera on the steep ground above the top of the lane, looking up the climb.
+  17: { name: "steep climb", eye: v(roadX(-181) + 62, terrainH(roadX(-181) + 62, -181) + 4.5, -181), look: v(roadX(-181) + 76, terrainH(roadX(-181) + 76, -181) + 0.5, -181), fov: 55 },
+  // Halfway down the pier toward the town: the hill behind the houses.
+  18: { name: "pier to the town", eye: v(-62, SEA_Y + 4.2, -193), look: v(20, 14, -190), fov: 50 },
   16: { name: "dunes south", eye: v(roadX(-205) - 9, SEA_Y + 1.8, -205), look: v(roadX(-262) - 14, SEA_Y + 1.5, -262), fov: 55 },
 };
 

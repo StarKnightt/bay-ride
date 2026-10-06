@@ -244,7 +244,9 @@ function surface(u: number, z: number, x: number, y: number, slope: number, out:
   // Steep or wave-washed land: rock.
   if (slope > 0.42 || (y < SEA_Y + 2.2 && y > SEA_Y - 1 && slope > 0.18 && u < -60)) {
     out.copy(C.rock).lerp(C.rockDark, n);
-    return M.stone;
+    // The rock's fringe is painted by the field shader too, so grass meets rock in a per-pixel
+    // gradient; only the crag faces switch to the stone shader (rock against rock, no sawtooth).
+    return slope < 0.62 && u > -60 ? M.ground : M.stone;
   }
   // A headland's foot above the beach: sand thinning into grass over a few metres of height. A ramp,
   // not a step: the grid here is metres tall on the slope, and a step sampled at its vertices

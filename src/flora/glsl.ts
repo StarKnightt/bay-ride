@@ -221,6 +221,9 @@ void main(){
   // From the bay a worn path is a thin pale scribble down the hill: far off it melts into the grass.
   // Below 4 m the warm paint is a headland foot's sand ramp, which stays sand from the bay.
   float pathFar = smoothstep(0.25, 1.0, gFoot) * 0.8 * smoothstep(4.0, 6.0, vWPos.y);
+  // Grey-brown rock paint (far less saturated than the tan path) stays rock from the bay.
+  float sat = (max(base.r, max(base.g, base.b)) - min(base.r, min(base.g, base.b))) / max(base.r, 1e-3);
+  pathFar *= smoothstep(0.4, 0.5, sat);
   base = mix(base, vec3(0.105, 0.26, 0.07), pathK * pathFar);
   pathK *= 1.0 - pathFar;
   float pn = vnoise(vWPos.xz * 0.045 + 3.1);
@@ -234,10 +237,13 @@ void main(){
   float mid = vnoise(vWPos.xz * 0.06 + 1.7);
   g *= mix(vec3(0.8, 0.88, 0.95), vec3(1.05, 1.04, 0.92), smoothstep(0.25, 0.75, mid));
   // Strokes along the contour (the slope's level direction), small near and broad far.
-  vec2 ct = normalize(vec2(-N.z, N.x) + vec2(0.25, 0.05));
-  vec2 q = vec2(dot(vWPos.xz, ct), dot(vWPos.xz, vec2(-ct.y, ct.x)));
-  float s1 = vnoise(q * vec2(0.42, 2.1));
-  float s2 = vnoise(q * vec2(0.08, 0.42) + 11.0);
+  // On two fixed world axes blended by which way the slope faces: rotating the coordinates by the
+  // normal (hundreds of metres from the origin) jumped the stroke phase at every grid triangle and
+  // drew chevrons up the steep ground.
+  float cx = N.x * N.x, cz = (abs(N.z) + 0.25) * (abs(N.z) + 0.25);
+  float wa = smoothstep(0.3, 0.7, cx / (cx + cz));
+  float s1 = mix(vnoise(vWPos.xz * vec2(0.42, 2.1)), vnoise(vWPos.zx * vec2(0.42, 2.1) + 5.3), wa);
+  float s2 = mix(vnoise(vWPos.xz * vec2(0.08, 0.42) + 11.0), vnoise(vWPos.zx * vec2(0.08, 0.42) + 17.0), wa);
   float k1 = 1.0 - smoothstep(0.12, 0.5, gFoot);
   float k2 = 1.0 - smoothstep(1.2, 4.0, gFoot);
   float st = (s1 - 0.5) * 0.42 * k1 + (s2 - 0.5) * 0.36 * k2;
@@ -318,8 +324,11 @@ void main(){
     float fp = dot(wp.xyz, vec3(2.1, 1.3, 1.7));
     wp.xyz += vec3(sin(uTime * 4.7 + fp), sin(uTime * 5.3 + fp * 1.3), cos(uTime * 4.1 + fp * 0.7)) * aWind * 0.022 * card;
   }
-  vWPos = wp.xyz;
   vN = normalize(mat3(modelMatrix) * normal);
+  // Far off the cards thin to a few pixels and a crown read as a stick: its solid leafy masses
+  // swell out to the cards' shell with distance, so a far crown is always a full mass.
+  if (mt == 1) wp.xyz += vN * 0.6 * smoothstep(40.0, 100.0, distance(wp.xyz, cameraPosition));
+  vWPos = wp.xyz;
   vCol = color;
   vUv = uv;
   vMat = mt;
