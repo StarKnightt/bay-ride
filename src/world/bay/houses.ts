@@ -13,8 +13,8 @@ type Geo = THREE.BufferGeometry;
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
 /**
- * The harbour town on the hill above the pier: four stepped rows of plastered houses with dark
- * tiled roofs (tile rows painted by the roof surface), framed windows with sills, shutters and
+ * The harbour town on the hill above the pier: four stepped rows of warm plastered houses under
+ * terracotta, slate-blue, teal-green and dark tiled roofs, framed windows with sills, shutters and
  * flower boxes, doors with hoods and steps, balconies with railings and pots, air-conditioner
  * units, chimneys, gutters, laundry fluttering on lines, a corner shop with a striped awning and
  * its goods outside, and two stepped stone lanes climbing between the rows (walkable: their tread
@@ -42,24 +42,24 @@ interface HouseSpec {
 
 const HOUSES: HouseSpec[] = [
   { u: 14, z: -150, w: 7, d: 6.5, floors: 2, wall: "#efe5d2", balcony: true, shutters: "#3d7f86", boxes: true, door: "#3f6672" },
-  { u: 13.5, z: -160.5, w: 6.5, d: 6, floors: 2, wall: "#e6d6b8", ridgeZ: true, ac: true, balcony: true, laundry: "balcony", door: "#7a3b2e" },
+  { u: 13.5, z: -160.5, w: 6.5, d: 6, floors: 2, wall: "#e9c99a", ridgeZ: true, ac: true, balcony: true, laundry: "balcony", door: "#7a3b2e" },
   { u: 13, z: -171, w: 8, d: 7.5, floors: 1, wall: "#f3ece0", shop: true },
   { u: 14, z: -192, w: 7, d: 6.5, floors: 2, wall: "#d8dfdc", boxes: true, shutters: "#5b7d4a", door: "#4a3a2e" },
-  { u: 13.5, z: -201.5, w: 6.5, d: 5.5, floors: 1, wall: "#ead2bc", ridgeZ: true, boxes: true, door: "#3f6672" },
+  { u: 13.5, z: -201.5, w: 6.5, d: 5.5, floors: 1, wall: "#efc1a4", ridgeZ: true, boxes: true, door: "#3f6672" },
   { u: 15, z: -218, w: 7.5, d: 6.5, floors: 2, wall: "#efe5d2", balcony: true, laundry: "balcony", shutters: "#8a4f3a" },
-  { u: 25, z: -154, w: 6.5, d: 6, floors: 2, wall: "#e9dcc6", shutters: "#8a4f3a", chimney: true, door: "#4a3a2e" },
+  { u: 25, z: -154, w: 6.5, d: 6, floors: 2, wall: "#e7b98f", shutters: "#8a4f3a", chimney: true, door: "#4a3a2e" },
   { u: 26, z: -165.5, w: 7, d: 6.5, floors: 2, wall: "#dfe4dc", ac: true, boxes: true, door: "#7a3b2e" },
-  { u: 24.5, z: -174.5, w: 6.5, d: 6, floors: 1, wall: "#e6d6b8", laundry: "yard", door: "#3f6672" },
+  { u: 24.5, z: -174.5, w: 6.5, d: 6, floors: 1, wall: "#e8d08e", laundry: "yard", door: "#3f6672" },
   { u: 25.5, z: -195, w: 7, d: 6.5, floors: 2, wall: "#f0e2cc", ridgeZ: true, balcony: true, shutters: "#3d7f86" },
   { u: 27, z: -218, w: 7, d: 6, floors: 1, wall: "#dcd6c8", chimney: true, door: "#4a3a2e" },
   { u: 37, z: -160, w: 7, d: 6.5, floors: 2, wall: "#efe5d2", chimney: true, ac: true, boxes: true },
-  { u: 38, z: -171, w: 6.5, d: 6, floors: 1, wall: "#ead2bc", boxes: true, door: "#5b7d4a" },
+  { u: 38, z: -171, w: 6.5, d: 6, floors: 1, wall: "#e3a98f", boxes: true, door: "#5b7d4a" },
   { u: 37, z: -192, w: 7.5, d: 6.5, floors: 2, wall: "#e3dccf", balcony: true, shutters: "#3f6f95", laundry: "balcony" },
   { u: 37.5, z: -202, w: 6.5, d: 5.5, floors: 1, wall: "#f3ece0", ridgeZ: true, door: "#7a3b2e" },
-  { u: 38, z: -218, w: 7, d: 6, floors: 1, wall: "#e6d6b8", boxes: true },
+  { u: 38, z: -218, w: 7, d: 6, floors: 1, wall: "#e9c99a", boxes: true },
   { u: 48, z: -155, w: 6.5, d: 6, floors: 1, wall: "#efe5d2", chimney: true },
   { u: 49, z: -166, w: 7, d: 6, floors: 2, wall: "#dfe4dc", laundry: "yard", shutters: "#3d7f86" },
-  { u: 50, z: -193, w: 7, d: 6.5, floors: 1, wall: "#e9dcc6", chimney: true, boxes: true },
+  { u: 50, z: -193, w: 7, d: 6.5, floors: 1, wall: "#efc1a4", chimney: true, boxes: true },
   { u: 49, z: -214, w: 6.5, d: 6, floors: 2, wall: "#ead2bc", ridgeZ: true, ac: true },
 ];
 
@@ -139,7 +139,10 @@ const FRAME_D = "#4a3a2e";
 
 function windowAt(c: Ctx, f: Face, a: number, y: number, ww: number, wh: number, spec: HouseSpec, frameCol: string): void {
   const { out } = c;
-  out.push(f.box(a, y, 0.04, ww, wh, 0.08, "#20262c", M.glass));
+  // About a third are curtained rooms: dark warm brown by day, a warm lit pane from dusk on (the
+  // lantern material), on top of the glass panes that light in a scattered pattern at night.
+  if (c.r() < 0.36) out.push(f.box(a, y, 0.04, ww, wh, 0.08, pick(c.r, ["#5a3a1e", "#4e3422", "#634022"]), M.lantern));
+  else out.push(f.box(a, y, 0.04, ww, wh, 0.08, "#20262c", M.glass));
   // Frame, sill and lintel stand proud of the plaster.
   out.push(f.box(a, y + wh / 2 + 0.04, 0.07, ww + 0.16, 0.08, 0.12, frameCol));
   out.push(f.box(a, y - wh / 2 - 0.03, 0.09, ww + 0.24, 0.06, 0.2, frameCol));
@@ -205,6 +208,41 @@ function pot(c: Ctx, x: number, y: number, z: number, kinds: ("hydrangea" | "pin
   c.layout.spot(x, z, r * 0.4, 2, kinds, y + r * 1.5 - 0.02, 0.6);
 }
 
+interface Roof {
+  slab: string;
+  /** Darker shadow line under each tile course and the lit lip above it (null: dark kawara tiles). */
+  line: string | null;
+  lip: string;
+  cap: string;
+}
+/** Roof colours, cycled through the houses so neighbours differ and the town reads from the bay. */
+const ROOFS: Roof[] = [
+  { slab: "#b65a3c", line: "#93452e", lip: "#cf7a58", cap: "#7a3528" },
+  { slab: "#4d6788", line: "#3d536f", lip: "#6a84a3", cap: "#2f3e52" },
+  { slab: "#c4714a", line: "#9f5737", lip: "#da9068", cap: "#86442c" },
+  { slab: "#5f7184", line: null, lip: "", cap: "#3c4652" },
+  { slab: "#3d7b74", line: "#2f625c", lip: "#5a988f", cap: "#244a46" },
+  { slab: "#ad5136", line: "#8a3e29", lip: "#c86c4e", cap: "#6e3022" },
+  { slab: "#58708f", line: "#465b75", lip: "#7790ad", cap: "#34445a" },
+];
+
+/**
+ * One roof slab in its own frame (thickness along y; `across` runs down the slope along local
+ * `axis`, `along` the other way): coloured tiles with a shadow line and a lit lip per course,
+ * broad and low in contrast so they don't shimmer from the bay. Dark kawara uses the tile material.
+ */
+function roofSlab(across: number, along: number, axis: "x" | "z", roof: Roof): Geo {
+  const dims = (a: number, h: number, l: number) => (axis === "x" ? [a, h, l] : [l, h, a]) as [number, number, number];
+  if (!roof.line) return boxM(...dims(across, 0.22, along), roof.slab, M.roof);
+  const parts: Geo[] = [box(...dims(across, 0.22, along), roof.slab, M.plain)];
+  for (let o = -across / 2 + 0.2; o < across / 2 - 0.05; o += 0.36) {
+    const at = (g: Geo, off: number, y: number) => (axis === "x" ? xf(g, off, y, 0) : xf(g, 0, y, off));
+    parts.push(at(box(...dims(0.1, 0.03, along), roof.line, M.plain), o, 0.115));
+    parts.push(at(box(...dims(0.06, 0.03, along), roof.lip, M.plain), o - 0.09, 0.12));
+  }
+  return merge(parts);
+}
+
 function house(c: Ctx, s: HouseSpec, boxes: Box[]): void {
   const { out, r } = c;
   const x = roadX(s.z) + s.u, z = s.z;
@@ -223,11 +261,12 @@ function house(c: Ctx, s: HouseSpec, boxes: Box[]): void {
   const slab = span / 2 / Math.cos(pitch) + 0.5;
   const ridge = y + h + rise * 0.98;
   const eave = y + h;
+  const roof = ROOFS[HOUSES.indexOf(s) % ROOFS.length];
   for (const sg of [-1, 1]) {
     const mid = (eave + ridge) / 2;
     // Each slab tilts down toward its own eave.
-    if (s.ridgeZ) out.push(xf(boxM(slab, 0.22, len + 0.7, "#5f7184", M.roof), x + sg * span / 4, mid, z, 0, 0, -sg * pitch));
-    else out.push(xf(boxM(len + 0.7, 0.22, slab, "#5f7184", M.roof), x, mid, z + sg * span / 4, sg * pitch, 0, 0));
+    if (s.ridgeZ) out.push(xf(roofSlab(slab, len + 0.7, "x", roof), x + sg * span / 4, mid, z, 0, 0, -sg * pitch));
+    else out.push(xf(roofSlab(slab, len + 0.7, "z", roof), x, mid, z + sg * span / 4, sg * pitch, 0, 0));
     // Gutter along the eave.
     const ge = span / 2 + 0.42;
     const ga = s.ridgeZ ? V(x + sg * ge, eave - 0.18, z - len / 2 - 0.35) : V(x - len / 2 - 0.35, eave - 0.18, z + sg * ge);
@@ -236,7 +275,7 @@ function house(c: Ctx, s: HouseSpec, boxes: Box[]): void {
   }
   const ra = s.ridgeZ ? V(x, ridge + 0.1, z - len / 2 - 0.36) : V(x - len / 2 - 0.36, ridge + 0.1, z);
   const rb = s.ridgeZ ? V(x, ridge + 0.1, z + len / 2 + 0.36) : V(x + len / 2 + 0.36, ridge + 0.1, z);
-  out.push(beam(ra, rb, 0.15, "#3c4652", M.metal, 8));
+  out.push(beam(ra, rb, 0.15, roof.cap, M.metal, 8));
   // Gable walls under the roof and the barge boards along their rake.
   const gable = new THREE.Shape([new THREE.Vector2(-span / 2, 0), new THREE.Vector2(span / 2, 0), new THREE.Vector2(0, rise)]);
   const gg = new THREE.ExtrudeGeometry(gable, { depth: len - 0.1, bevelEnabled: false });
@@ -414,7 +453,14 @@ function lanes(c: Ctx, stone: Geo[]): void {
     const x0 = roadX(L.z) + L.u0, x1 = roadX(L.z) + L.u1;
     const n = Math.ceil((x1 - x0) / TREAD);
     const g = new Float64Array(n + 1);
-    for (let i = 0; i <= n; i++) g[i] = meshH(x0 + i * TREAD, L.z);
+    // The hill also slopes across the lane: seat it on the highest ground under its full width, kerbs
+    // included, so the ground never cuts the treads or kerbs (that drew a sawtooth edge and left
+    // kerb corners poking out of the grass).
+    const kz = L.half + 0.22;
+    for (let i = 0; i <= n; i++) {
+      const x = x0 + i * TREAD;
+      g[i] = Math.max(meshH(x, L.z), meshH(x, L.z - kz), meshH(x, L.z + kz), meshH(x, L.z - L.half), meshH(x, L.z + L.half));
+    }
     LANE_GEO.push({ z: L.z, half: L.half, x0, g });
     for (let i = 0; i < n; i++) {
       const a = g[i] + LIFT, b = g[i + 1] - RISER + LIFT;
@@ -422,8 +468,10 @@ function lanes(c: Ctx, stone: Geo[]): void {
       const cx = x0 + (i + 0.5) * TREAD;
       // Tread slab, thick enough to hide the ground across the lane's width.
       stone.push(xf(box(TREAD / Math.cos(tilt) + 0.02, 0.5, L.half * 2, i % 3 ? "#c4bcaa" : "#bab2a0", M.stone), cx, (a + b) / 2 - 0.25, L.z, 0, 0, tilt));
-      // Kerbs either side.
-      for (const sg of [-1, 1]) stone.push(xf(box(TREAD + 0.02, 0.62, 0.22, "#9f978a", M.stone), cx, (a + b) / 2 - 0.22, L.z + sg * (L.half + 0.11), 0, 0, tilt));
+      // Kerbs either side: one continuous line 10 cm proud of the treads (no riser steps in it).
+      const ka = g[i] + LIFT + 0.1, kb = g[i + 1] + LIFT + 0.1;
+      const kt = Math.atan2(kb - ka, TREAD);
+      for (const sg of [-1, 1]) stone.push(xf(box(TREAD / Math.cos(kt) + 0.03, 0.62, 0.22, "#9f978a", M.stone), cx, (ka + kb) / 2 - 0.31, L.z + sg * (L.half + 0.11), 0, 0, kt));
       if (i % 6 === 3) {
         // Post lantern on the kerb, flowers and weeds at its foot.
         const lz = L.z + (i % 12 === 3 ? 1 : -1) * (L.half + 0.35);
