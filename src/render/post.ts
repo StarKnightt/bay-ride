@@ -57,6 +57,11 @@ export class Post {
   private lastRaise = -1e9;
   private raiseBlock = 0;
   private backoff = 4000;
+  /** Consecutive frames clearly over budget. */
+  private hot = 0;
+  private changed = -1e9;
+  /** Scale changes as [ms since page load, new scale, frame ms that triggered it] (checks and captures). */
+  readonly scaleLog: [number, number, number][] = [];
 
   get msaa(): number {
     return this.mrt.samples;
@@ -303,9 +308,15 @@ export class Post {
 
   /**
    * Adaptive resolution: `ms` is the frame's GPU time (scene + post, or the whole frame interval
-   * without a timer). Over budget for 0.5 s steps down, under the low mark for 2 s steps up; the
-   * gap between the marks exceeds one step's cost, and a drop soon after a raise blocks raising
-   * for a growing while, so it settles instead of oscillating.
+   * without a timer).
+   * - Fast drop: three frames in a row more than 12% over budget step down at once, by as many
+   *   steps as the overrun needs (cost ~ scale squared), so a sudden heavy view is caught within a
+   *   few frames instead of after half a second of smoothed overrun.
+   * - Slow drop: the smoothed time over budget for 0.5 s steps down one step (mild overruns).
+   * - Raise: under the low mark for 2 s, and no change for 3 s, one step up. The gap between the
+   *   marks exceeds one step's cost, and a drop soon after a raise blocks raising for a growing
+   *   while, so it settles instead of pumping.
+   * Every change holds the controller for 400 ms (results in flight are from the old scale).
    */
   private control(ms: number, gpu: boolean): void {
     const now = performance.now();
@@ -313,27 +324,35 @@ export class Post {
     this.ctlT = now;
     if (now < this.hold) return;
     this.ema = this.ema > 0 ? this.ema + (ms - this.ema) * 0.15 : ms;
-    // The timer misses the shadow and reflection passes (~1 ms at 1080p).
-    const hi = gpu ? 14.5 : 15.5, lo = gpu ? 12 : 13;
+    // The timer misses the shadow and reflection passes (~1 ms at 1080p). Without it, a 60 Hz
+    // vsync'd frame reads 16.7 ms however light it is, so only a missed vsync counts as over.
+    const hi = gpu ? 14.5 : 18, lo = gpu ? 12 : 13;
+    this.hot = ms > hi * 1.12 ? this.hot + 1 : 0;
     if (this.ema > hi) { this.over += dt; this.under = 0; }
     else if (this.ema < lo) { this.under += dt; this.over = 0; }
     else { this.over = 0; this.under = 0; }
     let next = this.scale;
-    if (this.over >= 0.5 && this.scale > RES_FLOOR) {
+    if (this.hot >= 3 && this.scale > RES_FLOOR) {
+      const want = this.scale * Math.sqrt((hi * 0.95) / ms);
+      next = Math.max(RES_FLOOR, Math.min(this.scale - RES_STEP, Math.round(want * 20) / 20));
+    } else if (this.over >= 0.5 && this.scale > RES_FLOOR) {
       next = Math.max(RES_FLOOR, Math.round((this.scale - RES_STEP) * 20) / 20);
-      if (now - this.lastRaise < 3000) {
-        this.raiseBlock = now + this.backoff;
-        this.backoff = Math.min(30000, this.backoff * 2);
-      }
-    } else if (this.under >= 2 && this.scale < 1 && now >= this.raiseBlock) {
+    } else if (this.under >= 2 && this.scale < 1 && now >= this.raiseBlock && now - this.changed >= 3000) {
       next = Math.min(1, Math.round((this.scale + RES_STEP) * 20) / 20);
       this.lastRaise = now;
     }
+    if (next < this.scale && now - this.lastRaise < 3000) {
+      this.raiseBlock = now + this.backoff;
+      this.backoff = Math.min(30000, this.backoff * 2);
+    }
     if (next !== this.scale) {
+      if (this.scaleLog.length < 200) this.scaleLog.push([Math.round(now), next, +ms.toFixed(1)]);
       this.setScale(next);
       this.over = this.under = 0;
+      this.hot = 0;
       this.ema = 0;
-      this.hold = now + 300;
+      this.changed = now;
+      this.hold = now + 400;
     }
   }
 
