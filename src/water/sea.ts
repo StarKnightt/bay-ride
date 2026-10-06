@@ -381,10 +381,27 @@ const FS = /* glsl */ `
     vec2 r2 = vec2(vnoise(q * 1.2 + uTime * 0.45), vnoise(q * 1.05 - uTime * 0.38 + 3.0)) - 0.5;
     vec2 rip = (r1 * (0.06 + 0.1 * near) + r2 * 0.08 * near * near) * (1.0 - 0.6 * s.foam) * (1.0 - 0.8 * deepK);
     vec2 sl = s.grad * (1.0 - smoothstep(150.0, 900.0, dist) * 0.7) + wk.grad * 1.5;
+    // 1 under a low sun (morning, golden hour, sunset), 0 at noon and at night.
+    float lowSun = smoothstep(0.3, 0.6, uSunColor.r - uSunColor.b) * (1.0 - uNight);
+    // The wake's painted crest lines: inside them the chop, the marks and the glitter step back so
+    // the V's arms read.
+    float wCr = smoothstep(0.03, 0.12, abs(wk.crest));
+    // Long flat ripple strokes (~4 m across by ~0.6 m deep) near the eye: they break the mirrored
+    // sky into bands below, and under a low sun the chop's tone too.
+    float bandK = (1.0 - smoothstep(60.0, 420.0, dist)) * (1.0 - smoothstep(0.08, 0.2, pxM)) * chopK;
+    float bn = 0.5;
+    if (bandK > 0.0) {
+      vec2 rq = q - cameraPosition.xz;
+      bn = vnoise(vec2(dot(rq, side) * 0.22, dot(rq, fwd) * 1.7) + vec2(uTime * 0.15, -uTime * 0.5));
+    }
     // Painted chop: the slope toward the viewer is flattened into three tones with soft clean
-    // edges, so the facets read as brushed strokes rather than a noisy normal map.
-    float tv = dot(gC, fwd) / max(sigR, 0.004);
-    float aw = fwidth(tv) * 1.5 + 0.1;
+    // edges, so the facets read as brushed strokes rather than a noisy normal map. Near the eye
+    // under a low sun the resolved chop alone drew a few big flat-filled shapes (gold mirror and
+    // slate facets, a lava-lamp look): there the tone is also broken by those ripple strokes and
+    // metre-scale ripples, so it paints as strokes of the chop, its edges a little softer.
+    float brkT = (0.15 + 0.85 * lowSun) * (1.0 - smoothstep(20.0, 160.0, dist)) * chopK;
+    float tv = dot(gC, fwd) / max(sigR, 0.004) + ((bn - 0.5) * 2.4 + (r2.x + 0.6 * r2.y) * 0.9) * brkT;
+    float aw = fwidth(tv) * 1.5 + 0.1 + 0.12 * lowSun * nearK;
     // Tones wider than the filter can hold fade to flat instead of shimmering.
     // At dusk the swing is halved: the mirror holds the pale afterglow and the dark violet sky above
     // it, and full-strength tones cut the water into hard dark blotches between them.
@@ -393,10 +410,7 @@ const FS = /* glsl */ `
     // Near the eye, short horizontal ripple bands break the mirrored sky into strokes.
     float band = 0.0;
     // Faded before its rows (~0.6 m) get thinner than a pixel, or they alias into hairlines.
-    float bandK = (1.0 - smoothstep(60.0, 420.0, dist)) * (1.0 - smoothstep(0.08, 0.2, pxM)) * chopK;
     if (bandK > 0.0) {
-      vec2 rq = q - cameraPosition.xz;
-      float bn = vnoise(vec2(dot(rq, side) * 0.22, dot(rq, fwd) * 1.7) + vec2(uTime * 0.15, -uTime * 0.5));
       band = (smoothstep(0.58, 0.66, bn) - 0.7 * smoothstep(0.34, 0.26, bn)) * bandK * (0.6 + 0.4 * gust);
       gU += fwd * band * 0.05 * nearK;
     }
@@ -411,7 +425,7 @@ const FS = /* glsl */ `
       // The rows wander (a warp continuous round the viewer), so the marks never sit on a grid.
       vec2 vd = V.xz / max(length(V.xz), 1e-4);
       vec2 fw = fanD + vec2(0.006 * (sin(vd.x * 23.0 + fanD.x * 41.0) + sin(vd.y * 37.0 - fanD.x * 67.0 + 1.3)), 0.0);
-      dabs = oFanDabs(fw, uTime, gust) * dabK * crestK * (1.0 - 0.6 * wk.slick);
+      dabs = oFanDabs(fw, uTime, gust) * dabK * crestK * (1.0 - 0.6 * wk.slick) * (1.0 - 0.4 * wCr);
     }
     gU += fwd * dabs * 0.06;
     // Near the eye the chop is painted as readable strokes, so the water never reads as glass.
@@ -420,7 +434,7 @@ const FS = /* glsl */ `
     float stC = max(chopK, smoothstep(1.5, 4.0, s.h) * (1.0 - smoothstep(0.05, 0.3, s.brk + s.foam)) * 0.85);
     float stK = stC * (1.0 - smoothstep(90.0, 260.0, dist)) * smoothstep(0.02, 0.05, -V.y) * (1.0 - 0.4 * uNight);
     // The slick keeps a sparser set of strokes: calmer water, not a painted-over sheet.
-    if (stK > 0.01) strokes = oStrokes(V, uTime, gust) * stK * crestK * (1.0 - 0.6 * wk.slick);
+    if (stK > 0.01) strokes = oStrokes(V, uTime, gust) * stK * crestK * (1.0 - 0.6 * wk.slick) * (1.0 - 0.4 * wCr);
     gU += fwd * strokes * 0.05;
     // Where those marks are gone (far off, or low across the water past a few tens of metres) a
     // faint layer of small painted dashes carries on out to the haze: one sparse dab per
@@ -428,7 +442,7 @@ const FS = /* glsl */ `
     // closing over a few seconds, softened to its footprint. Signed: + dark, - light.
     float farM = 0.0;
     float fmK = chopK * (1.0 - smoothstep(0.012, 0.03, -V.y) * (1.0 - smoothstep(320.0, 900.0, dist))) * smoothstep(0.0025, 0.008, -V.y)
-              * (1.0 - smoothstep(1800.0, 2800.0, dist)) * (1.0 - 0.5 * uNight) * (1.0 - 0.6 * wk.slick);
+              * (1.0 - smoothstep(1800.0, 2800.0, dist)) * (1.0 - 0.5 * uNight) * (1.0 - 0.6 * wk.slick) * (1.0 - 0.4 * wCr);
     vec2 fmId;
     vec2 fmF = oFan(fanD, 0.0125, 0.12, -uTime * 0.08, fmId);
     vec2 fmA = vec2(fwidth(fmF.x), fwidth(fmF.y));
@@ -497,8 +511,7 @@ const FS = /* glsl */ `
     float warmSky = smoothstep(0.08, 0.35, uSunColor.r - uSunColor.b) * (1.0 - uNight);
     // 1 under a low sun (morning, golden hour, sunset), 0 at noon and at night: then the sea keeps a
     // cool slate and blue-green body, with the warmth on the crests, the mirror's bright facets and
-    // the glitter, never one milky field.
-    float lowSun = smoothstep(0.3, 0.6, uSunColor.r - uSunColor.b) * (1.0 - uNight);
+    // the glitter, never one milky field (lowSun, declared with the chop above).
     vec3 sunHue = uSunColor / max(max(uSunColor.r, max(uSunColor.g, uSunColor.b)), 0.05);
     // The night's darker mirror, eased at dusk: the twilight sky still lights the water.
     float nDim = uNight * (1.0 - 0.7 * uDusk);
@@ -860,7 +873,11 @@ const FS = /* glsl */ `
     // slate and blue-green strokes between the gold of the facets that mirror the low sky, so the
     // sea is never one milky field (the far band, where the chop is too fine to draw, stays gold).
     vec3 coolSky = mix(coolBody, uSkyZenith * 0.95 / max(uWorldTint, vec3(0.05)), 0.6);
-    col = mix(col, coolSky, 0.85 * lowSun * chopK * smoothstep(0.15, 0.85, tone) * rk);
+    // Each face shaded within: coolest where it turns most to the eye, so no face is one flat fill.
+    col = mix(col, coolSky, 0.85 * lowSun * chopK * smoothstep(0.15, 0.85, tone) * mix(0.6, 1.0, smoothstep(0.6, 1.8, tv)) * rk * (1.0 - 0.5 * wCr));
+    // ...and the gold between them carries the ripple strokes and the swell's lit and shaded faces,
+    // so no large patch is uniform.
+    col *= 1.0 + lowSun * chopK * rk * (0.16 * (bn - 0.5) * nearK + 0.06 * s.swell * offs) * (1.0 - farK);
     // Thin ripple lines of the break bands catch a little more light, broken along their length.
     col *= 1.0 + 0.08 * brkB.y * rk * smoothstep(0.35, 0.6, vnoise(q * 0.21 + 3.0));
     // Night: broad moonlit and sky-lit swells of tone over the water body.
@@ -958,7 +975,7 @@ const FS = /* glsl */ `
       float th = mix(0.3, 0.55, step(0.6, hY)), y0 = (1.0 - th) * fract(hY * 5.3);
       float fl = smoothstep(x0 - sA.x, x0 + sA.x, f.x) * (1.0 - smoothstep(x0 + len - sA.x, x0 + len + sA.x, f.x))
                * smoothstep(y0 - sA.y * 0.5, y0 + sA.y * 0.5, f.y) * (1.0 - smoothstep(y0 + th - sA.y * 0.5, y0 + th + sA.y * 0.5, f.y));
-      pd = fl * step(hash12(sid + 2.3), clamp(path * 1.3, 0.0, 0.8)) * (0.55 + 0.45 * hash12(sid + 5.9));
+      pd = fl * step(hash12(sid + 2.3), clamp(path * 1.3, 0.0, 0.8)) * (0.55 + 0.45 * hash12(sid + 5.9)) * (1.0 - 0.5 * wCr);
       // The few flecks a resolved facet near the eye may light: one to three, not a disc.
       pdM = fl * step(hash12(sid + 6.6), 0.35);
     }
@@ -984,7 +1001,7 @@ const FS = /* glsl */ `
       float sigF = sqrt(resV * 0.5 + lostV) * spread * 2.6 + 0.02;
       vec2 gF = oFanGlint2(fanD, uTime, sl * 0.6 + gC * spread * 0.6, gA ? sH : vec2(100.0), sigF, sigF, sl * 0.6, gB ? sHb : vec2(100.0), sb, sb * 1.1);
       // The glassy slick behind the boat holds a smooth, unbroken streak of light instead.
-      glit = max(gN * 0.6 * (1.0 - lostF), gF.x) * (1.0 - 0.6 * wk.slick);
+      glit = max(gN * 0.6 * (1.0 - lostF), gF.x) * (1.0 - 0.6 * wk.slick) * (1.0 - 0.5 * wCr);
       lampG = gF.y;
     }
     // Under a low sun the path is crisp broken sparkle dabs over a gentle glow: the dabs brighter and
@@ -1140,11 +1157,19 @@ const FS = /* glsl */ `
       WSwash sw = wSwash(q, -s.h, uTime, px);
       foam = mix(sw.foam, foam, max(smoothstep(0.15, 0.6, hA), smoothstep(0.0, 0.2, s.rock)));
     }
-    // The wake: painted crest tone, the dark water against the hull, then its foam.
-    col *= (1.0 + wk.crest * mix(0.2, 0.38, smoothstep(0.1, 0.8, pxM)) * (1.0 - 0.5 * farK)) * (1.0 - 0.22 * wk.contact);
-    // Seen low across the water the glassy slick reads as a lane: a shade darker than the
-    // sparkling chop by day, a little paler under the moon.
-    col *= 1.0 + wk.slick * max(grazing, 0.35) * mix(-0.22, 0.2, uNight);
+    // The wake: painted crest tone, the dark water against the hull, then its foam. Under a low sun
+    // the crest lines catch the sun's warmth and stand well above the gold water, the faces turned
+    // away a shade darker: the fan inside the near arm read no brighter than the chop, so a
+    // crossing boat trailed one line instead of a V.
+    float cG = mix(0.2, 0.38, smoothstep(0.1, 0.8, pxM)) * (1.0 - 0.5 * farK);
+    float cP = max(wk.crest, 0.0), cN = min(wk.crest, 0.0);
+    col *= (1.0 + cP * mix(cG, max(cG, 0.42), lowSun) + cN * cG * (1.0 + 0.3 * lowSun)) * (1.0 - 0.22 * wk.contact);
+    col = mix(col, col * mix(vec3(1.0), sunHue * 1.15, 0.6), lowSun * clamp(cP * 1.5, 0.0, 1.0) * (1.0 - 0.5 * farK));
+    // Seen low across the water the glassy slick reads as a lane: a shade darker and deeper than the
+    // sparkling chop by day (calm water mirroring a clear sky, never a pale sheet), a little paler
+    // under the moon.
+    col *= 1.0 + wk.slick * max(grazing, 0.35) * mix(-0.3, 0.2, uNight);
+    col *= mix(vec3(1.0), vec3(0.92, 0.96, 1.04), clamp(wk.slick * 1.3, 0.0, 1.0) * (1.0 - uNight) * (1.0 - lowSun));
     float foamW = step(foam, wk.foam) * step(0.002, wk.foam);
     foam = max(foam, wk.foam);
     if (foam > 0.002) {
