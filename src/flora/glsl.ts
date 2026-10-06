@@ -145,7 +145,9 @@ void main(){
   float sv = shadowVis(vWPos, Ns);
   float ndl = dot(Ns, uSunDir);
   float lit = smoothstep(-0.12, 0.2, ndl + (vTip - 0.5) * 0.3) * sv;
-  vec3 cLit = base * uSunColor;
+  // A low sun warms the tips; the blades' body keeps its green (the light's level, part of its hue).
+  float sunL = dot(uSunColor, vec3(0.2126, 0.7152, 0.0722));
+  vec3 cLit = base * mix(vec3(sunL), uSunColor, 0.38 + 0.55 * vTip * vTip);
   vec3 cSh = base * uShadowTint * vec3(0.92, 1.0, 1.05);
   vec3 col = mix(cSh, cLit, lit);
   // Darker down among the roots, bright tips.
@@ -158,6 +160,78 @@ void main(){
   col *= 1.0 - 0.2 * uNight;
   col = applyFog(col, vWPos);
   writeOut(col, Ns, -1.0);
+}
+`;
+
+// ------------------------------------------------------------------ the field under and beyond the grass
+
+/**
+ * The grass-covered terrain (the hill, the headland tops): the meadow's own drifts continued past
+ * the blades' reach, broad cool hollows and lime swathes that read from the bay, brush strokes
+ * along the contours at two scales (faded by pixel footprint), and the meadow's lighting, so the
+ * greens keep their hue under a low sun (only the lit ridges take its warmth).
+ */
+const GROUND_VS = /* glsl */ `
+${COMMON}
+out vec3 vWPos;
+out vec3 vN;
+out vec3 vCol;
+void main(){
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWPos = wp.xyz;
+  vN = normalize(mat3(modelMatrix) * normal);
+  vCol = color;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}
+`;
+
+const GROUND_FS = /* glsl */ `
+${COMMON}
+${OUT}
+${FLORA_UNI}
+in vec3 vWPos;
+in vec3 vN;
+in vec3 vCol;
+void main(){
+  gFoot = max(length(dFdx(vWPos)), length(dFdy(vWPos)));
+  vec3 N = normalize(vN);
+  vec3 base = vCol;
+  // Worn footpaths are painted warm into the vertex colour: they keep it.
+  float pathK = smoothstep(-0.01, 0.06, base.r - base.g);
+  float pn = vnoise(vWPos.xz * 0.045 + 3.1);
+  vec3 g = base * mix(vec3(0.92, 1.0, 1.08), vec3(1.12, 1.06, 0.8), smoothstep(0.35, 0.75, pn));
+  float big = vnoise(vWPos.xz * 0.011 + 7.0) * 0.65 + vnoise(vWPos.xz * 0.027 + 2.0) * 0.35;
+  g *= mix(vec3(0.56, 0.72, 0.86), vec3(1.1, 1.08, 0.78), smoothstep(0.3, 0.7, big));
+  float mid = vnoise(vWPos.xz * 0.06 + 1.7);
+  g *= mix(vec3(0.8, 0.88, 0.95), vec3(1.05, 1.04, 0.92), smoothstep(0.25, 0.75, mid));
+  // Strokes along the contour (the slope's level direction), small near and broad far.
+  vec2 ct = normalize(vec2(-N.z, N.x) + vec2(0.25, 0.05));
+  vec2 q = vec2(dot(vWPos.xz, ct), dot(vWPos.xz, vec2(-ct.y, ct.x)));
+  float s1 = vnoise(q * vec2(0.42, 2.1));
+  float s2 = vnoise(q * vec2(0.08, 0.42) + 11.0);
+  float k1 = 1.0 - smoothstep(0.12, 0.5, gFoot);
+  float k2 = 1.0 - smoothstep(1.2, 4.0, gFoot);
+  float st = (s1 - 0.5) * 0.42 * k1 + (s2 - 0.5) * 0.36 * k2;
+  g *= 1.0 + st;
+  // Flecks of lime tips and dark tufts where the blades thin out.
+  float fl = vnoise(vWPos.xz * 1.3 + vec2(s1 * 1.5, 0.0));
+  g = mix(g, g * vec3(1.22, 1.2, 0.78), smoothstep(0.7, 0.8, fl) * k1 * 0.5);
+  g = mix(g, g * vec3(0.62, 0.74, 0.82), smoothstep(0.3, 0.2, fl) * k1 * 0.5);
+  g = mix(g, base * (0.9 + 0.2 * s1), pathK);
+  // Full shadow filtering only where a pixel is small enough to show its stair steps.
+  gFastShadow = gFoot > 0.12;
+  float sv = shadowVis(vWPos, N);
+  float ndl = dot(N, uSunDir);
+  float lit = smoothstep(-0.06, 0.22, ndl + st * 0.4) * sv;
+  float sunL = dot(uSunColor, vec3(0.2126, 0.7152, 0.0722));
+  vec3 cLit = g * mix(vec3(sunL), uSunColor, mix(0.38, 1.0, pathK)) * mix(0.86, 1.0, pathK);
+  cLit += g * uSunColor * 0.22 * smoothstep(0.45, 0.85, ndl) * (1.0 - pathK);
+  vec3 cSh = g * uShadowTint * vec3(0.86, 1.0, 1.12);
+  vec3 col = mix(cSh, cLit, lit);
+  col += g * uSkyMid * 0.1 * (N.y * 0.5 + 0.5);
+  col *= 1.0 - 0.15 * uNight;
+  col = applyFog(col, vWPos);
+  writeOut(col, N, uMask);
 }
 `;
 
@@ -235,7 +309,8 @@ void main(){
   // Painted volume: dark teal-green pockets, a mid green, lime on the sunlit shell.
   vec3 cDeep = vec3(base.r * uLeafDeep.x, base.g * uLeafDeep.y, base.g * uLeafDeep.z + base.b * 0.25);
   vec3 cMid = base * vec3(0.8, 0.92, 0.96);
-  vec3 cLit = base * uLeafLit * uSunColor;
+  float sunL = dot(uSunColor, vec3(0.2126, 0.7152, 0.0722));
+  vec3 cLit = base * uLeafLit * mix(vec3(sunL), uSunColor, 0.42);
   vec3 col = mix(cDeep, cMid, mid);
   col = mix(col, cLit, lit);
   // Each leaf's sunlit edge: a crisp bright touch on the light side of the crown.
@@ -368,6 +443,18 @@ export function meadowMaterial(): THREE.ShaderMaterial {
     side: THREE.DoubleSide,
   });
   m.name = "meadow";
+  return m;
+}
+
+export function fieldMaterial(): THREE.ShaderMaterial {
+  const m = new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    uniforms: { ...uniforms(), uId: { value: ID.ground }, uMask: { value: 0.6 } },
+    vertexShader: GROUND_VS,
+    fragmentShader: GROUND_FS,
+    vertexColors: true,
+  });
+  m.name = "field";
   return m;
 }
 

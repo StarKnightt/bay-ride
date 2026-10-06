@@ -4,6 +4,7 @@ import { uber } from "../../render/materials";
 import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../../render/lightpasses";
 import { RIBBON_HALF, ROAD_Z0, ROAD_Z1, SEA_Y, pnoise, roadX, smooth } from "./road";
 import { pathDist } from "../detail/paths";
+import { fieldMaterial } from "../../flora/glsl";
 
 /**
  * Placeholder coastal landform (later systems refine the shoreline, harbour and town ground):
@@ -90,6 +91,56 @@ export function terrainH(x: number, z: number): number {
 /** The coastal grid exactly as drawn: road-relative columns, rows along z, vertex positions. */
 const GRID = { uu: new Float64Array(0), zs: new Float64Array(0), rx: new Float64Array(0), pos: new Float32Array(0), nu: 0 };
 
+const POOL: { col: THREE.BufferAttribute | null; mat: THREE.BufferAttribute | null } = { col: null, mat: null };
+
+/**
+ * A cool shade pool painted into the grassland under a tree or shrub at (x, z), radius r, depth k
+ * (0..1). The coastal grid only; call `poolsDone` once after the last.
+ */
+export function poolUnder(x: number, z: number, r: number, k: number): void {
+  const col = POOL.col, mat = POOL.mat, g = GRID;
+  if (!col || !mat) return;
+  const j0 = cellOf(g.zs, z - r), j1 = cellOf(g.zs, z + r) + 1;
+  for (let j = j0; j <= j1; j++) {
+    const dz = g.zs[j] - z, u = x - g.rx[j];
+    const i0 = cellOf(g.uu, u - r), i1 = cellOf(g.uu, u + r) + 1;
+    for (let i = i0; i <= i1; i++) {
+      const d2 = ((g.uu[i] - u) ** 2 + dz * dz) / (r * r);
+      if (d2 >= 1) continue;
+      const v = j * g.nu + i;
+      if (mat.getX(v) !== M.ground) continue;
+      const f = (1 - d2) * (1 - d2) * k;
+      col.setXYZ(v, col.getX(v) * (1 - 0.5 * f), col.getY(v) * (1 - 0.36 * f), col.getZ(v) * (1 - 0.18 * f));
+    }
+  }
+}
+
+/** A wash of a drift's flower colour (k of the way) over the grassland, an ellipse with half-axes a along `ang`, b across. */
+export function tintUnder(x: number, z: number, ang: number, a: number, b: number, k: number, c: THREE.Color): void {
+  const col = POOL.col, mat = POOL.mat, g = GRID;
+  if (!col || !mat) return;
+  const ca = Math.cos(ang), sa = Math.sin(ang), r = Math.max(a, b);
+  const j0 = cellOf(g.zs, z - r), j1 = cellOf(g.zs, z + r) + 1;
+  for (let j = j0; j <= j1; j++) {
+    const dz = g.zs[j] - z, u = x - g.rx[j];
+    const i0 = cellOf(g.uu, u - r), i1 = cellOf(g.uu, u + r) + 1;
+    for (let i = i0; i <= i1; i++) {
+      const dx = g.uu[i] - u;
+      const s = (dx * ca + dz * sa) / a, w = (-dx * sa + dz * ca) / b;
+      const d2 = s * s + w * w;
+      if (d2 >= 1) continue;
+      const v = j * g.nu + i;
+      if (mat.getX(v) !== M.ground) continue;
+      const f = (1 - d2) * k;
+      col.setXYZ(v, col.getX(v) + (c.r - col.getX(v)) * f, col.getY(v) + (c.g - col.getY(v)) * f, col.getZ(v) + (c.b - col.getZ(v)) * f);
+    }
+  }
+}
+
+export function poolsDone(): void {
+  if (POOL.col) POOL.col.needsUpdate = true;
+}
+
 /** i with a[i] <= v < a[i + 1] in the sorted array a, clamped to the first and last cell. */
 function cellOf(a: Float64Array, v: number): number {
   let lo = 0, hi = a.length - 1;
@@ -154,6 +205,11 @@ function surface(u: number, z: number, x: number, y: number, slope: number, out:
   if (u >= WALL_IN && u < -RIBBON_HALF + 0.2 && Math.abs(y) < 0.1) {
     out.copy(C.paving);
     return M.plain;
+  }
+  // The island (u = -1000): a broken rock band round the waterline and outcrops on its steeper flanks.
+  if (u < -500 && y > SEA_Y - 1 && (y < SEA_Y + 2.6 + 2.2 * n || slope > 0.22 + 0.25 * n)) {
+    out.copy(C.rock).lerp(C.rockDark, n);
+    return M.stone;
   }
   // Steep or wave-washed land: rock.
   if (slope > 0.42 || (y < SEA_Y + 2.2 && y > SEA_Y - 1 && slope > 0.18 && u < -60)) {
@@ -244,9 +300,12 @@ export function buildTerrain(beachMat: THREE.Material): { terrain: THREE.Mesh; b
   g.computeVertexNormals();
   g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
   paint(g, (x, z) => x - roadX(z));
+  POOL.col = g.attributes.color as THREE.BufferAttribute;
+  POOL.mat = g.attributes.aMat as THREE.BufferAttribute;
   const mesh = new THREE.Mesh(g, uber(ID.ground, 0.6));
   mesh.frustumCulled = false;
   onLayers(mesh, LAYER_SHADOW, LAYER_REFLECT);
+  splitField(mesh);
   const bg = new THREE.BufferGeometry();
   bg.setAttribute("position", g.attributes.position);
   bg.setAttribute("normal", g.attributes.normal);
@@ -281,7 +340,32 @@ export function buildIsland(): THREE.Mesh {
   paint(g, () => -1000);
   const mesh = new THREE.Mesh(g, uber(ID.ground, 0.6));
   onLayers(mesh, LAYER_SHADOW, LAYER_REFLECT);
+  splitField(mesh);
   return mesh;
+}
+
+/**
+ * The grassland triangles (all three corners grass) move to a child mesh drawn with the flora's
+ * field material; rock, paths' stone, paving and sand stay on the uber. Shared vertices, no seams.
+ */
+function splitField(mesh: THREE.Mesh): void {
+  const g = mesh.geometry, mat = g.attributes.aMat, ix = g.index!;
+  const keep: number[] = [], field: number[] = [];
+  for (let i = 0; i < ix.count; i += 3) {
+    const a = ix.getX(i), b = ix.getX(i + 1), c = ix.getX(i + 2);
+    const dst = mat.getX(a) === M.ground && mat.getX(b) === M.ground && mat.getX(c) === M.ground ? field : keep;
+    dst.push(a, b, c);
+  }
+  g.setIndex(new THREE.BufferAttribute(new Uint32Array(keep), 1));
+  const fg = new THREE.BufferGeometry();
+  for (const k of ["position", "normal", "color", "aMat"]) fg.setAttribute(k, g.attributes[k]);
+  fg.setIndex(new THREE.BufferAttribute(new Uint32Array(field), 1));
+  fg.computeBoundingSphere();
+  const f = new THREE.Mesh(fg, fieldMaterial());
+  f.name = "field";
+  f.frustumCulled = mesh.frustumCulled;
+  onLayers(f, LAYER_SHADOW, LAYER_REFLECT);
+  mesh.add(f);
 }
 
 function paint(g: THREE.BufferGeometry, uOf: (x: number, z: number) => number): void {
