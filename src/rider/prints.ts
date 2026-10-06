@@ -18,6 +18,16 @@ const N_RINGS = 24;
 const _m = new THREE.Matrix4(), _m2 = new THREE.Matrix4(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _q = new THREE.Quaternion();
 const _up = new THREE.Vector3(0, 1, 0), _one = new THREE.Vector3(1, 1, 1);
 
+/** Leg i's centre line at world height y (the rider binds it): where a wading leg meets the water. */
+export type LegProbe = (i: number, y: number, out: THREE.Vector3) => boolean;
+let legProbe: LegProbe | null = null;
+export function bindLegs(fn: LegProbe): void {
+  legProbe = fn;
+}
+const _leg = new THREE.Vector3(), _zero = new THREE.Matrix4().makeScale(0, 0, 0);
+/** Foam collar quad (m across) round each wading leg. */
+const COLLAR = 0.3;
+
 export interface WaterProbe {
   /** Water surface height and depth at (x, z) now (depth 0 = dry). */
   (x: number, z: number, t?: number): { y: number; depth: number; wet: number };
@@ -35,6 +45,7 @@ export class Trail {
   private rNext = 0;
   private check = 0;
   private wadeT = [0, 0];
+  private collarS = [0, 0];
   readonly uNow = { value: 0 };
 
   constructor(private water: WaterProbe) {
@@ -92,7 +103,8 @@ export class Trail {
     this.prints.renderOrder = 1;
 
     const rg = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
-    this.rInfo = new THREE.InstancedBufferAttribute(new Float32Array(N_RINGS * 4), 4);
+    // Ripple rings, then one foam collar per leg (aInfo.z = 1) in the same draw.
+    this.rInfo = new THREE.InstancedBufferAttribute(new Float32Array((N_RINGS + 2) * 4), 4);
     rg.setAttribute("aInfo", this.rInfo);
     const rm = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
@@ -105,11 +117,27 @@ export class Trail {
         uniform float uNow; uniform vec3 uWorldTint; uniform float uNight; in vec2 vUv; in vec4 vInfo;
         layout(location = 0) out vec4 gColor; layout(location = 1) out vec4 gNormal;
         void main(){
-          // vInfo: birth, strength. Two rings spreading and thinning, broken into soft arcs.
-          float age = uNow - vInfo.x;
           vec2 q = (vUv - 0.5) * 2.0;
           float r = length(q);
           float ang = atan(q.y, q.x);
+          vec3 light = todLight() * mix(vec3(0.95, 0.97, 1.0), vec3(0.35, 0.42, 0.55), uNight);
+          if (vInfo.z > 0.5) {
+            // Foam collar where a leg meets the water (vInfo: seed, strength): a soft lapping band
+            // hugging the leg, broken into drifting arcs, in two painted steps; dimmer at night.
+            float sd = vInfo.x;
+            float rr = r + 0.035 * sin(uNow * 2.3 + sd) * (0.6 + 0.4 * sin(ang * 2.0 + sd));
+            float band = smoothstep(0.27, 0.36, rr) * (1.0 - smoothstep(0.4, 0.78, rr));
+            float br = 0.55 + 0.45 * sin(ang * 3.0 + uNow * 1.1 + sd) * sin(ang * 5.0 - uNow * 0.7 + sd * 2.0);
+            float c = band * br;
+            c = smoothstep(0.16, 0.3, c) * 0.7 + smoothstep(0.45, 0.6, c) * 0.3;
+            c *= vInfo.y;
+            if (c < 0.004) discard;
+            gColor = vec4(light * uWorldTint * c * 0.34 * mix(1.0, 0.6, uNight), 0.0);
+            gNormal = vec4(0.0);
+            return;
+          }
+          // vInfo: birth, strength. Two rings spreading and thinning, broken into soft arcs.
+          float age = uNow - vInfo.x;
           float a = 0.0;
           for (int k = 0; k < 2; k++) {
             float lag = float(k) * 0.35;
@@ -121,7 +149,6 @@ export class Trail {
           }
           a *= vInfo.y * (1.0 - smoothstep(0.85, 1.0, r));
           if (a < 0.004) discard;
-          vec3 light = todLight() * mix(vec3(0.95, 0.97, 1.0), vec3(0.35, 0.42, 0.55), uNight);
           gColor = vec4(light * uWorldTint * a * 0.2, 0.0);
           gNormal = vec4(0.0);
         }`,
@@ -135,8 +162,9 @@ export class Trail {
       blendSrcAlpha: THREE.ZeroFactor,
       blendDstAlpha: THREE.OneFactor,
     });
-    this.rings = new THREE.InstancedMesh(rg, rm, N_RINGS);
-    this.rings.count = 0;
+    this.rings = new THREE.InstancedMesh(rg, rm, N_RINGS + 2);
+    for (let i = 0; i < N_RINGS + 2; i++) this.rings.setMatrixAt(i, _zero);
+    this.rings.count = N_RINGS + 2;
     this.rings.frustumCulled = false;
     this.rings.renderOrder = 3;
     this.group.add(this.prints, this.rings);
@@ -166,7 +194,6 @@ export class Trail {
     const i = this.rNext;
     this.rNext = (this.rNext + 1) % N_RINGS;
     this.r[i] = { x, z, t0: now, s };
-    this.rings.count = Math.max(this.rings.count, i + 1);
     this.rInfo.setXYZW(i, now, s, 0, 0);
     this.rInfo.needsUpdate = true;
   }
@@ -189,6 +216,24 @@ export class Trail {
       m.compose(_p.set(r.x, y, r.z), _q, _s.set(size, 1, size));
       this.rings.setMatrixAt(i, m);
     }
+    // Foam collars: where each leg crosses the water surface, faded in and out with the wading.
+    for (let k = 0; k < 2; k++) {
+      let s = 0, y = 0;
+      if (feet && legProbe) {
+        const w = this.water(feet[k].x, feet[k].z);
+        if (Number.isFinite(w.y) && w.depth > 0.03 && feet[k].y < w.y && legProbe(k, w.y, _leg)) {
+          y = this.water(_leg.x, _leg.z).y;
+          if (!Number.isFinite(y)) y = w.y;
+          s = Math.min(1, (w.depth - 0.03) / 0.05) * Math.min(1, (w.y - feet[k].y) / 0.04);
+        }
+      }
+      const c = (this.collarS[k] += (s - this.collarS[k]) * (dt > 0 ? 1 - Math.exp(-8 * dt) : 1));
+      if (c > 0.01) m.compose(_p.set(_leg.x, y + 0.008, _leg.z), _q, _s.set(COLLAR, 1, COLLAR));
+      else m.copy(_zero);
+      this.rings.setMatrixAt(N_RINGS + k, m);
+      this.rInfo.setXYZW(N_RINGS + k, 1.7 + k * 2.3, c, 1, 0);
+    }
+    this.rInfo.needsUpdate = true;
     this.rings.instanceMatrix.needsUpdate = true;
     if (feet && dt > 0) {
       for (let k = 0; k < 2; k++) {
@@ -237,7 +282,9 @@ export class Trail {
     this.p = [];
     this.r = [];
     this.prints.count = 0;
-    this.rings.count = 0;
+    for (let i = 0; i < N_RINGS + 2; i++) this.rings.setMatrixAt(i, _zero);
+    this.rings.instanceMatrix.needsUpdate = true;
+    this.collarS[0] = this.collarS[1] = 0;
     this.pNext = this.rNext = 0;
   }
 }

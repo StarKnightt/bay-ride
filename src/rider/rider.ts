@@ -3,6 +3,7 @@ import { G, shadowDepthMaterial } from "../render/materials";
 import { LAYER_CHAR_HAT } from "../render/lightpasses";
 import { loadHeroine, mergeHeroine, type ClipMeta, type Heroine } from "./heroine";
 import { FACE_U } from "./heroineFace";
+import { bindLegs } from "./prints";
 
 /**
  * The player character: the heroine built in Blender (tools/character → public/models/heroine.glb),
@@ -104,6 +105,50 @@ const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vecto
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _pq = new THREE.Quaternion();
 const _Y = new THREE.Vector3(0, 1, 0);
+const _ik0 = new THREE.Vector3(), _ik1 = new THREE.Vector3();
+// Body overrides (chest frame, arm aims, re-stood legs): never handed to twoBone as its own scratch.
+const _ku = new THREE.Vector3(), _kl = new THREE.Vector3(), _kf = new THREE.Vector3(), _kr = new THREE.Vector3();
+const _o0 = new THREE.Vector3(), _o1 = new THREE.Vector3(), _o2 = new THREE.Vector3(), _o3 = new THREE.Vector3();
+const _o4 = new THREE.Vector3(), _o5 = new THREE.Vector3(), _oT = new THREE.Vector3(), _oH = new THREE.Vector3();
+const _oq0 = new THREE.Quaternion(), _oq1 = new THREE.Quaternion();
+const _ank = [new THREE.Vector3(), new THREE.Vector3()], _fq = [new THREE.Quaternion(), new THREE.Quaternion()];
+const _ang = [0, 0, 0];
+const DEG = Math.PI / 180;
+
+/** Rotate v about a unit axis by ang (rad), in place. */
+function rotAxis(v: THREE.Vector3, axis: THREE.Vector3, ang: number, tmp: THREE.Vector3): THREE.Vector3 {
+  const c = Math.cos(ang), s = Math.sin(ang), d = axis.dot(v);
+  tmp.crossVectors(axis, v);
+  return v.multiplyScalar(c).addScaledVector(tmp, s).addScaledVector(axis, d * (1 - c));
+}
+
+/**
+ * The jump's arms over the clip, by clip time (s): abduction from hanging, flexion forward (back is
+ * negative) and elbow bend, in degrees of her chest frame. Back on the crouch, up and a little
+ * forward through take-off, floated out and soft at the apex, down and in for the landing.
+ */
+const JT = [0.27, 0.37, 0.47, 0.62, 0.78, 0.9, 1.04, 1.2];
+const JAB = [14, 12, 30, 54, 48, 28, 18, 14];
+const JFL = [-30, -48, 100, 26, 16, 30, 14, 8];
+const JEL = [34, 32, 40, 50, 52, 46, 36, 30];
+/** Left wider and straighter, right tighter (and a beat behind): never mirrored. */
+const JAS = [0, 2, 4, 10, 12, 6, 2, 0];
+const keyAt = (A: number[], i: number, k: number) => A[i] + (A[i + 1] - A[i]) * k;
+export function jumpArmPose(t: number, side: number, out: number[]): number[] {
+  const u = side > 0 ? t : t - 0.025;
+  let i = 0;
+  while (i < JT.length - 2 && u > JT[i + 1]) i++;
+  const k = smooth(JT[i], JT[i + 1], u);
+  const as = keyAt(JAS, i, k) * side;
+  out[0] = keyAt(JAB, i, k) + as;
+  out[1] = keyAt(JFL, i, k);
+  out[2] = keyAt(JEL, i, k) - as * 0.5;
+  return out;
+}
+/** Her hands stay below this far under the shoulder joints on the run (m): chest height. */
+export const RUN_HAND_CAP = 0.16;
+/** Seated: her feet this much further forward on the boards than the sit clip puts them (m). */
+export const SEAT_FEET_FWD = 0.21;
 
 /** Rotate a bone by a world-space rotation about its own head (children follow). */
 function rotateWorld(b: THREE.Object3D, q: THREE.Quaternion): void {
@@ -134,10 +179,10 @@ function twoBone(a: THREE.Object3D, b: THREE.Object3D, c: THREE.Object3D, t: THR
   const babc0 = Math.acos(clamp(ba.dot(bc), -1, 1));
   const acab1 = Math.acos(clamp((lcb * lcb - lab * lab - lat * lat) / (-2 * lab * lat), -1, 1));
   const babc1 = Math.acos(clamp((lat * lat - lab * lab - lcb * lcb) / (-2 * lab * lcb), -1, 1));
-  const axis0 = new THREE.Vector3().crossVectors(ac, ab).addScaledVector(hint, 0.02).normalize();
-  const at = new THREE.Vector3().subVectors(t, pa).normalize();
+  const axis0 = _ik0.crossVectors(ac, ab).addScaledVector(hint, 0.02).normalize();
+  const at = _v3.subVectors(t, pa).normalize();
   const acat0 = Math.acos(clamp(ac.dot(at), -1, 1));
-  const axis1 = new THREE.Vector3().crossVectors(ac, at);
+  const axis1 = _ik1.crossVectors(ac, at);
   rotateWorld(b, _q.setFromAxisAngle(axis0, babc1 - babc0));
   rotateWorld(a, _q.setFromAxisAngle(axis0, acab1 - acab0));
   if (axis1.lengthSq() > 1e-12) rotateWorld(a, _q.setFromAxisAngle(axis1.normalize(), acat0));
@@ -194,6 +239,9 @@ interface Spring {
   hz: number;
   /** Keep the tip from swinging into her head (hair). */
   head: boolean;
+  /** Downward pull against the wind (ribbon tails hang heavy), and flutter twist (rad). */
+  droop: number;
+  twist: number;
   o: THREE.Vector3;
   ov: THREE.Vector3;
   /** Root last frame, and a point mass hung on the root (lags it as she moves: inertia). */
@@ -202,7 +250,7 @@ interface Spring {
   lagV: THREE.Vector3;
 }
 
-const GRIP_OFF = new THREE.Vector3(-0.005, 0.028, 0.045);
+const GRIP_OFF = new THREE.Vector3(-0.005, 0.017, 0.045);
 const FPP_HIDE = ["face", "hair", "hat", "ribbon", "frame", "shirt", "cami"];
 
 export class Rider {
@@ -234,6 +282,11 @@ export class Rider {
   private springs: Spring[] = [];
   private headC = new THREE.Vector3();
   private eyeC = new THREE.Vector3();
+  /** Arms, left (side +1) then right (side -1). */
+  private arms: { s: number; up: THREE.Bone; fore: THREE.Bone; hand: THREE.Bone }[];
+  /** Idle hat touch: her left wrist beside the temple and the brim point her fingers reach (head space). */
+  private brimW = new THREE.Vector3();
+  private brimP = new THREE.Vector3();
   private standK = 1;
   private fppOn = false;
   private fppArms = false;
@@ -300,11 +353,18 @@ export class Rider {
     const hc = h.meta.face.headC as unknown as number[];
     this.headC.copy(head.worldToLocal(h.root.localToWorld(new THREE.Vector3(hc[0], hc[1], hc[2]))));
     this.eyeC.copy(head.worldToLocal(h.root.localToWorld(new THREE.Vector3(hc[0], hc[1] - 0.009, hc[2] + 0.075))));
+    // glTF root: +x her left, +z forward. The brim is 0.21 m round the crown, ~0.07 above the head centre.
+    this.brimW.copy(head.worldToLocal(h.root.localToWorld(new THREE.Vector3(hc[0] + 0.118, hc[1] - 0.012, hc[2] + 0.07))));
+    this.brimP.copy(head.worldToLocal(h.root.localToWorld(new THREE.Vector3(hc[0] + 0.1, hc[1] + 0.075, hc[2] + 0.13))));
+    this.arms = (["L", "R"] as const).map((s) => ({
+      s: s === "L" ? 1 : -1, up: this.bone(`upperarm_${s}`), fore: this.bone(`forearm_${s}`), hand: this.bone(`hand_${s}`),
+    }));
+    bindLegs((i, y, out) => this.legAt(i, y, out));
 
     const chain = (names: string[], o: Partial<Spring>): void => {
       const share = names.length === 3 ? [0.42, 0.33, 0.25] : [0.55, 0.45];
       this.springs.push({
-        bones: names.map(this.bone), share, gain: 0.05, inertia: 0.6, max: 0.4, hz: 1.6, head: false,
+        bones: names.map(this.bone), share, gain: 0.05, inertia: 0.6, max: 0.4, hz: 1.6, head: false, droop: 0, twist: 0,
         o: new THREE.Vector3(), ov: new THREE.Vector3(), prev: new THREE.Vector3(), lag: new THREE.Vector3(), lagV: new THREE.Vector3(), ...o,
       });
     };
@@ -313,7 +373,7 @@ export class Rider {
       chain([1, 2, 3].map((i) => `hair${k}_${i}`), { gain: front ? 0.035 : 0.055, inertia: front ? 0.35 : 0.6, max: front ? 0.22 : 0.45, hz: front ? 2.2 : 1.5, head: true });
     }
     for (const s of ["L", "R"]) {
-      chain([1, 2, 3].map((i) => `ribbon_${s}${i}`), { gain: 0.13, inertia: 1.0, max: 1.0, hz: 1.2 });
+      chain([1, 2, 3].map((i) => `ribbon_${s}${i}`), { gain: 0.13, inertia: 1.0, max: 1.0, hz: 1.2, droop: 0.09, twist: 0.35 });
       chain([1, 2].map((i) => `knot_${s}${i}`), { gain: 0.03, inertia: 0.5, max: 0.25, hz: 2.4 });
     }
 
@@ -509,6 +569,8 @@ export class Rider {
     this.bodyLean(f, seat);
     const free = !!f.boating || seat > 0;
     this.feetIK(dt, f, free, gait, run, jw);
+    if (seat > 0) this.seatLegs(seat);
+    else this.bodyLife(f, gait, run, jw);
     if (seat > 0 && f.grip) this.armIK(f.grip, seat);
     this.secondary(dt, f, seat);
     this.simInit = true;
@@ -704,6 +766,178 @@ export class Rider {
     setWorldQuat(hand, hq);
   }
 
+  // ---------------------------------------------------------------- procedural body over the clips
+
+  /** Her chest frame now: up (spine2 → neck), left (shoulder to shoulder) and forward, orthonormal. */
+  private chestFrame(): void {
+    wpos(this.bone("spine2"), _o0);
+    wpos(this.bone("neck"), _ku).sub(_o0).normalize();
+    wpos(this.arms[0].up, _kl).sub(wpos(this.arms[1].up, _o0)).normalize();
+    _kf.crossVectors(_kl, _ku).normalize();
+    _kl.crossVectors(_ku, _kf).normalize();
+  }
+
+  /**
+   * Swing one arm (side +1 left, -1 right) toward a chest-frame pose by weight w: upper arm by
+   * abduction / flexion, forearm bent `el` toward the front and in, the wrist dropped by `relax`.
+   */
+  private aimArm(side: number, ab: number, fl: number, el: number, w: number, relax: number): void {
+    if (w <= 1e-3) return;
+    const A = this.arms[side > 0 ? 0 : 1];
+    _o2.copy(_ku).multiplyScalar(-Math.cos(ab * DEG)).addScaledVector(_kl, side * Math.sin(ab * DEG));
+    rotAxis(_o2, _kl, -fl * DEG, _o5).normalize();
+    _o3.copy(_kf).multiplyScalar(0.7).addScaledVector(_kl, -0.4 * side).addScaledVector(_ku, 0.5);
+    _o3.addScaledVector(_o2, -_o3.dot(_o2)).normalize();
+    _o4.copy(_o2).multiplyScalar(Math.cos(el * DEG)).addScaledVector(_o3, Math.sin(el * DEG));
+    _o5.subVectors(wpos(A.fore, _o1), wpos(A.up, _o0)).normalize();
+    rotateWorld(A.up, _oq1.identity().slerp(_oq0.setFromUnitVectors(_o5, _o2), w));
+    _o5.subVectors(wpos(A.hand, _o1), wpos(A.fore, _o0)).normalize();
+    rotateWorld(A.fore, _oq1.identity().slerp(_oq0.setFromUnitVectors(_o5, _o4), w));
+    if (relax > 0) {
+      _o5.copy(_o4).addScaledVector(_ku, -0.3).normalize();
+      rotateWorld(A.hand, _oq1.identity().slerp(_oq0.setFromUnitVectors(_o4, _o5), relax * w));
+    }
+  }
+
+  /** Bend one elbow further by ang (rad) in its own plane. */
+  private bendElbow(side: number, ang: number): void {
+    const A = this.arms[side > 0 ? 0 : 1];
+    const e = wpos(A.fore, _o0);
+    _o1.subVectors(e, wpos(A.up, _o2)).normalize();
+    _o2.subVectors(wpos(A.hand, _o3), e).normalize();
+    _o3.crossVectors(_o1, _o2);
+    if (_o3.lengthSq() < 1e-6) return;
+    rotateWorld(A.fore, _oq0.setFromAxisAngle(_o3.normalize(), ang));
+  }
+
+  /**
+   * Life over the standing clips: the jump's arms, the run's arms held to chest height, and at
+   * idle a slow weight shift (hip dropped over the free leg, its knee in), a head tilt, softer
+   * elbows and, on a breezy moment now and then, her left hand up to the hat brim.
+   */
+  private bodyLife(f: FootState, gait: number, run: number, jw: number): void {
+    const w = this.walker;
+    const t = f.time;
+    const kI = (1 - jw) * (1 - smooth(0.04, 0.25, gait)) * (f.boating ? 0 : 1) * ((f.air ?? 0) > 0.5 ? 0 : 1);
+    const fwd = _kr.set(0, 0, -1).applyQuaternion(w.quaternion);
+
+    if (kI > 1e-3) {
+      // Weight shift: alternating every few seconds between settled into the right hip and easing off.
+      const wave = 0.5 + 0.5 * Math.tanh(2.5 * Math.sin((t * Math.PI * 2) / 7.3 + 0.7));
+      const roll = -(9 + 3 * wave) * DEG * kI;
+      for (let i = 0; i < 2; i++) {
+        wpos(this.legs[i].foot, _ank[i]);
+        this.legs[i].foot.getWorldQuaternion(_fq[i]);
+      }
+      const hips = this.bone("hips");
+      const yR = wpos(this.legs[0].thigh, _o0).y;
+      rotateWorld(hips, _oq0.setFromAxisAngle(fwd, roll));
+      // Keep the standing hip's height and slide it out over the foot.
+      const hp = wpos(hips, _o1);
+      hp.y += yR - wpos(this.legs[0].thigh, _o0).y;
+      hp.addScaledVector(_o2.set(1, 0, 0).applyQuaternion(w.quaternion), (0.008 + 0.012 * wave) * kI);
+      hips.position.copy(hips.parent!.worldToLocal(hp));
+      hips.updateMatrixWorld(true);
+      rotateWorld(this.bone("spine"), _oq0.setFromAxisAngle(fwd, -roll * 1.1));
+      _oH.set(1, 0, 0).applyQuaternion(w.quaternion);
+      for (let i = 0; i < 2; i++) {
+        const L = this.legs[i];
+        twoBone(L.thigh, L.shin, L.foot, _ank[i], _oH);
+        if (i === 1) {
+          // The free knee turns in (toward her right) about the hip-ankle line: the foot stays put.
+          const hipP = wpos(L.thigh, _o0);
+          _o1.subVectors(_ank[1], hipP).normalize();
+          _o2.subVectors(wpos(L.shin, _o3), hipP);
+          _o3.crossVectors(_o1, _o2);
+          const sg = Math.sign(_o3.dot(_oH)) || 1;
+          rotateWorld(L.thigh, _oq0.setFromAxisAngle(_o1, sg * (6 + 4 * wave) * DEG * kI));
+        }
+        setWorldQuat(L.foot, _fq[i]);
+      }
+      rotateWorld(this.bone("head"), _oq0.setFromAxisAngle(fwd, (2.5 + 1.5 * Math.sin(t * 0.7)) * DEG * kI));
+    }
+
+    if (jw <= 1e-3 && kI <= 1e-3 && run * gait <= 1e-3) return;
+    this.chestFrame();
+    if (jw > 1e-3) {
+      const jt = clamp(f.jumpT ?? 0, JT[0], JT[JT.length - 1]);
+      for (let side = 1; side >= -1; side -= 2) {
+        jumpArmPose(jt, side, _ang);
+        this.aimArm(side, _ang[0], _ang[1], _ang[2], jw, 0.6);
+      }
+    }
+    const kR = gait * run * (1 - jw);
+    if (kR > 1e-3)
+      for (const A of this.arms) {
+        const sh = wpos(A.up, _o0), hd = wpos(A.hand, _o1);
+        const over = hd.y - (sh.y - RUN_HAND_CAP);
+        if (over <= 0) continue;
+        _o2.subVectors(hd, sh);
+        const horiz = Math.max(Math.hypot(_o2.x, _o2.z), 0.08);
+        _o3.crossVectors(_o2, _o4.set(0, -1, 0));
+        if (_o3.lengthSq() < 1e-8) continue;
+        rotateWorld(A.up, _oq0.setFromAxisAngle(_o3.normalize(), Math.min(over / horiz, 0.7) * kR));
+      }
+    if (kI > 1e-3) {
+      this.bendElbow(1, 7 * DEG * kI);
+      this.bendElbow(-1, 6 * DEG * kI);
+      // Hat touch: ~3 s every 13 s, on the windows that open in a gust.
+      const P = 13, ph = frac((t + 4) / P) * P, t0 = t - ph + 1.5;
+      const gust = 0.5 + 0.5 * Math.sin(t0 * 0.9) * Math.sin(t0 * 0.37 + 1.1);
+      const env = smooth(0, 0.75, ph) * (1 - smooth(2.2, 3.1, ph)) * smooth(0.3, 0.45, gust) * smooth(0.85, 1, kI);
+      if (env > 1e-3) {
+        const A = this.arms[0];
+        this.aimArm(1, 62, 50, 115, env, 0);
+        const head = this.bone("head");
+        head.localToWorld(_oT.copy(this.brimW));
+        _oT.lerpVectors(wpos(A.hand, _o0), _oT, env);
+        twoBone(A.up, A.fore, A.hand, _oT, _kf);
+        // Fingers onto the brim.
+        head.localToWorld(_o1.copy(this.brimP)).sub(wpos(A.hand, _o0)).normalize();
+        _o2.subVectors(_o0, wpos(A.fore, _o3)).normalize();
+        rotateWorld(A.hand, _oq1.identity().slerp(_oq0.setFromUnitVectors(_o2, _o1), env * 0.8));
+      }
+    }
+  }
+
+  /**
+   * Seated: the clip's knees ride near waist height off the low bench; her feet go further forward
+   * on the boards (same height, same sole angle) so the knees come down near hip height. Her left
+   * hand stays on her knee.
+   */
+  private seatLegs(seat: number): void {
+    const w = this.walker;
+    const fwd = _kr.set(0, 0, -1).applyQuaternion(w.quaternion);
+    _oH.set(1, 0, 0).applyQuaternion(w.quaternion);
+    const L1 = this.legs[1];
+    const k0 = wpos(L1.shin, _o4);
+    for (let i = 0; i < 2; i++) {
+      const L = this.legs[i];
+      L.foot.getWorldQuaternion(_fq[i]);
+      wpos(L.foot, _ank[i]).addScaledVector(fwd, SEAT_FEET_FWD * seat);
+      twoBone(L.thigh, L.shin, L.foot, _ank[i], _oH);
+      setWorldQuat(L.foot, _fq[i]);
+    }
+    // The lowered knee is past her reach: the hand rests a little up the thigh instead.
+    const A = this.arms[0];
+    A.hand.getWorldQuaternion(_oq1);
+    _o1.lerpVectors(wpos(L1.shin, _o1), wpos(L1.thigh, _o2), 0.3 * seat);
+    _oT.copy(wpos(A.hand, _o0)).add(_o1).sub(k0);
+    twoBone(A.up, A.fore, A.hand, _oT, _o5.set(0, -1, 0));
+    setWorldQuat(A.hand, _oq1);
+  }
+
+  /** Point on leg i's centre line at world height y (shin, or thigh above the knee); false if off it. */
+  legAt(i: number, y: number, out: THREE.Vector3): boolean {
+    const L = this.legs[i];
+    const a = wpos(L.foot, _o0), k = wpos(L.shin, _o1);
+    if (y < a.y) return false;
+    if (y <= k.y) return !!out.lerpVectors(a, k, (y - a.y) / Math.max(k.y - a.y, 1e-4));
+    const hp = wpos(L.thigh, _o2);
+    if (y > hp.y) return false;
+    return !!out.lerpVectors(k, hp, (y - k.y) / Math.max(hp.y - k.y, 1e-4));
+  }
+
   /** Distance from the tiller grip to where her hand holds it (tests; walker-space grip). */
   gripError(grip: THREE.Vector3): number {
     const t = _v3.copy(grip).add(GRIP_OFF).applyMatrix4(this.walker.matrixWorld);
@@ -751,6 +985,7 @@ export class Rider {
       }
       sp.prev.copy(root);
       F.copy(this.wind).multiplyScalar(sp.gain).addScaledVector(_v.subVectors(sp.lag, root), sp.inertia / len);
+      F.y -= sp.droop;
       ot.copy(F).addScaledVector(d, -F.dot(d)).clampLength(0, sp.max);
       if (sp.head) {
         // Never toward the middle of her head.
@@ -769,7 +1004,12 @@ export class Rider {
         }
       if (sp.o.lengthSq() < 1e-8) continue;
       _q.setFromUnitVectors(d, _v.copy(d).add(sp.o).normalize());
-      for (let j = 0; j < sp.bones.length; j++) rotateWorld(sp.bones[j], _q2.identity().slerp(_q, sp.share[j]).clone());
+      for (let j = 0; j < sp.bones.length; j++) rotateWorld(sp.bones[j], _oq1.identity().slerp(_q, sp.share[j]));
+      // Ribbon tails turn over along their length as they flutter (more in the gusts).
+      if (sp.twist > 0) {
+        const tw = sp.twist * (0.4 + 0.6 * gust) * Math.sin(t * 2.7 + sp.share.length * 1.3 + root.x * 9.0);
+        for (let j = 1; j < sp.bones.length; j++) rotateWorld(sp.bones[j], _oq1.setFromAxisAngle(_v, tw * sp.share[j]));
+      }
     }
     this.simAcc -= n * h;
   }

@@ -346,8 +346,11 @@ export function buildBoat(): BoatModel {
     xf(box(0.25, 0.018, 0.27, DARK, M.metal), 0, -0.6, 0.15),
     xf(cyl(0.055, 0.045, 0.3, DARK, M.metal, 10), 0, -0.71, 0.15, Math.PI / 2),
     xf(box(0.02, 0.13, 0.13, DARK, M.metal), 0, -0.79, 0.18),
-    beam(v3(0, 0.12, 0.0), v3(0, 0.1, -0.7), 0.024, "#4a4f54", M.metal, 6),
-    xf(cyl(0.033, 0.03, 0.17, "#26282b", M.metal, 8), 0, 0.1, -0.76, Math.PI / 2),
+    // Tiller: a slim tapered ash handle from a metal collar, a lighter turned grip and a knob end.
+    xf(cyl(0.022, 0.022, 0.05, "#4a4f54", M.metal, 8), 0, 0.12, -0.02, Math.PI / 2),
+    beam(v3(0, 0.12, -0.04), v3(0, 0.1, -0.66), 0.015, "#9a6a3e", M.plain, 8, 0.011),
+    xf(cyl(0.0165, 0.0145, 0.14, "#c99460", M.plain, 8), 0, 0.1, -0.735, Math.PI / 2),
+    xf(sphere(0.019, "#b9844f", M.plain, 8, 6), 0, 0.1, -0.81),
   ];
   const motorMesh = new THREE.Mesh(merge(mp), uber(ID.motor, 1));
   motor.add(motorMesh);
