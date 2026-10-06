@@ -91,34 +91,42 @@ function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
   const c = new THREE.Color();
   const wet = new THREE.Color("#4f4c49");
   let n = 0;
-  /** One faceted stone; `shore`: the island's sea-worn rocks, darker, low-contrast, no moss. */
+  /** One rounded stone; `shore`: the island's sea-worn rocks, darker, a wet foot, salt lichen, no moss. */
   const stoneAt = (x: number, z: number, s: number, y: number, shore: boolean) => {
-    // Faceted: each plane takes one painted tone (light warm tops, warm mid faces, cool shadow
-    // planes underneath), with moss on the tops and lichen patches of a few faces each.
-    const raw = blob(1, 2, 0.22, r() * 100).toNonIndexed();
-    raw.computeVertexNormals();
-    const g = prep(raw, null, M.stone);
-    const p = g.attributes.position, nr = g.attributes.normal;
+    // Smooth, bedded and rounded (never a faceted polyhedron): lumps from a product of sines, the
+    // top squashed into a worn dome and the underside flattened into the ground. Colour per vertex,
+    // blended across faces: lit warm top, warm flanks, cool underside, moss creeping over the top
+    // in mottled patches and lichen blooms (all at sizes of 15 cm and up, so nothing speckles).
+    const sd = r() * 100;
+    const g = prep(blob(1, s > 1.1 ? 3 : 2, 0.12, sd), null, M.stone);
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const vx = p.getX(i), vy = p.getY(i), vz = p.getZ(i);
+      const lump = Math.sin(vx * 2.1 + sd) * Math.sin(vy * 2.7 + sd * 1.3) * Math.sin(vz * 2.3 + sd * 0.7);
+      const k = 1 + 0.2 * lump;
+      p.setXYZ(i, vx * k, (vy > 0 ? vy * 0.66 : vy * 0.32) * k, vz * k);
+    }
+    g.computeVertexNormals();
+    const nr = g.attributes.normal;
     const col = new Float32Array(p.count * 3);
-    for (let i = 0; i < p.count; i += 3) {
-      const up = (nr.getY(i) + nr.getY(i + 1) + nr.getY(i + 2)) / 3, py = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3;
-      const px = p.getX(i), pz = p.getZ(i);
-      const mot = 0.5 + 0.5 * Math.sin(px * 5.3 + n) * Math.sin(pz * 4.7 - n);
-      if (up > 0.55) c.copy(top);
-      else if (up > -0.1) c.copy(stone).lerp(warm, 0.5 + 0.5 * Math.sin(px * 3.1 + pz * 2.3 + n));
-      else c.copy(cool);
-      c.lerp(dark, r() * 0.22 + (py < -0.2 ? 0.2 : 0));
-      if (shore) c.lerp(wet, 0.25 + (py < 0 ? 0.15 : 0));
-      else {
-        c.lerp(moss, Math.max(0, Math.min(1, (up - 0.5 + (mot - 0.5) * 0.6) * 2.2)) * 0.75);
-        const lp = Math.sin(px * 7.1 - n) * Math.sin(pz * 6.3 + n * 0.7) * Math.sin(py * 5.9 + n);
-        if (lp > 0.45 && up > -0.2) c.lerp(lp > 0.7 ? lichenO : lichen, 0.7);
+    for (let i = 0; i < p.count; i++) {
+      const up = nr.getY(i), px = p.getX(i), py = p.getY(i), pz = p.getZ(i);
+      const mot = 0.5 + 0.5 * Math.sin(px * 5.3 + sd) * Math.sin(pz * 4.7 - sd) * Math.sin(py * 6.1 + 1.3);
+      c.copy(stone).lerp(warm, 0.35 + 0.35 * Math.sin(px * 2.1 + pz * 1.7 + sd));
+      c.lerp(top, Math.max(0, Math.min(1, (up - 0.2) * 1.6)) * 0.75);
+      c.lerp(cool, Math.max(0, Math.min(1, -up * 1.4)) * 0.8);
+      c.lerp(dark, 0.12 + 0.25 * (1 - mot) * (up < 0 ? 1 : 0.4));
+      const lp = Math.sin(px * 4.1 - sd) * Math.sin(pz * 3.7 + sd * 0.7) * Math.sin(py * 3.3 + sd);
+      if (shore) {
+        c.lerp(wet, Math.max(0, Math.min(1, (0.05 - py) * 2.5)) * 0.6 + 0.12);
+        c.lerp(lichen, Math.max(0, Math.min(1, (lp - 0.35) * 3)) * Math.max(0, up) * 0.45);
+      } else {
+        c.lerp(moss.clone().lerp(lichen, mot * 0.25), Math.max(0, Math.min(1, (up - 0.3 + (mot - 0.5) * 0.8) * 2.2)) * 0.8);
+        if (up > -0.2) c.lerp(lp > 0.75 ? lichenO : lichen, Math.max(0, Math.min(1, (lp - 0.45) * 3)) * 0.55);
       }
-      for (let k = 0; k < 3; k++) {
-        col[(i + k) * 3] = c.r;
-        col[(i + k) * 3 + 1] = c.g;
-        col[(i + k) * 3 + 2] = c.b;
-      }
+      col[i * 3] = c.r;
+      col[i * 3 + 1] = c.g;
+      col[i * 3 + 2] = c.b;
     }
     g.setAttribute("color", new THREE.BufferAttribute(col, 3));
     g.scale(s * range(r, 1.0, 1.5), s * range(r, 0.55, 0.8), s * range(r, 0.9, 1.3));
