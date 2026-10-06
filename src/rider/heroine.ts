@@ -39,6 +39,12 @@ const ROLES: Record<string, Role> = {
   frame: { id: ID.eye, mt: M.lacquer, group: "frame" },
 };
 
+/**
+ * Her dark accents, same hues: the hat band, the sandals' leather and the shirt's knot sit a step
+ * darker than the cloth round them, the anchors that keep her readable at play distance.
+ */
+const ACCENT: Record<string, number> = { ribbon: 0.5, sandal: 0.55, knot: 0.78 };
+
 export interface ClipMeta {
   duration: number;
   loop?: boolean;
@@ -101,6 +107,8 @@ export async function loadHeroine(url: string): Promise<Heroine> {
       rgb[i * 3 + 1] = col.getY(i);
       rgb[i * 3 + 2] = col.getZ(i);
     }
+    const dk = ACCENT[name];
+    if (dk) for (let i = 0; i < n * 3; i++) rgb[i] *= dk;
     g.setAttribute("color", new THREE.BufferAttribute(rgb, 3));
     const wind = g.getAttribute("_wind");
     g.setAttribute("aWind", wind ?? new THREE.BufferAttribute(new Float32Array(n), 1));

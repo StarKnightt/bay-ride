@@ -158,7 +158,7 @@ export class Post {
           // distance, so a far figure keeps fine lines instead of clotted outlines.
           float id0 = floor(nC.z * 32.0 + 0.5);
           bool her = id0 == 13.0 || id0 == 14.0 || id0 == 18.0 || id0 == 19.0 || (id0 >= 22.0 && id0 <= 24.0);
-          vec2 px = uWidth * uS / uRes * (her ? mix(1.0, 0.55, smoothstep(6.0, 30.0, dC)) : 1.0);
+          vec2 px = uWidth * uS / uRes * (her ? mix(1.0, 0.85, smoothstep(6.0, 30.0, dC)) : 1.0);
           float eD = 0.0, eN = 0.0, eI = 0.0, mask = max(nC.a, 0.0), nBoat = 0.0;
           vec2 offs[4];
           offs[0] = vec2(1.0, 0.0); offs[1] = vec2(0.0, 1.0); offs[2] = vec2(0.7071, 0.7071); offs[3] = vec2(0.7071, -0.7071);

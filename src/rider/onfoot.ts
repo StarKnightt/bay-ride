@@ -66,6 +66,9 @@ const LOOK_AHEAD = 0.25;
 const PITCH_MIN = -0.17;
 const PITCH_MAX = 0.96;
 const PIVOT_DROP = 0.1;
+/** Orbit eye clearance over the ground's camera floor (clears the grass tops); highest auto-lifted elevation. */
+const CAM_GRASS = 0.55;
+const LIFT_MAX = 1.15;
 /** Turns (rad) tried, in order, to slide a blocked step along what stops it. */
 const SLIDE = [0.5, -0.5, 1.0, -1.0, 1.35, -1.35];
 const wrapA = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -963,14 +966,35 @@ export class Explore {
     this.rider.headWorld(this.pivot);
   }
 
+  /** Camera floor for the orbit's elevation: the highest ground within a metre, above the grass tops. */
+  private slopeFloor(x: number, z: number): number {
+    const F = this.bay;
+    return Math.max(F.camFloor(x, z), F.camFloor(x + 1, z), F.camFloor(x - 1, z), F.camFloor(x, z + 1), F.camFloor(x, z - 1)) + CAM_GRASS;
+  }
+  private lift = 0;
+
   updateCamera(dt: number, cam: THREE.PerspectiveCamera): void {
     const head = this.rider.headWorld(_head);
     head.y -= PIVOT_DROP;
     this.pivot.x = damp(this.pivot.x, head.x, 9, dt);
     this.pivot.z = damp(this.pivot.z, head.z, 9, dt);
     this.pivot.y = damp(this.pivot.y, head.y, 5, dt);
-    const cp = Math.cos(this.oPitch);
-    const dir = _dir.set(Math.sin(this.oYaw) * cp, Math.sin(this.oPitch), Math.cos(this.oYaw) * cp);
+    // On a slope rising behind the camera (her facing downhill, or across it), raise the orbit's
+    // elevation until the eye clears the ground and its grass round the orbit point, rather than
+    // pulling in and sinking into the hillside. Lifts quickly, settles back slowly.
+    const sy = Math.sin(this.oYaw), cy = Math.cos(this.oYaw);
+    let pitch = this.oPitch;
+    for (let i = 0; i < 4; i++) {
+      const c = Math.cos(pitch), h = this.oDist * c;
+      const need = this.slopeFloor(this.pivot.x + sy * h, this.pivot.z + cy * h) - this.pivot.y;
+      if (this.oDist * Math.sin(pitch) >= need - 0.01) break;
+      pitch = Math.min(LIFT_MAX, Math.asin(clamp(need / this.oDist, -1, 1)) + 0.02);
+    }
+    const lift = pitch - this.oPitch;
+    this.lift = lift > this.lift ? damp(this.lift, lift, 10, dt) : damp(this.lift, lift, 1.6, dt);
+    const el = Math.min(LIFT_MAX, this.oPitch + this.lift);
+    const cp = Math.cos(el);
+    const dir = _dir.set(sy * cp, Math.sin(el), cy * cp);
     // Pull in ahead of houses, trunks and the ground; ease back out.
     const lim = this.obstruct(this.pivot, dir, this.oDist);
     this.dCur = lim < this.dCur ? lim : damp(this.dCur, lim, 2.5, dt);
