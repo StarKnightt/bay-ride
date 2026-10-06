@@ -816,8 +816,15 @@ const FS = /* glsl */ `
     refl = mix(refl, skyH * uWorldTint, clamp(wk.brk * 1.2, 0.0, 1.0));
     vec3 reflRaw = refl;
     // The boat's own mirror image sits under her slightly darker and greyer, in her own hues: it
-    // is not tinted by the sky's mirror colour nor washed into the blue water.
-    float objR = wk.near * smoothstep(0.06, 0.22, length(reflRaw - skyH * uWorldTint));
+    // is not tinted by the sky's mirror colour nor washed into the blue water. It is found as the
+    // mirror differing from the sky that mirror ray would see: against the horizon colour, a high
+    // eye's mirrored zenith counted as her image over the whole box round the hull.
+    float objR = 0.0;
+    if (wk.near > 0.0) {
+      vec3 R0 = reflect(V, vec3(0.0, 1.0, 0.0));
+      vec3 skyE = mix(skyColor(normalize(vec3(R0.x, max(R0.y, 0.02), R0.z))), skyH, clamp(wk.brk * 1.2, 0.0, 1.0)) * uWorldTint;
+      objR = wk.near * smoothstep(0.1, 0.28, length(reflRaw - skyE));
+    }
     vec3 reflB = mix(vec3(dot(reflRaw, vec3(0.2126, 0.7152, 0.0722))), reflRaw, 0.8) * 0.8 / max(uWorldTint, vec3(0.05));
     float rl = dot(refl, vec3(0.2126, 0.7152, 0.0722));
     // In low sun the warmth comes from the bright sky in the mirror, not from the body; under a low
@@ -1015,7 +1022,7 @@ const FS = /* glsl */ `
     float glitter = mix(dn, glit * (1.6 + 1.2 * lowSun) + pd * (1.1 + 1.1 * lowSun) * (1.0 - 0.5 * uNight) + dn * 0.6, deepK) + path * uGlintShape.y * (1.0 - 0.6 * lowSun);
     // No sun flakes on the boat's own mirror image or right round her, where a lone white dab
     // reads as a stray scrap floating off the hull.
-    float gk = uGlint * lightUp * (1.0 - s.foam) * mix(0.35, 1.0, smoothstep(0.8, 4.0, s.h)) * (1.0 - wk.brk) * (1.0 - objR * rk) * (1.0 - 0.6 * wk.near);
+    float gk = uGlint * lightUp * (1.0 - s.foam) * mix(0.35, 1.0, smoothstep(0.8, 4.0, s.h)) * (1.0 - wk.brk) * (1.0 - objR * rk) * (1.0 - 0.6 * max(objR, wk.contact));
     // Never a blown white with a bloom halo under a high sun; the low sun's path may burn brighter.
     vec3 gAdd = mix(gCol, vec3(1.0, 0.97, 0.9), 0.4 * lowSun) * glitter * gk;
     gAdd *= min(1.0, mix(0.3, mix(4.0, 1.9, lowSun), max(lowL, uNight)) / max(max(gAdd.r, max(gAdd.g, gAdd.b)), 1e-4));
