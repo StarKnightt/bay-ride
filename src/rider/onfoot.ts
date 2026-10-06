@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { G } from "../render/materials";
 import { WADE, type Bay } from "../world/bay";
 import { roadX, roadYaw } from "../world/bay/road";
-import { gaitCycle, jumpClock, type FootState, type Rider } from "./rider";
+import { gaitCycle, jumpClock, type FootState, type GroundFn, type Rider } from "./rider";
+import { Boarding, type TransitKind } from "./boarding";
 import type { ChaseCam } from "./camera";
 import type { Input } from "../core/input";
 import type { RideAudio, StepSurface } from "../audio";
@@ -10,17 +11,20 @@ import { clamp, damp } from "../core/rng";
 import type { Boat } from "../boat/boat";
 import { BERTH } from "../boat/berth";
 import { SEA_Y } from "../world/bay/road";
+import { PIER, deckH } from "../world/bay/pier";
 
 /**
  * On foot and in the skiff. She walks (WASD, Shift to jog) with a mouse orbit camera; F within
  * reach of the moored skiff steps aboard and sits at the tiller; F aboard, slow, at the berth or
- * close to wadeable shore steps ashore there (at the berth: up onto the pier deck).
+ * close to wadeable shore steps ashore there (at the berth: up onto the pier deck). Stepping
+ * aboard and ashore is a scripted move with the input locked (see boarding.ts).
  *
  * walk → board → boat → leave → walk
  */
 export type FootMode = "walk" | "board" | "boat" | "leave";
 
-const BOARD_T = 1.5;
+/** After a boarding the boat's rocking from it dies out within this (s); then the resting load holds. */
+const ROCK_T = 3.5;
 /** Aboard and slower than this, F steps ashore. */
 const LEAVE_SPEED = 1.3;
 
@@ -75,7 +79,6 @@ export class Explore {
   private run = 0;
   private phase = 0;
   private turn = 0;
-  private k = 0;
   private look = 0;
   private lookUp = 0;
   private lookT = 0;
@@ -112,6 +115,26 @@ export class Explore {
   private seatQ = new THREE.Quaternion();
   private seatS = new THREE.Vector3();
   private grip = new THREE.Vector3();
+  /** The boarding / stepping-ashore move under way, its clock (s), and the boat as her ground meanwhile. */
+  private trans: Boarding | null = null;
+  private tau = 0;
+  private rockT = 1e9;
+  private _bg = { h: 0, kind: "wood" as StepSurface };
+  private readonly boatGround: GroundFn = (x, z, y) => {
+    const b = this.boat;
+    if (!b || !this.trans || (this.mode !== "board" && this.mode !== "leave")) return null;
+    if (!this.trans.out.onBoat) {
+      // At the deck edge her toes are over boards the walk rule keeps her body off (its last 12 cm).
+      if (Math.abs(z - PIER.z) > PIER.half || x > PIER.x0 || x < PIER.x1 || y < PIER.deck - 0.7) return null;
+      this._bg.h = deckH(x);
+      return this._bg;
+    }
+    // The highest thing under the foot's length (so a toe never stubs into the bench or onto air).
+    let h = b.standH(x, z, y);
+    for (let k = 0; k < 4; k++) h = Math.max(h, b.standH(x + RING[k][0], z + RING[k][1], y));
+    this._bg.h = h;
+    return this._bg;
+  };
 
   constructor(
     private bay: Bay,
@@ -215,7 +238,7 @@ export class Explore {
    */
   spawn(x: number, z: number, yaw: number, rel = 0, pitch = 0.12, dist = 3.6): void {
     this.mode = "walk";
-    this.k = 0;
+    this.endTransit();
     this.onGround();
     this.x = x;
     this.z = z;
@@ -251,7 +274,24 @@ export class Explore {
     this.shore.set(b.x, b.y, b.z);
     this.shoreYaw = b.yaw;
     this.mode = "boat";
-    this.k = 1;
+    this.endTransit();
+    Boarding.seatedLoad(b);
+  }
+
+  /** Off the scripted move: her ground is the world's again. */
+  private endTransit(): void {
+    this.rider.groundOverride = null;
+    this.rockT = 1e9;
+  }
+
+  private transit(): Boarding {
+    return (this.trans ??= new Boarding(this.boat!, (x, z, y) => (this.standable(x, z) ? (this.bay.groundAt(x, z, y)?.h ?? NaN) : NaN)));
+  }
+
+  /** At the berth (the skiff moored by the pier gap)? */
+  private get atBerth(): boolean {
+    const b = this.boat!;
+    return Math.hypot(b.x - BERTH.x, b.z - BERTH.z) < 6;
   }
 
   /** Feet on the ground, no jump under way. */
@@ -265,10 +305,89 @@ export class Explore {
   }
 
   private startBoard(): void {
-    this.shore.set(this.x, this.y, this.z);
-    this.shoreYaw = this.yaw;
-    this.mode = "board";
-    this.k = 0;
+    const T = this.transit();
+    if (this.atBerth) T.planBoard(this.x, this.y, this.z, this.yaw, this.phase);
+    else T.planBoardShore(this.x, this.y, this.z, this.yaw, this.phase);
+    this.startTransit("board");
+  }
+
+  private startTransit(mode: "board" | "leave"): void {
+    this.mode = mode;
+    this.tau = 0;
+    this.rockT = 1e9;
+    this.onGround();
+    this.speed = 0;
+    this.rider.groundOverride = this.boatGround;
+  }
+
+  /**
+   * Capture hook: the scripted move `kind` (board from (x, z, yaw) on the deck / leave the berth
+   * seat) at its clock tau (s; before 0 she waits at the start), at time `time`. Planned on the
+   * first call.
+   */
+  transitAt(kind: "board" | "leave", tau: number, time: number, x = 0, z = 0, yaw = 0): void {
+    const T = this.transit();
+    const want: TransitKind = kind === "board" ? "board" : "leaveBerth";
+    if (this.mode !== kind || T.kind !== want) {
+      if (kind === "board") {
+        this.x = x;
+        this.z = z;
+        this.yaw = yaw;
+        this.y = this.gy = this.bay.groundAt(x, z)?.h ?? this.y;
+        T.planBoard(x, this.y, z, yaw, 0);
+      } else T.planLeaveBerth(0);
+      this.startTransit(kind);
+    }
+    this.tau = tau;
+    this.applyTransit(0, time);
+  }
+
+  /** Pose her on the move at this.tau; dt > 0 (live) also plays its knocks on the hull. */
+  private applyTransit(dt: number, time: number): void {
+    const T = this.trans!, b = this.boat!;
+    const o = T.pose(this.tau);
+    if (dt > 0) {
+      const t0 = this.tau - dt;
+      if (this.mode === "board" && t0 < T.tLand && this.tau >= T.tLand) b.onSlap(0.4);
+      if (this.mode === "leave" && t0 < T.tOff && this.tau >= T.tOff) b.onSlap(0.25);
+    }
+    const w = this.rider.walker;
+    w.position.copy(o.pos);
+    w.quaternion.copy(o.quat);
+    this.x = o.pos.x;
+    this.y = o.pos.y;
+    this.z = o.pos.z;
+    this.yaw = o.yaw;
+    this.speed = o.speed;
+    this.phase = o.phase;
+    this.run = clamp((o.speed - WALK) / (RUN - WALK), 0, 1);
+    this.turn = 0;
+    if (o.seat > 0) this.seatPose();
+    // Her footsteps: on the boat's boards, or whatever is under her ashore.
+    this.surface = o.onBoat ? "wood" : (this.bay.groundAt(this.x, this.z, this.y + 0.3)?.kind ?? this.surface);
+    const f = this.foot;
+    f.seat = o.seat;
+    f.grip = o.seat > 0 ? this.grip : undefined;
+    f.wind = 0;
+    f.boating = false;
+    f.roll = o.onBoat ? b.roll : 0;
+    f.speed = o.speed;
+    f.phase = o.phase;
+    f.run = this.run;
+    f.turn = 0;
+    f.look = this.look = 0;
+    f.lookUp = this.lookUp = 0;
+    f.time = time;
+    f.air = o.air;
+    f.crouch = 0;
+    f.vy = 0;
+    f.jumpT = o.jumpT;
+    f.jumpW = o.jumpW;
+    f.reach = o.reach;
+    f.reachW = o.reachW;
+    f.reachSide = o.reachSide;
+    f.busy = true;
+    G.uPush.value.set(this.x, this.z, 0.85, o.onBoat || o.air ? 0 : 1);
   }
 
   /** Seat transform of the boat now (walker origin), and the tiller grip in walker space. */
@@ -306,13 +425,14 @@ export class Explore {
       }
     }
     if (!found) return;
-    const dx = this.shore.x - b.x, dz = this.shore.z - b.z;
-    this.shoreYaw = Math.atan2(-dx, -dz);
-    this.x = this.shore.x;
-    this.z = this.shore.z;
-    this.yaw = this.shoreYaw;
-    this.mode = "leave";
-    this.k = 1;
+    const T = this.transit();
+    if (this.atBerth) {
+      // The haul up the pier side needs her alongside: a boat stopped further off is laid in its berth.
+      if (Math.hypot(b.x - BERTH.x, b.z - BERTH.z) > 1 || Math.abs(wrapA(b.yaw - BERTH.yaw)) > 0.3) b.moor();
+      T.planLeaveBerth(this.phase);
+    }
+    else T.planLeaveShore(this.shore.x, this.shore.y, this.shore.z, this.phase);
+    this.startTransit("leave");
     this.orbitFromCam();
     this.chase.forceThirdPerson(this.rider);
   }
@@ -498,46 +618,58 @@ export class Explore {
         this.locomotion(dt, input);
         break;
       case "board":
-        this.k = Math.min(1, this.k + dt / BOARD_T);
-        if (this.k >= 1) {
+      case "leave": {
+        // Input locked: the move plays out on its own clock.
+        this.tau += dt;
+        this.applyTransit(dt, time);
+        const T = this.trans!;
+        if (!T.out.done) {
+          this.idleLook(dt);
+          return;
+        }
+        this.rockT = this.tau;
+        this.rider.groundOverride = null;
+        this.foot.busy = false;
+        this.foot.reachW = 0;
+        if (this.mode === "board") {
           this.mode = "boat";
           if (!this.lockAboard && document.pointerLockElement === this.canvas) document.exitPointerLock();
           this.chase.handoff("chase");
-        }
-        break;
-      case "leave":
-        this.k = Math.max(0, this.k - dt / BOARD_T);
-        if (this.k <= 0) {
+        } else {
           this.mode = "walk";
-          this.x = this.shore.x;
-          this.z = this.shore.z;
-          this.y = this.gy = this.shore.y;
+          T.landing(_v);
+          this.x = _v.x;
+          this.z = _v.z;
+          this.y = this.gy = _v.y;
           this.onGround();
         }
         break;
+      }
+    }
+    // The boat's rocking from the boarding (or stepping off) dies out, then her resting load holds.
+    if (this.rockT < ROCK_T && this.trans && this.boat) {
+      this.rockT += dt;
+      this.trans.rock(this.rockT);
+    } else if (this.boat && this.rockT < 1e9) {
+      if (this.mode === "boat") Boarding.seatedLoad(this.boat);
+      else this.boat.setLoad(0, 0, 0);
+      this.rockT = 1e9;
     }
     const onFoot = this.onFoot;
-    const boating = this.mode === "board" || this.mode === "boat" || this.mode === "leave";
+    const boating = this.mode === "boat";
     let seat = 0;
     if (boating && this.boat) {
-      // From the shore point to the bench (or back): a couple of steps, over the gunwale, sit down.
+      // Seated at the tiller.
       this.seatPose();
-      const k = this.mode === "boat" ? 1 : this.k;
-      const e = smooth01(k / 0.8);
       const w = this.rider.walker;
-      w.position.lerpVectors(this.shore, this.seatP, e);
-      w.position.y += Math.sin(Math.PI * smooth01((k - 0.25) / 0.55)) * 0.28;
-      _q.setFromAxisAngle(_up, this.shoreYaw);
-      w.quaternion.slerpQuaternions(_q, this.seatQ, smooth01((k - 0.1) / 0.6));
-      seat = smooth01((k - 0.55) / 0.45);
-      const prevX = this.x, prevZ = this.z;
+      w.position.copy(this.seatP);
+      w.quaternion.copy(this.seatQ);
+      seat = 1;
       this.x = w.position.x;
       this.z = w.position.z;
       this.y = w.position.y;
-      const moving = this.mode !== "boat" && dt > 0 ? Math.hypot(this.x - prevX, this.z - prevZ) / dt : 0;
-      this.speed = this.mode === "boat" ? 0 : Math.min(1.1, moving) * (1 - seat);
-      this.yaw = this.mode === "boat" ? this.boat.yaw : this.yaw;
-      if (this.mode !== "boat") this.advancePhase(dt);
+      this.speed = 0;
+      this.yaw = this.boat.yaw;
       this.idleLook(dt);
     } else if (onFoot) {
       this.vertical(dt);
@@ -558,6 +690,8 @@ export class Explore {
     f.look = this.look;
     f.lookUp = this.lookUp;
     f.time = time;
+    f.reachW = 0;
+    f.busy = false;
     // Jump: the crouch before take-off, then a squash on landing that comes in fast and eases out.
     const walking = onFoot && !boating;
     const antic = this.crouchT >= 0 ? smooth01(this.crouchT / CROUCH_T) : 0;
@@ -677,7 +811,7 @@ export class Explore {
    */
   drive(x: number, z: number, yaw: number, speed: number, phase: number, time: number, run = 0): void {
     this.mode = "walk";
-    this.k = 0;
+    this.endTransit();
     this.onGround();
     this.x = x;
     this.z = z;
@@ -706,7 +840,8 @@ export class Explore {
     f.look = 0;
     f.lookUp = 0;
     f.time = time;
-    f.air = f.crouch = f.vy = f.jumpW = 0;
+    f.air = f.crouch = f.vy = f.jumpW = f.reachW = 0;
+    f.busy = false;
     G.uPush.value.set(x, z, 0.85, 1);
   }
 
@@ -755,6 +890,9 @@ export class Explore {
 }
 
 const _mi = new THREE.Matrix4();
+/** Sample offsets round a foot's ankle (m): about its length. */
+const RING = [[0.1, 0], [-0.1, 0], [0, 0.1], [0, -0.1]];
+const _v = new THREE.Vector3();
 const hash = (n: number) => {
   const v = Math.sin(n * 127.1 + 311.7) * 43758.5453;
   return v - Math.floor(v);

@@ -56,7 +56,7 @@ function profile(t: number): [number, number][] {
 }
 
 /** Inside half width of the hull at height y, station t (through the planking). */
-function halfWidthAt(t: number, y: number): number {
+export function halfWidthAt(t: number, y: number): number {
   const p = profile(t);
   for (let i = 0; i < p.length - 1; i++) {
     const [x0, y0] = p[i], [x1, y1] = p[i + 1];
@@ -65,7 +65,7 @@ function halfWidthAt(t: number, y: number): number {
   return y < p[0][1] ? 0 : Math.max(0, p[p.length - 1][0] - 0.045);
 }
 
-const stationOf = (z: number) => (ZS - z) / (ZS - ZB);
+export const stationOf = (z: number) => (ZS - z) / (ZS - ZB);
 
 /** Outside half width of the hull at the floating waterline, at boat z (0 past the stem). */
 export function waterlineHalf(z: number): number {
@@ -236,6 +236,21 @@ function transom(skin: Skin): void {
   }
 }
 
+/** Top of the floorboards (boat frame y). */
+export const FLOOR_Y = -0.09;
+/** The stern bench: centre z, depth along the boat and top height (boat frame). */
+export const BENCH = { z: 1.3, depth: 0.36, top: 0.2 };
+/** Half width of the stern bench's top (it spans the hull inside the planking). */
+export const benchHalf = (): number => halfWidthAt(stationOf(BENCH.z), BENCH.top - 0.02) - 0.005;
+/** The gunwale at boat z: rail-top height and the inside half width of the planking there (boat frame). */
+export function gunwaleAt(z: number, out = { y: 0, half: 0 }): { y: number; half: number } {
+  const p = profile(Math.min(1, Math.max(0, stationOf(z))));
+  const [bG, sS] = p[p.length - 1];
+  out.y = sS + 0.022;
+  out.half = bG - 0.045;
+  return out;
+}
+
 export interface BoatModel {
   root: THREE.Group;
   /** Outboard pivot (rotation.y = tiller angle; + swings the tiller to port). */
@@ -260,7 +275,7 @@ export function buildBoat(): BoatModel {
   const parts: THREE.BufferGeometry[] = [skin.geo(M.metal)];
 
   // Floorboards: five planks with gaps, each as long as the bottom is wide enough for it.
-  const floorY = -0.09;
+  const floorY = FLOOR_Y;
   for (let k = -2; k <= 2; k++) {
     const x = k * 0.17;
     let zf = 1.6;
@@ -289,7 +304,7 @@ export function buildBoat(): BoatModel {
     const y0 = yb, y1 = top - 0.035;
     for (const sx of [-1, 1]) parts.push(xf(box(0.05, y1 - y0, 0.05, "#8a5a33", M.plain), sx * w * 0.32, (y0 + y1) / 2, z));
   };
-  seat(1.3, 0.36, 0.2);
+  seat(BENCH.z, BENCH.depth, BENCH.top);
   seat(0.12, 0.22, 0.21);
   seat(-1.12, 0.2, 0.26);
   // Knees bracing the stern bench to the transom.

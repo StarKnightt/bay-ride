@@ -56,6 +56,12 @@ export interface FootState {
   /** Jump clip clock (s, see jumpClock) and its blend weight; absent or weight 0 = no jump. */
   jumpT?: number;
   jumpW?: number;
+  /** A hand steadying her on something (boarding: the bollard, the deck edge, the gunwale): world wrist target, weight, side (+1 left, -1 right). */
+  reach?: THREE.Vector3;
+  reachW?: number;
+  reachSide?: number;
+  /** A scripted move is under way: no idle life (weight shifts, hat touch). */
+  busy?: boolean;
 }
 
 /** Ground under a world point: height and surface. */
@@ -258,6 +264,13 @@ export class Rider {
   readonly walker = new THREE.Group();
   /** Ground query for planting her feet (set by main; flat y = walker y if absent). */
   ground: GroundFn | null = null;
+  /** Ground under her feet that the world doesn't know (the skiff's bench and floorboards while boarding); tried first. */
+  groundOverride: GroundFn | null = null;
+  /**
+   * A frozen frame on a scripted path (boarding): poses the walker for an earlier time and returns
+   * her state then, so the re-run seconds follow the real path instead of a straight line.
+   */
+  settlePath: ((time: number) => FootState) | null = null;
   /** Called when a foot lands on foot (footprints, ripples, the footstep sound). */
   onPlant: PlantFn | null = null;
   /** Called before a frozen frame re-runs the seconds leading up to it (clear trails). */
@@ -478,6 +491,12 @@ export class Rider {
     const n = Math.round(T / h);
     for (let k = n; k >= 0; k--) {
       const back = k * h;
+      if (this.settlePath) {
+        const gp = this.settlePath(f.time - back);
+        w.updateMatrixWorld(true);
+        this.step(k === n ? 0 : h, k === 0 ? f : gp);
+        continue;
+      }
       g.time = f.time - back;
       if (moving) {
         g.phase = f.phase - ((f.speed * back) / gaitCycle(f.run, f.speed)) * Math.PI * 2;
@@ -571,6 +590,7 @@ export class Rider {
     this.feetIK(dt, f, free, gait, run, jw);
     if (seat > 0) this.seatLegs(seat);
     else this.bodyLife(f, gait, run, jw);
+    if (f.reach && (f.reachW ?? 0) > 1e-3) this.reachIK(f.reach, f.reachW!, f.reachSide ?? -1);
     if (seat > 0 && f.grip) this.armIK(f.grip, seat);
     this.secondary(dt, f, seat);
     this.simInit = true;
@@ -711,6 +731,12 @@ export class Rider {
       T.x += ft.s.x;
       T.z += ft.s.y;
       T.y += ft.gOff + lift + ft.cY;
+      if (free && f.busy && !airborne) {
+        // Sitting down or getting up on a scripted move: the blend never pushes a sole through the floor.
+        const g = this.groundAt(T.x, T.z, wy);
+        const low = Math.min(heel.y, ball.y) + (T.y - ank.y);
+        if (g && low < g.h) T.y += g.h - low;
+      }
       targets.push(T);
       const q = L.foot.getWorldQuaternion(new THREE.Quaternion());
       footQ.push(q.premultiply(_q.setFromAxisAngle(_Y, ft.psi)));
@@ -752,6 +778,10 @@ export class Rider {
   }
 
   private groundAt(x: number, z: number, y: number): { h: number; kind: string } | null {
+    if (this.groundOverride) {
+      const g = this.groundOverride(x, z, y);
+      if (g) return g;
+    }
     return this.ground ? this.ground(x, z, y) : { h: y, kind: "wood" };
   }
 
@@ -818,7 +848,7 @@ export class Rider {
   private bodyLife(f: FootState, gait: number, run: number, jw: number): void {
     const w = this.walker;
     const t = f.time;
-    const kI = (1 - jw) * (1 - smooth(0.04, 0.25, gait)) * (f.boating ? 0 : 1) * ((f.air ?? 0) > 0.5 ? 0 : 1);
+    const kI = (1 - jw) * (1 - smooth(0.04, 0.25, gait)) * (f.boating || f.busy ? 0 : 1) * ((f.air ?? 0) > 0.5 ? 0 : 1);
     const fwd = _kr.set(0, 0, -1).applyQuaternion(w.quaternion);
 
     if (kI > 1e-3) {
@@ -925,6 +955,39 @@ export class Rider {
     _oT.copy(wpos(A.hand, _o0)).add(_o1).sub(k0);
     twoBone(A.up, A.fore, A.hand, _oT, _o5.set(0, -1, 0));
     setWorldQuat(A.hand, _oq1);
+  }
+
+  /**
+   * One hand onto a support (world wrist target) by weight w: the elbow kept out and down, the
+   * palm turned flat over it (fingers level, along her reach).
+   */
+  private reachIK(target: THREE.Vector3, w: number, side: number): void {
+    const A = this.arms[side > 0 ? 0 : 1];
+    // Beyond her arm's length: lean the chest toward it (up to ~30°).
+    const sh = wpos(A.up, _o4);
+    const arm = sh.distanceTo(wpos(A.fore, _o0)) + _o0.distanceTo(wpos(A.hand, _o1));
+    const ex = sh.distanceTo(target) - arm * 0.96;
+    _o5.subVectors(target, sh).setY(0);
+    if (ex > 0 && _o5.lengthSq() > 1e-6) {
+      _o5.normalize();
+      _o2.set(_o5.z, 0, -_o5.x);
+      const ang = Math.min(0.52, ex / 0.3) * w * 0.5;
+      rotateWorld(this.bone("spine1"), _oq0.setFromAxisAngle(_o2, ang));
+      rotateWorld(this.bone("spine2"), _oq0.setFromAxisAngle(_o2, ang));
+    }
+    _oT.lerpVectors(wpos(A.hand, _o0), target, w);
+    _oH.set(side, -0.6, 0).applyQuaternion(this.walker.quaternion).normalize();
+    twoBone(A.up, A.fore, A.hand, _oT, _oH);
+    // Palm flat: the fingers (wrist → past the forearm's line) turned level.
+    _o2.subVectors(wpos(A.hand, _o0), wpos(A.fore, _o1)).normalize();
+    _o3.set(_o2.x, Math.min(_o2.y, 0) * 0.25, _o2.z);
+    if (_o3.lengthSq() < 1e-6) return;
+    rotateWorld(A.hand, _oq1.identity().slerp(_oq0.setFromUnitVectors(_o2, _o3.normalize()), w * 0.8));
+  }
+
+  /** Wrist of hand side (+1 left, -1 right), world (tests). */
+  wristWorld(side: number, out: THREE.Vector3): THREE.Vector3 {
+    return wpos(this.arms[side > 0 ? 0 : 1].hand, out);
   }
 
   /** Point on leg i's centre line at world height y (shin, or thigh above the knee); false if off it. */

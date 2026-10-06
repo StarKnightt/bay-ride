@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { HULL, buildBoat, type BoatModel } from "./model";
+import { BENCH, FLOOR_Y, HULL, benchHalf, buildBoat, gunwaleAt, type BoatModel } from "./model";
 import { BERTH } from "./berth";
 import { scriptPose, type ScriptPose } from "./script";
 import { seaHeight } from "../water/query";
@@ -25,6 +25,7 @@ const BRAKE = 1.3;
 export const BOOST = 1.35;
 /** Sideways slip damping (1/s): low enough for a light, drifting hull. */
 const SLIP = 1.5;
+const _sp = new THREE.Vector3(), _sm = new THREE.Matrix4(), _sg = { y: 0, half: 0 };
 /** Prop churn at full throttle is 1; boosted it reaches this (boil, aerated band and slick astern). */
 const CHURN_MAX = 1.25;
 /** Seabed clearance under the keel that stops the hull, and the depth where the shallows start to drag. */
@@ -147,6 +148,7 @@ export class Boat {
     this.z = BERTH.z;
     this.yaw = BERTH.yaw;
     this.u = this.v = this.yawRate = this.throttle = this.steer = 0;
+    this.apply(0);
   }
 
   update(dt: number, t: number, input: Input | null): void {
@@ -476,10 +478,41 @@ export class Boat {
     }
   }
 
+  /**
+   * Her weight aboard: offsets (heave m, pitch, roll rad) over the floating pose, set by the boarding
+   * as a pure function of its clock (so a frozen frame shows the same dip) and held while she sits.
+   * The hull is re-posed at once, so her seat follows it this frame.
+   */
+  setLoad(h: number, p: number, r: number): void {
+    const L = this.load;
+    if (L.h === h && L.p === p && L.r === r) return;
+    L.h = h;
+    L.p = p;
+    L.r = r;
+    this.apply(0);
+  }
+  private load = { h: 0, p: 0, r: 0 };
+
+  /**
+   * World height of what she stands on aboard at world (x, z), her root at world height y: the
+   * gunwale's rail cap at the side (if she is up there), the stern bench's top over it, else the
+   * floorboards.
+   */
+  standH(x: number, z: number, y = this.y): number {
+    const m = this.model.root;
+    m.updateMatrixWorld(true);
+    const p = _sp.set(x, y, z).applyMatrix4(_sm.copy(m.matrixWorld).invert());
+    const g = gunwaleAt(p.z, _sg);
+    const onBench = Math.abs(p.z - BENCH.z) < BENCH.depth / 2 && Math.abs(p.x) < this.benchHalf;
+    p.y = Math.abs(p.x) > g.half - 0.01 && p.y > g.y - 0.45 ? g.y : onBench ? BENCH.top : FLOOR_Y;
+    return p.applyMatrix4(m.matrixWorld).y;
+  }
+  private benchHalf = benchHalf();
+
   private apply(dt: number): void {
-    const r = this.model.root;
-    r.position.set(this.x, this.y, this.z);
-    r.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
+    const r = this.model.root, L = this.load;
+    r.position.set(this.x, this.y + L.h, this.z);
+    r.rotation.set(this.pitch + L.p, this.yaw, this.roll + L.r, "YXZ");
     this.model.motor.rotation.y = this.steer * 0.45;
     this.model.prop.rotation.z += dt * (6 + 70 * Math.abs(this.throttle));
   }
