@@ -903,6 +903,16 @@ export class Rider {
             }
         T.y += need;
       }
+      if (!onStair && !contact && !free && !airborne && !f.boating && ft.restep < 0) {
+        // Off the stair a swinging sole (a walk-off's first step) never dips into the boards.
+        const dy = T.y - ank.y;
+        let need = 0;
+        for (const P of [_ch, _cb]) {
+          const g = this.groundAt(P.x, P.z, wy);
+          if (g && Math.abs(g.h - wy) < 0.3) need = Math.max(need, g.h - (P.y + dy));
+        }
+        T.y += Math.min(need, 0.05);
+      }
       ft.hov = onStair && contact && Number.isFinite(ft.gS) ? Math.min(_ch.y, _cb.y) + T.y - ank.y - ft.gS : 0;
       if (free && f.busy && !airborne) {
         // Sitting down or getting up on a scripted move: the blend never pushes a sole through the floor.
