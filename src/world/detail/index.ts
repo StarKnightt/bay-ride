@@ -13,10 +13,11 @@ import type { TreeSpot } from "../../flora/trees";
 import { buildTown } from "../bay/houses";
 import { buildStreet } from "./street";
 import { buildHarbour } from "./harbour";
+import { buildBeach } from "./beach";
 
 /**
  * Everything that dresses the bay beyond its landform and water: the town, the coast road's
- * furniture, the harbour clutter, boulders on the hill, then the flora that grows round all of
+ * furniture, the harbour clutter, the beach's wrack line and props, boulders on the hill, then the flora that grows round all of
  * them. The props claim their ground (and ask for flowers) in one shared Layout first.
  */
 export class WorldDetail {
@@ -45,6 +46,8 @@ export class WorldDetail {
     await done("street");
     d.group.add(town.group, street, buildHarbour(d.layout, colliders, boxes), boulders(d.layout, colliders));
     await done("harbour");
+    d.group.add(buildBeach(d.layout, colliders));
+    await done("beach");
     d.flora = await Flora.build(d.layout, colliders, shrubs, done, pause);
     d.group.add(d.flora.group);
     Object.assign(d.stats, {
