@@ -219,7 +219,8 @@ void main(){
   // A ratio, so the shade pools' darkening doesn't read as path.
   float pathK = smoothstep(-0.085, -0.015, (base.r - base.g) / (base.r + base.g + 0.02));
   // From the bay a worn path is a thin pale scribble down the hill: far off it melts into the grass.
-  float pathFar = smoothstep(0.25, 1.0, gFoot) * 0.8;
+  // Below 4 m the warm paint is a headland foot's sand ramp, which stays sand from the bay.
+  float pathFar = smoothstep(0.25, 1.0, gFoot) * 0.8 * smoothstep(4.0, 6.0, vWPos.y);
   base = mix(base, vec3(0.105, 0.26, 0.07), pathK * pathFar);
   pathK *= 1.0 - pathFar;
   float pn = vnoise(vWPos.xz * 0.045 + 3.1);

@@ -253,10 +253,14 @@ function surface(u: number, z: number, x: number, y: number, slope: number, out:
     const lo = pnoise(x * 0.05, z * 0.05, 31);
     const t = smooth(0.15, 2.6 + 1.6 * lo, y);
     out.copy(C.grass).lerp(C.grassDark, smooth(0.3, 0.8, n) * 0.6).lerp(C.sandDry, (1 - t) * 0.85);
-    return t > 0.97 ? M.ground : M.plain;
+    // All on the field shader: switching material per triangle on the 2 m grid drew a sawtooth.
+    return M.ground;
   }
   if (y > 0.15 || u > 0) {
     out.copy(C.grass).lerp(C.grassDark, smooth(0.3, 0.8, n));
+    // Grass greys into the rock colour as it steepens toward a crag, so the rock's edge (a slope
+    // test at the vertices) is a gradient in the field rather than a sawtooth along the grid.
+    out.lerp(C.rock, smooth(0.3, 0.42, slope) * 0.9);
     // Footpaths over the hill: worn tracks, soft-edged on the grid.
     const pd = u > 4 && u < 140 ? pathDist(x, z, 3) : 3;
     if (pd < 2.4) out.lerp(C.path, (1 - smooth(0.5, 2.4, pd)) * 0.8);
