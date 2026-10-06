@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { SEA_Y, roadX } from "../world/bay/road";
-import { ISLAND, LIGHTHOUSE } from "../world/bay/terrain";
+import { ISLAND, LIGHTHOUSE, terrainH } from "../world/bay/terrain";
 
 /**
  * Fixed vantage points for side-by-side comparison captures (?shot=1..5). Each is an absolute eye
@@ -30,6 +30,12 @@ export const SHOTS: Record<number, Shot> = {
   // where fine surface detail is the first thing to shimmer.
   6: { name: "road grazing", eye: v(roadX(10) + 0.6, 1.62, 10), look: v(roadX(70) + 0.6, 0.9, 70), fov: 50 },
   7: { name: "beach grazing", eye: v(roadX(30) - 13, SEA_Y + 3.4, 30), look: v(roadX(90) - 15, SEA_Y + 2.2, 90), fov: 50 },
+  // Taste views at gameplay distance (not critic shots): the ride camera's height out on the bay,
+  // looking at the hills and the town, and her eye height on the hill and on the beach.
+  8: { name: "bay to the hills", eye: v(-150, SEA_Y + 3.2, -40), look: v(60, 22, -60), fov: 55 },
+  9: { name: "bay to the north shore", eye: v(-120, SEA_Y + 3.2, 110), look: v(80, 24, 150), fov: 55 },
+  10: { name: "on the hill", eye: v(roadX(-10) + 70, terrainH(roadX(-10) + 70, -10) + 1.7, -10), look: v(roadX(30) + 40, terrainH(roadX(30) + 40, 30) + 0.5, 30), fov: 55 },
+  11: { name: "beach to the island", eye: v(roadX(-40) - 16, SEA_Y + 2.1, -40), look: v(ISLAND.x, SEA_Y + 6, ISLAND.z), fov: 55 },
 };
 
 export interface CaptureParams {

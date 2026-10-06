@@ -126,7 +126,7 @@ void main(){
  */
 const noonGrass = (mask: string) => /* glsl */ `{
     float kN = smoothstep(0.55, 0.8, uSunDir.y) * (1.0 - uNight) * (${mask});
-    vec3 gN = col * vec3(0.66, 1.0, 1.35);
+    vec3 gN = col * vec3(0.76, 1.0, 1.2);
     float lA = dot(col, vec3(0.2126, 0.7152, 0.0722)), lB = dot(gN, vec3(0.2126, 0.7152, 0.0722));
     col = mix(col, gN * (lA / max(lB, 1e-5)), kN);
   }`;
@@ -216,10 +216,18 @@ void main(){
   // Worn footpaths are painted warm into the vertex colour: they keep it.
   // A ratio, so the shade pools' darkening doesn't read as path.
   float pathK = smoothstep(-0.085, -0.015, (base.r - base.g) / (base.r + base.g + 0.02));
+  // From the bay a worn path is a thin pale scribble down the hill: far off it melts into the grass.
+  float pathFar = smoothstep(0.25, 1.0, gFoot) * 0.8;
+  base = mix(base, vec3(0.105, 0.26, 0.07), pathK * pathFar);
+  pathK *= 1.0 - pathFar;
   float pn = vnoise(vWPos.xz * 0.045 + 3.1);
   vec3 g = base * mix(vec3(0.86, 0.97, 1.06), vec3(1.07, 1.05, 0.88), smoothstep(0.35, 0.75, pn));
   float big = vnoise(vWPos.xz * 0.011 + 7.0) * 0.65 + vnoise(vWPos.xz * 0.027 + 2.0) * 0.35;
   g *= mix(vec3(0.5, 0.68, 0.8), vec3(1.06, 1.06, 0.86), smoothstep(0.3, 0.7, big));
+  // Hillside-scale patches (a few hundred metres): darker cool hollows and warm dry crests, so the
+  // slope reads as light and shade from the water instead of one even green.
+  float huge = vnoise(vWPos.xz * 0.0045 + 13.0) * 0.7 + vnoise(vWPos.xz * 0.009 + 5.0) * 0.3;
+  g *= mix(vec3(0.7, 0.8, 0.86), vec3(1.1, 1.05, 0.84), smoothstep(0.28, 0.72, huge));
   float mid = vnoise(vWPos.xz * 0.06 + 1.7);
   g *= mix(vec3(0.8, 0.88, 0.95), vec3(1.05, 1.04, 0.92), smoothstep(0.25, 0.75, mid));
   // Strokes along the contour (the slope's level direction), small near and broad far.
@@ -231,15 +239,17 @@ void main(){
   float k2 = 1.0 - smoothstep(1.2, 4.0, gFoot);
   float st = (s1 - 0.5) * 0.42 * k1 + (s2 - 0.5) * 0.36 * k2;
   g *= 1.0 + st;
-  // Flecks of lime tips and dark tufts where the blades thin out.
+  // Flecks of lime tips and dark tufts where the blades thin out. A fleck is under a metre across:
+  // gone while it still spans several pixels, else it shimmers into bright squares from the bay.
   float fl = vnoise(vWPos.xz * 1.3 + vec2(s1 * 1.5, 0.0));
-  g = mix(g, g * vec3(1.22, 1.2, 0.78), smoothstep(0.7, 0.8, fl) * k1 * 0.5);
-  g = mix(g, g * vec3(0.62, 0.74, 0.82), smoothstep(0.3, 0.2, fl) * k1 * 0.5);
+  float kf = 1.0 - smoothstep(0.025, 0.07, gFoot);
+  g = mix(g, g * vec3(1.22, 1.2, 0.78), smoothstep(0.7, 0.8, fl) * kf * 0.5);
+  g = mix(g, g * vec3(0.62, 0.74, 0.82), smoothstep(0.3, 0.2, fl) * kf * 0.5);
   // Up the hill: a patchwork of fields in warped, rotated cells, divided by soft hedge bands.
   // Not on the island (centre -200, -20, radius 38): heath there, no fields.
   float hill = smoothstep(4.0, 12.0, vWPos.y) * (1.0 - pathK) * smoothstep(48.0, 62.0, length(vWPos.xz - vec2(-200.0, -20.0)));
   vec2 w = vec2(dot(vWPos.xz, vec2(0.94, 0.34)), dot(vWPos.xz, vec2(-0.34, 0.94)));
-  w += vec2(7.0 * sin(w.y * 0.043 + 1.0), 6.0 * sin(w.x * 0.061 + 2.0));
+  w += vec2(3.5 * sin(w.y * 0.043 + 1.0), 3.0 * sin(w.x * 0.061 + 2.0));
   if (hill > 0.0) {
     vec2 sz = vec2(46.0, 34.0);
     vec2 cP = floor(w / sz), fP = w / sz - cP;
@@ -258,8 +268,8 @@ void main(){
     float wx = 2.6 * bush + 0.8, wy = 2.6 * bush + 0.8;
     float hx = onX * (1.0 - smoothstep(0.0, wx, dX)), hy = onY * (1.0 - smoothstep(0.0, wy, dY));
     float gap = smoothstep(0.1, 0.3, vnoise(w * 0.09 + 4.0));
-    float far = smoothstep(0.15, 1.6, gFoot);
-    float hed = max(hx, hy) * gap * hill * smoothstep(0.035, 0.11, gFoot) * mix(0.55, 0.3, far);
+    float far = smoothstep(0.12, 0.7, gFoot);
+    float hed = max(hx, hy) * gap * hill * smoothstep(0.035, 0.11, gFoot) * mix(0.5, 0.1, far);
     g = mix(g, g * vec3(0.52, 0.66, 0.68) * (0.85 + 0.25 * bush), hed);
   }
   g = mix(g, base * (0.9 + 0.2 * s1), pathK);
@@ -379,13 +389,18 @@ void main(){
   vec3 cLit = base * uLeafLit * mix(vec3(sunL), uSunColor, 0.42);
   vec3 col = mix(cDeep, cMid, mid);
   col = mix(col, cLit, lit);
-  // Each leaf's sunlit edge: a crisp bright touch on the light side of the crown.
-  float hi = lit * smoothstep(0.7, 0.95, tone) * smoothstep(0.2, 0.7, ndl);
+  // Each leaf's sunlit edge: a crisp bright touch on the light side of the crown. Far off a leaf
+  // is a pixel or less: its touch (and the back-light) became lone lime specks that blinked frame
+  // to frame on the hills and the island, so both fade out with the pixel footprint.
+  float nearLeaf = 1.0 - smoothstep(0.03, 0.18, gFoot);
+  float hi = lit * smoothstep(0.7, 0.95, tone) * smoothstep(0.2, 0.7, ndl) * nearLeaf;
   col = mix(col, base * uLeafLit * vec3(1.35, 1.35, 1.2) * uSunColor, hi * uLeafHi);
   // Sunlight through the leaves at the silhouette, looking toward the sun.
   vec3 V = normalize(cameraPosition - vWPos);
   float back = pow(max(dot(-V, uSunDir), 0.0), 4.0) * (1.0 - smoothstep(0.1, 0.8, ndl));
-  col += base * vec3(0.6, 0.8, 0.2) * uSunColor * back * 0.6 * sv;
+  col += base * vec3(0.6, 0.8, 0.2) * uSunColor * back * 0.6 * sv * mix(0.25, 1.0, nearLeaf);
+  // ...and no far leaf lit brighter than the crown's own sunlit tone.
+  col = min(col, mix(vec3(64.0), cLit * 1.12 + 0.002, 1.0 - nearLeaf));
   // Sky fill on the upper shell, a touch of warm bounce underneath.
   col += base * uSkyMid * 0.1 * max(N.y, 0.0) + base * vec3(0.05, 0.035, 0.0) * max(-N.y, 0.0);
   col *= 1.0 - 0.15 * uNight;

@@ -144,16 +144,16 @@ function wildTrees(layout: Layout): TreeRegion[] {
   // Its own stream, so everything placed after it stays where it was.
   const rf = mulberry32(6161);
   const farS: TreeSpot[] = [], farN: TreeSpot[] = [];
-  for (let k = 0, tries = 0; k < 30 && tries < 900; tries++) {
+  for (let k = 0, tries = 0; k < 40 && tries < 1200; tries++) {
     const z = range(rf, -290, 250), u = range(rf, 170, 430), x = roadX(z) + u;
     if (!onHill(x, z) || !ok(x, z, 4, 0.4)) continue;
     k++;
-    const belt = rf() < 0.6, len = belt ? range(rf, 40, 90) : range(rf, 14, 26), n = belt ? 9 + Math.floor(rf() * 9) : 5 + Math.floor(rf() * 5);
+    const belt = rf() < 0.6, len = belt ? range(rf, 40, 90) : range(rf, 14, 26), n = belt ? 12 + Math.floor(rf() * 12) : 6 + Math.floor(rf() * 6);
     const ang = Math.PI / 2 + range(rf, -0.35, 0.35), ax = Math.cos(ang), az = Math.sin(ang), wid = belt ? 6 : 8;
     for (let i = 0, t = 0; i < n && t < n * 5; t++) {
       const s = range(rf, -0.5, 0.5) * len, w = (rf() + rf() - 1) * wid;
       const tx = x + ax * s - az * w, tz = z + az * s + ax * w;
-      const sc = range(rf, 0.95, 1.5);
+      const sc = range(rf, 1.15, 1.85);
       if (!onHill(tx, tz) || !ok(tx, tz, 2, 0.42) || !roomy(tx, tz, 3.2 + sc * 1.5)) continue;
       i++;
       placed.push({ x: tx, z: tz });
@@ -205,6 +205,22 @@ function wildTrees(layout: Layout): TreeRegion[] {
     for (let i = 0, m = 2 + Math.floor(r() * 4); i < m; i++) {
       const bx = x + range(r, -2.6, 2.6), bz = z + range(r, -2.6, 2.6);
       if (groundY(bx, bz) > SEA_Y + 4) island.push({ x: bx, z: bz, kind: "bush", scale: range(r, 0.8, 1.35), seed: seed() });
+    }
+  }
+  // Own stream again: a dark wood close behind the town's back row (so the roofs sit against tree
+  // mass, not lawn), and crowns along both headland crests so their skylines break into lobes.
+  const rt = mulberry32(6262);
+  for (let z = -242; z < -142; z += range(rt, 3.5, 6)) {
+    const x = roadX(z) + range(rt, 67, 86);
+    if (!onHill(x, z) || !ok(x, z, 2, 0.4) || !roomy(x, z, 4.2)) continue;
+    placed.push({ x, z });
+    south.push({ x, z, kind: rt() < 0.25 ? "tall" : "round", scale: range(rt, 1.1, 1.6), seed: Math.floor(rt() * 1e9) });
+  }
+  for (const [zc, s, tip, list] of [[262, 1.3, -190, hn], [-298, 4.1, -165, hs]] as const) {
+    for (let x = tip + 35; x < 125; x += range(rt, 5, 9)) {
+      const z = zc + 10 * Math.sin(x * 0.021 + s) + 5 * Math.sin(x * 0.067 + s * 2.0) + range(rt, -7, 7);
+      if (onHill(x, z) || groundY(x, z) < SEA_Y + 6 || slopeAt(x, z) > 0.5 || !layout.free(x, z, 2)) continue;
+      list.push({ x, z, kind: rt() < 0.35 ? "bush" : "round", scale: range(rt, 1.2, 1.8), seed: Math.floor(rt() * 1e9), far: true });
     }
   }
   return [
