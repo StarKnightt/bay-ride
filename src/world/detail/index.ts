@@ -82,7 +82,8 @@ export class WorldDetail {
 function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
   const r = mulberry32(7070);
   const parts: THREE.BufferGeometry[] = [];
-  const stone = new THREE.Color("#8e877c"), dark = new THREE.Color("#6b665f"), moss = new THREE.Color("#5f7a3a"), lichen = new THREE.Color("#b9b07a");
+  const stone = new THREE.Color("#8e877c"), dark = new THREE.Color("#6b665f"), moss = new THREE.Color("#5f7a3a"), lichen = new THREE.Color("#c4b45e");
+  const top = new THREE.Color("#b3a88f"), warm = new THREE.Color("#9a8670"), cool = new THREE.Color("#6c7282"), lichenO = new THREE.Color("#c08a4c");
   const c = new THREE.Color();
   let n = 0;
   for (let tries = 0; tries < 600 && n < 42; tries++) {
@@ -92,18 +93,29 @@ function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
     if (!layout.free(x, z, 1.5) || slopeAt(x, z) > 0.35) continue;
     n++;
     const s = range(r, 0.5, 1.4);
-    const g = prep(blob(1, 2, 0.22, r() * 100), null, M.stone);
+    // Faceted: each plane takes one painted tone (light warm tops, warm mid faces, cool shadow
+    // planes underneath), with moss on the tops and lichen patches of a few faces each.
+    const raw = blob(1, 2, 0.22, r() * 100).toNonIndexed();
+    raw.computeVertexNormals();
+    const g = prep(raw, null, M.stone);
     const p = g.attributes.position, nr = g.attributes.normal;
     const col = new Float32Array(p.count * 3);
-    for (let i = 0; i < p.count; i++) {
-      const up = nr.getY(i), py = p.getY(i);
-      const mot = 0.5 + 0.5 * Math.sin(p.getX(i) * 5.3 + n) * Math.sin(p.getZ(i) * 4.7 - n);
-      c.copy(stone).lerp(dark, (1 - mot) * 0.5 + (py < 0 ? 0.3 : 0));
-      c.lerp(moss, Math.max(0, Math.min(1, (up - 0.35 + (mot - 0.5) * 0.6) * 2)) * 0.8);
-      if (mot > 0.82 && up > 0.2) c.lerp(lichen, 0.5);
-      col[i * 3] = c.r;
-      col[i * 3 + 1] = c.g;
-      col[i * 3 + 2] = c.b;
+    for (let i = 0; i < p.count; i += 3) {
+      const up = (nr.getY(i) + nr.getY(i + 1) + nr.getY(i + 2)) / 3, py = (p.getY(i) + p.getY(i + 1) + p.getY(i + 2)) / 3;
+      const px = p.getX(i), pz = p.getZ(i);
+      const mot = 0.5 + 0.5 * Math.sin(px * 5.3 + n) * Math.sin(pz * 4.7 - n);
+      if (up > 0.55) c.copy(top);
+      else if (up > -0.1) c.copy(stone).lerp(warm, 0.5 + 0.5 * Math.sin(px * 3.1 + pz * 2.3 + n));
+      else c.copy(cool);
+      c.lerp(dark, r() * 0.22 + (py < -0.2 ? 0.2 : 0));
+      c.lerp(moss, Math.max(0, Math.min(1, (up - 0.5 + (mot - 0.5) * 0.6) * 2.2)) * 0.75);
+      const lp = Math.sin(px * 7.1 - n) * Math.sin(pz * 6.3 + n * 0.7) * Math.sin(py * 5.9 + n);
+      if (lp > 0.45 && up > -0.2) c.lerp(lp > 0.7 ? lichenO : lichen, 0.7);
+      for (let k = 0; k < 3; k++) {
+        col[(i + k) * 3] = c.r;
+        col[(i + k) * 3 + 1] = c.g;
+        col[(i + k) * 3 + 2] = c.b;
+      }
     }
     g.setAttribute("color", new THREE.BufferAttribute(col, 3));
     g.scale(s * range(r, 1.0, 1.5), s * range(r, 0.55, 0.8), s * range(r, 0.9, 1.3));

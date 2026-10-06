@@ -127,7 +127,8 @@ function pierClutter(c: Ctx): void {
   planter(c, -23.45, deckH(-23.45), Z + PIER.half - 0.38);
   // Gulls rest on rail posts and lamp heads along the pier (posts every 1.7 m from the end).
   const post = (x: number) => PIER.x1 + 0.08 + Math.round((x - PIER.x1 - 0.08) / 1.7) * 1.7;
-  for (const [x, s] of [[-60.4, 1], [-45.1, -1], [-30.0, 1], [-62.1, -1]] as const) c.layout.perches.push([post(x), y + 1.02, Z + s * (PIER.half - 0.06), Math.PI / 2]);
+  // The first is the north end post, seen from the opening beside the view out to sea.
+  for (const [x, s] of [[-94, 1], [-60.4, 1], [-45.1, -1], [-30.0, 1], [-62.1, -1]] as const) c.layout.perches.push([post(x), y + 1.02, Z + s * (PIER.half - 0.06), Math.PI / 2]);
   c.layout.perches.push([-58, y + 3.42, Z - PIER.half + 0.16 + 0.42, 0], [-24, y + 3.42, Z + PIER.half - 0.16 - 0.42, Math.PI]);
 }
 
