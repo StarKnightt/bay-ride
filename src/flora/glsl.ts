@@ -235,15 +235,11 @@ void main(){
   float fl = vnoise(vWPos.xz * 1.3 + vec2(s1 * 1.5, 0.0));
   g = mix(g, g * vec3(1.22, 1.2, 0.78), smoothstep(0.7, 0.8, fl) * k1 * 0.5);
   g = mix(g, g * vec3(0.62, 0.74, 0.82), smoothstep(0.3, 0.2, fl) * k1 * 0.5);
-  // Up the hill: a patchwork of fields in warped, rotated cells, divided by hedgerows.
-  // Hedge lines never thin below ~1.5 px so they still read from the bay.
+  // Up the hill: a patchwork of fields in warped, rotated cells, divided by soft hedge bands.
   // Not on the island (centre -200, -20, radius 38): heath there, no fields.
   float hill = smoothstep(4.0, 12.0, vWPos.y) * (1.0 - pathK) * smoothstep(48.0, 62.0, length(vWPos.xz - vec2(-200.0, -20.0)));
   vec2 w = vec2(dot(vWPos.xz, vec2(0.94, 0.34)), dot(vWPos.xz, vec2(-0.34, 0.94)));
   w += vec2(7.0 * sin(w.y * 0.043 + 1.0), 6.0 * sin(w.x * 0.061 + 2.0));
-  // Per-axis screen footprint, taken outside the branch: at grazing angles a line keeps ~1.6 px
-  // across rather than its depth smear.
-  vec2 fw = fwidth(w);
   if (hill > 0.0) {
     vec2 sz = vec2(46.0, 34.0);
     vec2 cP = floor(w / sz), fP = w / sz - cP;
@@ -255,12 +251,16 @@ void main(){
     vec2 sideX = vec2(fP.x < 0.5 ? cP.x : cP.x + 1.0, cP.y), sideY = vec2(cP.x, fP.y < 0.5 ? cP.y : cP.y + 1.0);
     float dX = min(fP.x, 1.0 - fP.x) * sz.x, dY = min(fP.y, 1.0 - fP.y) * sz.y;
     float onX = step(hash12(sideX + 5.1), 0.62), onY = step(hash12(sideY + 9.3), 0.55);
+    // Field boundaries: a band of a few metres in world units (never held to a pixel width, which
+    // drew a network of dark cracks from the bay), soft-edged, a deep cool green rather than ink,
+    // its contrast easing off with distance so far fields are divided by tone, not by lines.
     float bush = vnoise(w * 0.35) * 0.9 + 0.3;
-    float wx = max(1.2 * bush, fw.x * 1.6), wy = max(1.2 * bush, fw.y * 1.6);
-    float hx = onX * (1.0 - smoothstep(wx * 0.55, wx, dX)), hy = onY * (1.0 - smoothstep(wy * 0.55, wy, dY));
-    float gap = smoothstep(0.1, 0.22, vnoise(w * 0.09 + 4.0));
-    float hed = max(hx, hy) * gap * hill * smoothstep(0.035, 0.11, gFoot);
-    g = mix(g, vec3(0.015, 0.042, 0.026) * (0.75 + 0.4 * bush), hed);
+    float wx = 2.6 * bush + 0.8, wy = 2.6 * bush + 0.8;
+    float hx = onX * (1.0 - smoothstep(0.0, wx, dX)), hy = onY * (1.0 - smoothstep(0.0, wy, dY));
+    float gap = smoothstep(0.1, 0.3, vnoise(w * 0.09 + 4.0));
+    float far = smoothstep(0.15, 1.6, gFoot);
+    float hed = max(hx, hy) * gap * hill * smoothstep(0.035, 0.11, gFoot) * mix(0.55, 0.3, far);
+    g = mix(g, g * vec3(0.52, 0.66, 0.68) * (0.85 + 0.25 * bush), hed);
   }
   g = mix(g, base * (0.9 + 0.2 * s1), pathK);
   // Full shadow filtering only where a pixel is small enough to show its stair steps.
@@ -339,13 +339,33 @@ void main(){
   float tone = 0.32, lvar = 0.5;
   if (vMat == 17 || vMat == 21) {
     vec4 lt = texture(uLeafTex, vUv);
-    float a = clamp((lt.a - 0.5) / max(fwidth(lt.a), 1e-3) + 0.5, 0.0, 1.0);
+    // In the small mips a card's coverage averages well under 0.5: with a fixed cut the canopy
+    // dissolved at distance and left the bare limbs. The cut eases down as the card shrinks on
+    // screen, so a far crown keeps its mass (its silhouette is still the cards' scalloped edge).
+    float cut = mix(0.5, 0.18, smoothstep(0.04, 0.35, gFoot));
+    float a = clamp((lt.a - cut) / max(fwidth(lt.a), 1e-3) + 0.5, 0.0, 1.0);
     if (a < 0.02) discard;
     // Cards brushing past the lens fade out through coverage.
     gAlpha = a * smoothstep(0.3, 1.0, distance(vWPos, cameraPosition));
     tone = lt.r;
     lvar = lt.g;
-  } else if (!gl_FrontFacing) N = -N;
+  } else {
+    if (!gl_FrontFacing) N = -N;
+    // Solid crown masses painted with the atlas leaves in two overlapping world-space layers
+    // (textureGrad keeps the mip choice continuous across the fract() wrap: no seams), so the
+    // volume under the cards reads as more leaves, never as a smooth ball.
+    vec3 an = abs(N);
+    vec2 wp = (an.y > 0.55 ? vWPos.xz : (an.x > an.z ? vWPos.zy : vWPos.xy)) * 1.35;
+    vec2 wq = mat2(0.8, -0.6, 0.6, 0.8) * wp * 1.6 + 3.7;
+    vec2 cA = vec2(0.0, 0.5), cB = vec2(0.5, 0.0);
+    vec4 la = textureGrad(uLeafTex, cA + fract(wp) * 0.5, dFdx(wp) * 0.5, dFdy(wp) * 0.5);
+    vec4 lb = textureGrad(uLeafTex, cB + fract(wq) * 0.5, dFdx(wq) * 0.5, dFdy(wq) * 0.5);
+    float ka = smoothstep(0.35, 0.65, la.a), kb = smoothstep(0.35, 0.65, lb.a);
+    // Far off the leaves average out: settle to a mid tone instead of the dark gaps' value.
+    float far = smoothstep(0.08, 0.5, gFoot);
+    tone = mix(mix(mix(0.1, lb.r * 0.85, kb), la.r, ka), 0.45, far);
+    lvar = mix(lb.g, la.g, ka);
+  }
   gFastShadow = true;
   float sv = shadowVis(vWPos, N);
   float ndl = dot(N, uSunDir);

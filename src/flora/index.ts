@@ -139,6 +139,37 @@ function wildTrees(layout: Layout): TreeRegion[] {
       if (i === 0 || (onHill(bx, bz) && ok(bx, bz, 0.8, 0.4))) hill(bz).push({ x: bx, z: bz, kind: "bush", scale: range(r, 0.6, 1.4), seed: seed() });
     }
   }
+  // The upper hill, seen only from the bay and the beach: woods in belts along the contours and
+  // copses in the folds, broadleaf with a few conifers, crowding into soft masses at 300-600 m.
+  // Its own stream, so everything placed after it stays where it was.
+  const rf = mulberry32(6161);
+  const farS: TreeSpot[] = [], farN: TreeSpot[] = [];
+  for (let k = 0, tries = 0; k < 30 && tries < 900; tries++) {
+    const z = range(rf, -290, 250), u = range(rf, 170, 430), x = roadX(z) + u;
+    if (!onHill(x, z) || !ok(x, z, 4, 0.4)) continue;
+    k++;
+    const belt = rf() < 0.6, len = belt ? range(rf, 40, 90) : range(rf, 14, 26), n = belt ? 9 + Math.floor(rf() * 9) : 5 + Math.floor(rf() * 5);
+    const ang = Math.PI / 2 + range(rf, -0.35, 0.35), ax = Math.cos(ang), az = Math.sin(ang), wid = belt ? 6 : 8;
+    for (let i = 0, t = 0; i < n && t < n * 5; t++) {
+      const s = range(rf, -0.5, 0.5) * len, w = (rf() + rf() - 1) * wid;
+      const tx = x + ax * s - az * w, tz = z + az * s + ax * w;
+      const sc = range(rf, 0.95, 1.5);
+      if (!onHill(tx, tz) || !ok(tx, tz, 2, 0.42) || !roomy(tx, tz, 3.2 + sc * 1.5)) continue;
+      i++;
+      placed.push({ x: tx, z: tz });
+      const q = rf();
+      (tz < -40 ? farS : farN).push({ x: tx, z: tz, kind: q < 0.14 ? "conifer" : q < 0.38 ? "tall" : "round", scale: sc, seed: Math.floor(rf() * 1e9), far: true });
+    }
+  }
+  // Lone field trees and shrub clumps between the woods.
+  for (let k = 0, tries = 0; k < 70 && tries < 900; tries++) {
+    const z = range(rf, -290, 250), u = range(rf, 165, 440), x = roadX(z) + u;
+    if (!onHill(x, z) || !ok(x, z, 2, 0.42) || !roomy(x, z, 6)) continue;
+    k++;
+    placed.push({ x, z });
+    const bush = rf() < 0.45;
+    (z < -40 ? farS : farN).push({ x, z, kind: bush ? "bush" : rf() < 0.3 ? "tall" : "round", scale: bush ? range(rf, 1.6, 2.4) : range(rf, 0.9, 1.4), seed: Math.floor(rf() * 1e9), far: true });
+  }
   // Seaside pines on the headlands, shrubs in their lee.
   for (const [zc, list] of [[262, hn], [-298, hs]] as const) {
     for (let k = 0, tries = 0; k < 26 && tries < 900; tries++) {
@@ -179,6 +210,8 @@ function wildTrees(layout: Layout): TreeRegion[] {
   return [
     { name: "hill south", spots: south },
     { name: "hill north", spots: north },
+    { name: "hill far south", spots: farS },
+    { name: "hill far north", spots: farN },
     { name: "north headland", spots: hn },
     { name: "south headland", spots: hs },
     { name: "island", spots: island },

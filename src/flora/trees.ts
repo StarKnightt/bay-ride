@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mulberry32, range, type Rng } from "../core/rng";
-import { M, beam, blob, prep } from "../world/geo";
+import { M, beam, blob, prep, spherize } from "../world/geo";
 import { LEAF_CELL, cellUv } from "../render/leafAtlas";
 import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../render/lightpasses";
 import type { Collider } from "../world/bay";
@@ -26,7 +26,12 @@ export interface TreeSpot {
   seed: number;
   /** Explicit base height (a potted shrub on a step); NaN = on the ground. */
   y?: number;
+  /** Only ever seen from far off (the upper hill): the same masses, a third of the cards, larger. */
+  far?: boolean;
 }
+
+/** Leaf-card count and size multipliers for the tree being planted. */
+let CARD_N = 1, CARD_S = 1;
 
 type V3 = THREE.Vector3;
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
@@ -131,15 +136,16 @@ interface Cluster {
  */
 function crown(b: Builder, r: Rng, cl: Cluster[], centre: V3, colors: readonly string[], perCluster: number, fringe: number, size: [number, number], cell: number, wind: (y: number) => number, squash = 1, lobe = 0.35, coreReach = Infinity): void {
   for (const k of cl) {
-    // The core reads as the shadowed inside of the crown through any gap between cards. Outer
-    // clumps have none, so the sky shows between their leaves.
-    if (k.c.distanceTo(centre) < coreReach) {
-      const core = prep(blob(k.r * 0.8, 1, 0.18, r() * 50), _c.set(colors[0]).multiplyScalar(0.7), M.foliage, 0);
-      core.scale(1, squash, 1);
-      core.translate(k.c.x, k.c.y, k.c.z);
-      b.geo(core, null, wind);
-    }
-    for (let i = 0; i < perCluster; i++) {
+    // Every clump has a solid leafy mass (painted with atlas leaves in the shader), its normals
+    // bent toward the whole crown's so the canopy shades as one soft volume and holds together at
+    // any distance; outer clumps' masses sit deeper inside so their cards still scallop the edge.
+    const inner = k.c.distanceTo(centre) < coreReach;
+    const mass = prep(blob(k.r * (inner ? 0.82 : 0.68), 1, 0.18, r() * 50), _c.set(colors[Math.floor(r() * colors.length)]).multiplyScalar(inner ? 0.78 : 0.88), M.foliage, 0);
+    mass.scale(1, squash, 1);
+    mass.translate(k.c.x, k.c.y, k.c.z);
+    spherize(mass, centre, 0.55, squash < 1 ? 1 / 0.6 : 1);
+    b.geo(mass, null, wind);
+    for (let i = 0, nc = Math.round(perCluster * CARD_N); i < nc; i++) {
       const dir = randDir(r, squash < 1 ? 0.3 : 0.12);
       const rad = k.r * range(r, 0.72, 1.0);
       const p = V(k.c.x + dir.x * rad, k.c.y + dir.y * rad * squash, k.c.z + dir.z * rad);
@@ -150,11 +156,11 @@ function crown(b: Builder, r: Rng, cl: Cluster[], centre: V3, colors: readonly s
       const face = nrm.clone().add(V(range(r, -0.5, 0.5), range(r, -0.25, 0.5), range(r, -0.5, 0.5))).normalize();
       _c.set(colors[Math.floor(r() * colors.length)]).multiplyScalar(range(r, 0.85, 1.15));
       // Each card sways as one piece, by the height of its centre.
-      b.card(p, face, range(r, size[0], size[1]) * k.r, _c, nrm, r() * 6.283, M.leafCard, r() < 0.82 ? cell : LEAF_CELL.small, wind(p.y));
+      b.card(p, face, range(r, size[0], size[1]) * k.r * CARD_S, _c, nrm, r() * 6.283, M.leafCard, r() < 0.82 ? cell : LEAF_CELL.small, wind(p.y));
     }
   }
   // Fringe: cards straddling the outer shell, only where no other cluster covers the point.
-  for (let i = 0; i < fringe; i++) {
+  for (let i = 0, nf = Math.round(fringe * CARD_N); i < nf; i++) {
     const k = cl[Math.floor(r() * cl.length)];
     const dir = randDir(r, squash < 1 ? 0.2 : 0.0);
     const rad = k.r * range(r, 0.95, 1.12);
@@ -165,7 +171,7 @@ function crown(b: Builder, r: Rng, cl: Cluster[], centre: V3, colors: readonly s
     const nrm = p.clone().sub(centre).normalize().lerp(dir, Math.max(0.3, lobe)).normalize();
     const face = dir.clone().add(V(range(r, -0.6, 0.6), range(r, -0.5, 0.3), range(r, -0.6, 0.6))).normalize();
     _c.set(colors[Math.floor(r() * colors.length)]).multiplyScalar(range(r, 0.9, 1.2));
-    b.card(p, face, range(r, size[0], size[1]) * k.r * 1.1, _c, nrm, r() * 6.283, M.fringeCard, cell, wind(p.y));
+    b.card(p, face, range(r, size[0], size[1]) * k.r * 1.1 * CARD_S, _c, nrm, r() * 6.283, M.fringeCard, cell, wind(p.y));
   }
 }
 
@@ -178,6 +184,8 @@ const bark = (a: V3, c: V3, r0: number, r1: number) => beam(a, c, r0, "#5b4634",
 function plant(b: Builder, s: TreeSpot, y: number): { trunk: number; h: number } {
   const r = mulberry32(s.seed);
   const k = s.scale;
+  CARD_N = s.far ? 0.32 : 1;
+  CARD_S = s.far ? 1.35 : 1;
   const yaw = r() * Math.PI * 2;
   const m = new THREE.Matrix4().compose(V(s.x, y, s.z), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), yaw), V(k, k, k));
   // Local builder: geometry in tree space, moved into place at the end.
