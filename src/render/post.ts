@@ -141,7 +141,6 @@ export class Post {
         void main(){
           // The scene fills the lower-left uS of its targets (adaptive resolution); line widths stay
           // in output pixels. Colour upsamples bilinearly; ids and depth come from the nearest texel.
-          vec2 px = uWidth * uS / uRes;
           vec2 uv = vUv * uS;
           vec2 uvC = (floor(uv * uRes) + 0.5) / uRes;
           vec3 col = safe3(textureLod(tColor, uv, 0.0).rgb);
@@ -150,6 +149,11 @@ export class Post {
           bool crisp = abs(nC.z * 32.0 - 19.0) < 0.5;
           float dC = linz(textureLod(tDepth, uvC, 0.0).r);
           float iC = 1.0 / dC;
+          // On her (shirt 13, hair 14, skin 18, face 19, clothes 22-24) the taps close in with
+          // distance, so a far figure keeps fine lines instead of clotted outlines.
+          float id0 = floor(nC.z * 32.0 + 0.5);
+          bool her = id0 == 13.0 || id0 == 14.0 || id0 == 18.0 || id0 == 19.0 || (id0 >= 22.0 && id0 <= 24.0);
+          vec2 px = uWidth * uS / uRes * (her ? mix(1.0, 0.55, smoothstep(6.0, 30.0, dC)) : 1.0);
           float eD = 0.0, eN = 0.0, eI = 0.0, mask = max(nC.a, 0.0), nBoat = 0.0;
           vec2 offs[4];
           offs[0] = vec2(1.0, 0.0); offs[1] = vec2(0.0, 1.0); offs[2] = vec2(0.7071, 0.7071); offs[3] = vec2(0.7071, -0.7071);
