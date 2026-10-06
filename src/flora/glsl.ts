@@ -302,6 +302,8 @@ void main(){
   vec3 col = mix(cSh, cLit, lit);
   col += g * uSkyMid * 0.1 * (N.y * 0.5 + 0.5);
   col *= 1.0 - 0.15 * uNight;
+  // Pale sand and worn paths take the evening light like the beach (src/water/beach.ts).
+  col *= mix(1.0, 0.62 - 0.27 * uStars, uNight * pathK);
   ${noonGrass("1.0 - pathK")}
   col = applyFog(col, vWPos);
   writeOut(col, N, uMask);

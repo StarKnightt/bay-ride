@@ -86,6 +86,11 @@ export function beachMaterial(): THREE.ShaderMaterial {
           base = mix(base, albU, kU);
         }
         vec3 col = toonT(base, N, vWPos, 0.0, 0.25, 0.0, 0.06, uShadowTint);
+        // Evening: pale dry sand would stay the brightest thing in the frame. It takes the dusk
+        // light (about half at dusk, a third at night, cooled toward the shade's hue), under the grass.
+        float shL = dot(uShadowTint, vec3(0.2126, 0.7152, 0.0722));
+        vec3 eve = mix(vec3(1.0), (0.62 - 0.27 * uStars) * mix(vec3(1.0), uShadowTint / max(shL, 1e-3), 0.35), uNight);
+        col *= mix(vec3(1.0), eve, 1.0 - 0.5 * wet);
         if (kU > 0.001) col = mix(col, wBedSeen(col, albU, q, q, dB, px, 0.0, wShallowCol(), nq9), kU);
         // The moving swash above it: everything below applies there only.
         float sheet = 1.0 - kU;
