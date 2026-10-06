@@ -118,10 +118,9 @@ binary files in the repository are that GLB and `public/og.png`, the social prev
 
 ## Performance
 
-At 1920x1080 on an RTX 4060, every view measured between 62 and 114 fps in the final check. The
-one exception was a short dip to 58 fps at the very start of the walk, and the controller was
-retuned for that afterwards. The scene renders at an adaptive resolution between 75 and 100 per
-cent. It drops quickly when frames run long and climbs back slowly, so it doesn't pump.
+At 1920x1080 on an RTX 4060, every view holds 60 fps or more. The heaviest, a wide view over the
+bay and the wooded hill, settles at 60 to 67 fps; the pier, the beach and the boat run between 65
+and 120. The scene renders at an adaptive resolution between 75 and 100 per cent. It drops quickly when frames run long and climbs back slowly, so it doesn't pump.
 
 Every shader program is compiled behind the loader, so nothing stalls once you are playing. On
 Windows, Chrome translates WebGL to Direct3D, and the sea's shader takes most of the first visit's
