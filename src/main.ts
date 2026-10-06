@@ -32,6 +32,7 @@ import { Hud } from "./ui/hud";
 import { captureParams, poseCamera } from "./capture/shots";
 import { CharDirector, charMode } from "./capture/charcam";
 import { Trail } from "./rider/prints";
+import { Hints } from "./ui/hints";
 import type { LifeTime } from "./life";
 
 const params = new URLSearchParams(location.search);
@@ -51,6 +52,14 @@ const SKIP_INTRO = !!SHOT || !!CHAR || (params.has("skipintro") && params.get("s
 const OPENCAP = !SHOT && !BOAT_RUN && SKIP_INTRO && !AUTOPLAY && CAP.time !== null;
 const CHARCAP = !!CHAR && CAP.time !== null;
 const FROZEN = !!SHOT || BOATCAP || OPENCAP || CHARCAP;
+/**
+ * First-time guidance (ui/hints.ts) only for a real interactive start: never under a capture hook,
+ * a fixed time, autoplay, the boat course or an automated browser (?hints=1 forces it for checks).
+ */
+const HINTS = params.get("hints") === "1" ||
+  (!SKIP_INTRO && !AUTOPLAY && !BOAT_RUN && CAP.time === null && !navigator.webdriver && !params.has("cam") && !params.has("shot"));
+let hints: Hints | null = null;
+let hintAcc = 0;
 const W_BOOT = 0.04, W_BUILD = 0.2, W_COMPILE = 0.2, W_DRAW = 0.5, W_WARM = 0.06;
 
 if (!document.createElement("canvas").getContext("webgl2")) {
@@ -392,6 +401,21 @@ function frame(now: number) {
   else if (!SHOT) explore.update(simDt, input, t);
   const px = explore.playerX, pz = explore.playerZ;
   const onFoot = explore.onFoot;
+  if (hints) {
+    hintAcc += simDt;
+    // The shore test walks the hull's sides: a few times a second is plenty.
+    if (hintAcc > 0.2) {
+      const b = explore.boat;
+      hints.update(hintAcc, {
+        walking: onFoot && Math.abs(explore.speed) > 0.4,
+        nearBoat: explore.nearBoat,
+        aboard: explore.inBoat,
+        driving: explore.inBoat && !!b && Math.abs(b.throttle) > 0.2,
+        canAshore: explore.canStepAshore,
+      });
+      hintAcc = 0;
+    }
+  }
   if (!SHOT || BOAT_RUN) rider.update(simDt, explore.foot);
   if (FROZEN && !trailResolved && !SHOT) {
     trail.resolve(t);
@@ -491,6 +515,7 @@ function frame(now: number) {
         waiting = false;
         last = performance.now();
         loader.dissolve();
+        if (HINTS) hints = new Hints();
         requestAnimationFrame(frame);
       });
       return;

@@ -245,6 +245,14 @@ export class Explore {
     return b.hullDistance(this.x, this.z) < BERTH.reach;
   }
 
+  /** Aboard away from the berth, slow (or aground) beside standable shore: F would step ashore. */
+  get canStepAshore(): boolean {
+    const b = this.boat;
+    if (!b || this.mode !== "boat" || this.atBerth) return false;
+    if (Math.hypot(b.u, b.v) > LEAVE_SPEED && !b.aground) return false;
+    return this.shoreStep() !== null;
+  }
+
   pressF(): void {
     if (this.mode === "walk" && !this.air && this.crouchT < 0 && this.nearBoat) this.startBoard();
     else if (this.mode === "boat") this.tryLeave();

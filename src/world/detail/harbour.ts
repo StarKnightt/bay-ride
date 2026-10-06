@@ -107,7 +107,7 @@ function openingCorners(c: Ctx): void {
   // Lower left: a rope coil and a bucket against a rail post, a rod leaning on the rail.
   ropeCoil(c, -83.2, y, N - 0.05);
   bucket(c, -83.9, y, N + 0.05);
-  c.colliders.push({ x: -83.5, z: N, r: 0.5, top: y + 0.32 });
+  c.colliders.push({ x: -83.2, z: N + 0.05, r: 0.34, top: y + 0.32 }, { x: -83.9, z: N + 0.05, r: 0.22, top: y + 0.32 });
   const rx = -84.9, rz = Z + PIER.half - 0.12;
   // Resting low along the rail top (standing up, it crossed the island in the opening view).
   c.out.push(beam(V(rx + 1.3, y + 0.03, N + 0.02), V(rx - 1.6, y + 1.06, rz), 0.016, "#7a5636", M.planks, 5));
@@ -117,7 +117,8 @@ function openingCorners(c: Ctx): void {
   c.out.push(xf(box(0.2, 0.26, 0.2, "#f2d796", M.glass), -83.6, y + 0.63, S + 0.04));
   c.out.push(xf(cyl(0.02, 0.15, 0.1, "#2c3135", M.metal, 8), -83.6, y + 0.81, S + 0.04));
   fishBoxes(c, -82.9, y, S + 0.02, 2, -0.15);
-  c.colliders.push({ x: -83.25, z: S, r: 0.6, top: y + 0.85 });
+  // Kept to the gear's own footprint: the deck's walking lane must stay wide.
+  c.colliders.push({ x: -83.6, z: S - 0.06, r: 0.36, top: y + 0.85 }, { x: -82.9, z: S - 0.06, r: 0.38, top: y + 0.45 });
   // A hanging flower basket under the pier-end lamp's arm (overhead: no collider).
   const lx = PIER.x1 + 1.0, lz = Z + PIER.half - 0.16 - 0.24, by = y + 3.3 - 0.75;
   c.out.push(beam(V(lx, y + 3.3, lz), V(lx, by + 0.2, lz), 0.006, "#2c3135", M.metal, 3));
