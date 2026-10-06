@@ -2,12 +2,12 @@ import type { TimeOfDay } from "../world/timeofday";
 
 /**
  * No on-screen UI while playing. T steps through the times of day; H (or F1) shows a small card with
- * the keys, hidden again by the same key.
+ * the keys, hidden again by the same key. The keys work with the HUD off (`?hud=0`) as well.
  */
 export class Hud {
   private help: HTMLElement;
 
-  constructor(tod: TimeOfDay, enabled: boolean) {
+  constructor(tod: TimeOfDay, _hud = true) {
     this.help = document.createElement("div");
     this.help.className = "help";
     const rows: [string, string][] = [
@@ -30,7 +30,6 @@ export class Hud {
       this.help.appendChild(r);
     }
     document.body.append(this.help);
-    if (!enabled) return;
     addEventListener("keydown", (e) => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.code === "KeyT") tod.cycle();
