@@ -823,7 +823,7 @@ const FS = /* glsl */ `
     if (wk.near > 0.0) {
       vec3 R0 = reflect(V, vec3(0.0, 1.0, 0.0));
       vec3 skyE = mix(skyColor(normalize(vec3(R0.x, max(R0.y, 0.02), R0.z))), skyH, clamp(wk.brk * 1.2, 0.0, 1.0)) * uWorldTint;
-      objR = wk.near * smoothstep(0.1, 0.28, length(reflRaw - skyE));
+      objR = wk.near * smoothstep(0.25, 0.45, length(reflRaw - skyE));
     }
     vec3 reflB = mix(vec3(dot(reflRaw, vec3(0.2126, 0.7152, 0.0722))), reflRaw, 0.8) * 0.8 / max(uWorldTint, vec3(0.05));
     float rl = dot(refl, vec3(0.2126, 0.7152, 0.0722));
