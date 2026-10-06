@@ -81,7 +81,7 @@ def jaw_cut(x, y):
 # face shader (converted to glTF in FACE_GLTF) and with the sculpted features below.
 FACE = {
     "eye": {"x": 0.0318, "z": -0.0060, "hw": 0.0170, "hh": 0.0118, "tilt": 0.0013, "irx": 0.0083, "iry": 0.0099},
-    "brow": {"x0": 0.0125, "x1": 0.0500, "z": 0.0158, "arch": 0.0052, "drop": 0.0030},
+    "brow": {"x0": 0.0125, "x1": 0.0500, "z": 0.0198, "arch": 0.0045, "drop": 0.0030},
     "nose": {"z": -0.0410, "zb": -0.0470},
     "mouth": {"z": -0.0690, "hw": 0.0118},
     "blush": {"x": 0.0430, "z": -0.0330, "rx": 0.0150, "rz": 0.0085},

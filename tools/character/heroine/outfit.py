@@ -970,7 +970,7 @@ def glasses(col):
             # Rim cross-section: in the lens plane (inner edge .. outer edge), with depth.
             top = max(0.0, math.sin(a))
             outer_side = max(0.0, math.cos(a))
-            wdt = 0.0030 + 0.0042 * top ** 2 + 0.0014 * outer_side ** 4   # heavy brow bar, fine lower rim
+            wdt = 0.0030 + 0.0026 * top ** 2 + 0.0014 * outer_side ** 4   # brow bar, fine lower rim (the brows show above it)
             inner = lens_pt(s, a, -0.0005)
             outer = lens_pt(s, a, wdt)
             nrm = np.array([-wr * s, -1.0, ti])

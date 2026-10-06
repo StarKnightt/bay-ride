@@ -286,8 +286,8 @@ def idle_pose(fk, body, t, period=4.0):
     sw = math.sin(2 * math.pi * t / period * 0.5 + 0.7)  # slow sway (half the breath rate)
     delta, absr, local, loc = {}, {}, {}, {}
     # Pelvis over her right leg, its left side dropped, turned a touch toward her free leg.
-    loc["hips"] = np.array([-0.026 + 0.004 * sw, 0.004, -0.010 + 0.0015 * br])
-    delta["hips"] = rot(Z, 4.0 + 1.0 * sw) @ rot(Y, 4.5 + 0.8 * sw) @ rot(X, -1.0)
+    loc["hips"] = np.array([-0.034 + 0.004 * sw, 0.004, -0.013 + 0.0015 * br])
+    delta["hips"] = rot(Z, 6.0 + 1.0 * sw) @ rot(Y, 6.0 + 0.8 * sw) @ rot(X, -1.0)
     # Chest counter-tilts (right shoulder lower), breathes; the head tilts gently.
     delta["spine"] = rot(Y, -2.0) @ rot(Z, -2.0)
     delta["spine1"] = rot(Y, -2.5) @ rot(X, 0.8 * br)
@@ -297,15 +297,16 @@ def idle_pose(fk, body, t, period=4.0):
     for s in (1, -1):
         sf = "L" if s > 0 else "R"
         delta[f"shoulder_{sf}"] = rot(X, 0.0) @ rot(Y, s * (-1.0 - 0.6 * br))
-        delta.update(arms_down(s, adduct=17.5 if s > 0 else 18.5, flex=4.0 if s > 0 else -2.0, elbow=14.0 if s > 0 else 9.0))
-        local.update(hand_relax(s, 1.0))
+        # Arms close to her sides, elbows soft, fingers curled (no straight, pointing fingers).
+        delta.update(arms_down(s, adduct=21.5 if s > 0 else 22.5, flex=5.0 if s > 0 else -2.0, elbow=20.0 if s > 0 else 13.0))
+        local.update(hand_relax(s, 1.7, 1.2))
         local[f"hand_{sf}"] = rot(X, -6.0) @ rot(Z, s * 4.0)
     pose, _ = fk.solve(delta, absr, local, loc)
     # Feet stay planted: her right foot under her, her left forward and turned out, heel light.
     A0r, heel_r, ball_r = body.foot_points("R")
     A0l, heel_l, ball_l = body.foot_points("L")
     ank_r, Rr = body.foot_pose("R", "heel", heel_r + np.array([0.004, 0.0, 0.0]), 0.0, -3.0)
-    ank_l, Rl = body.foot_pose("L", "ball", ball_l + np.array([0.022, -0.055, 0.0]), -6.0, 14.0)
+    ank_l, Rl = body.foot_pose("L", "ball", ball_l + np.array([0.026, -0.07, 0.0]), -12.0, 16.0)
     o, _ = body.leg(pose, "R", ank_r, Rr)
     absr.update(o)
     o, _ = body.leg(pose, "L", ank_l, Rl, rot(Z, 14.0))
@@ -422,11 +423,12 @@ def gait_pose(fk, body, t, T, v, duty, run=False, drop=None):
         a = math.sin(w + (0.0 if s > 0 else math.pi))
         if not run:
             delta.update(arms_down(s, adduct=17.0, flex=-17.0 * a + 2.0, elbow=14.0 + 10.0 * max(0.0, -a)))
-            local.update(hand_relax(s, 1.0))
+            local.update(hand_relax(s, 1.5, 1.1))
         else:
             # The forward hand swings to chest height, not head height.
             delta.update(arms_down(s, adduct=13.0, flex=-27.0 * a + 2.0, elbow=74.0 + 12.0 * max(0.0, -a)))
-            local.update(hand_fist(s, 0.75))
+            # Loosely curled running hands (a tight fist inks as dark blocks on the palm).
+            local.update(hand_relax(s, 1.9, 1.2))
         delta[f"shoulder_{sf}"] = rot(X, 3.0 * a) @ rot(Y, s * -1.0)
     pose, _ = fk.solve(delta, absr, local, loc)
     for sf, (ankle, Rf, planted, kind, pitch, f) in feet.items():
@@ -506,7 +508,8 @@ def jump_pose(fk, body, t):
     T_TAKE, T_LAND = 0.40, 0.85
     # A deep anticipation crouch, and a soft landing absorb that sinks and rises back slowly. The
     # game plays its short crouch from 0.27 (the bottom), so the bottom holds to 0.31.
-    crouch = 0.23 * smooth(0.0, 0.25, t) * (1 - smooth(0.31, 0.40, t)) + 0.22 * smooth(0.85, 0.91, t) * (1 - smooth(0.97, 1.2, t))
+    # (The legs bend reaching down for the deck before touch-down, then squash into the landing.)
+    crouch = 0.23 * smooth(0.0, 0.25, t) * (1 - smooth(0.31, 0.40, t)) + 0.22 * smooth(0.85, 0.91, t) * (1 - smooth(0.97, 1.2, t)) + 0.09 * smooth(0.7, 0.84, t) * (1 - smooth(0.85, 0.9, t))
     air = smooth(0.36, 0.46, t) * (1 - smooth(0.78, 0.86, t))
     lean = 24.0 * smooth(0.05, 0.25, t) * (1 - smooth(0.30, 0.42, t)) + 5.0 * air + 14.0 * smooth(0.85, 0.93, t) * (1 - smooth(0.97, 1.2, t))
     loc["hips"] = np.array([0.0, 0.01 * lean / 16.0, -crouch])
@@ -519,7 +522,7 @@ def jump_pose(fk, body, t):
     # asymmetric (bent elbows, the left a little higher) in the air, forward to absorb the landing.
     back = smooth(0.04, 0.24, t) * (1 - smooth(0.31, 0.37, t))
     up = smooth(0.32, 0.42, t) * (1 - smooth(0.48, 0.64, t))
-    apex = smooth(0.42, 0.58, t) * (1 - smooth(0.80, 0.92, t))
+    apex = smooth(0.42, 0.56, t) * (1 - smooth(0.62, 0.86, t))
     fwd_land = smooth(0.82, 0.9, t) * (1 - smooth(0.98, 1.2, t))
     for s in (1, -1):
         sf = "L" if s > 0 else "R"
@@ -529,7 +532,8 @@ def jump_pose(fk, body, t):
         # The take-off swing raises them up and out in a V, so they come down by the sides, never
         # through the front at shoulder height.
         flex = -58.0 * back + 45.0 * up + (6.0 + 6.0 * s) * apex * (1 - up) + 16.0 * fwd_land
-        add = 15.0 - 8.0 * back - 95.0 * up - (58.0 + 12.0 * s) * apex * (1 - up) - 22.0 * fwd_land
+        # One arm floats high, the other well lower (asymmetric, relaxed, not a T).
+        add = 15.0 - 8.0 * back - 95.0 * up - (46.0 + 28.0 * s) * apex * (1 - up) - 30.0 * smooth(0.6, 0.85, t) * (1 - smooth(0.98, 1.2, t))
         elbow = 16.0 + 10.0 * back + 18.0 * up + (36.0 - 10.0 * s) * apex + 30.0 * fwd_land
         delta.update(arms_down(s, adduct=add, flex=flex, elbow=elbow))
         local.update(hand_relax(s, 1.0 - 0.35 * up))

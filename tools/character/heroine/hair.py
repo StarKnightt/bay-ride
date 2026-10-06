@@ -200,8 +200,8 @@ def style():
     S = []
     R = lambda th, ph, off: scalp_point(_dir(th, ph)[None, :], off)[0]
     # (The side-swept fringe is drawn separately, see FRINGE.)
-    # Few, thick locks (a clean toon silhouette): 2 face-framing, 4 over the ears, 5 broad back
-    # locks and 3 darker under-layer locks filling the nape; 14 long locks plus the 4-lock fringe.
+    # Few, thick locks (a clean toon silhouette): 2 face-framing, 4 over the ears, 8 back locks
+    # and 3 darker under-layer locks filling the nape; 17 long locks plus the 4-lock fringe.
     # Face-framing locks in front of the ears, to the jaw line.
     for s in (1, -1):
         th = 1.06
@@ -216,14 +216,17 @@ def style():
             comb = norm(np.array([s * 0.30, 0.30, -1.0]))
             S.append(("ear" + ("L" if s > 0 else "R"), root, comb, 0.285 + 0.012 * j, 0.055, 0.0135,
                       CAP + 0.014 + 0.002 * j, 0.012, _wave(s * th), 0.022, 0.0))
-    # Back: broad overlapping locks round the back of the head to the shoulders.
-    for j in range(5):
-        u = j / 4
-        th = 2.28 + (2 * np.pi - 4.56) * u      # from her left-back round to her right-back
-        root = R(th, 0.80, CAP + 0.004)
-        comb = norm(np.array([np.sin(th) * 0.22, 0.45, -1.0]))
-        ln = 0.300 + 0.012 * np.cos(u * np.pi * 2.0 + 0.6) + 0.008 * hash1(j * 3.1)
-        S.append(("back", root, comb, ln, 0.064, 0.0155, CAP + 0.019 + 0.0015 * (j % 2), 0.0, _wave(th), 0.024, 0.0))
+    # Back: eight thick rounded locks round the back of the head to the shoulders, in two layers
+    # (odd ones over even ones, so overlaps never cross), lengths and flicks staggered so their
+    # tips part at the hem into separate strands.
+    for j in range(8):
+        u = j / 7
+        th = 2.24 + (2 * np.pi - 4.48) * u      # from her left-back round to her right-back
+        root = R(th, 0.80 + 0.03 * (j % 2), CAP + 0.004)
+        comb = norm(np.array([np.sin(th) * 0.24, 0.45, -1.0]))
+        ln = 0.292 + 0.016 * np.cos(u * np.pi * 2.0 + 0.6) + 0.014 * (j % 2 == 0) + 0.010 * hash1(j * 3.1)
+        S.append(("back", root, comb, ln, 0.036, 0.0185, CAP + 0.018 + 0.006 * (j % 2), 0.0,
+                  _wave(th), 0.020 + 0.012 * (j % 2), 0.0))
     # Under layer: shorter, darker, filling the nape and behind the ears.
     for j in range(3):
         u = j / 2
@@ -275,6 +278,32 @@ GROUPS = {
 }
 
 
+def _under_hat(V):
+    """Keep every lock inside the hat crown: above its band the hair is pulled in to just under
+    the crown's surface (blending in just below the band), so none pokes through the straw."""
+    from . import outfit
+    O, up, fwd, lx = outfit.hat_frame()
+    rel = V - O
+    h = rel @ up
+    flat = rel - np.outer(h, up)
+    r = np.linalg.norm(flat, axis=1)
+    m = (h > -0.014) & (r > 1e-6)
+    if not m.any():
+        return V
+    dirs = flat[m] / r[m][:, None]
+    a = np.abs(np.arctan2(dirs @ lx, dirs @ fwd))
+    clear = np.interp(a, [0, 0.6, 1.4, np.pi], [0.017, 0.019, 0.023, 0.024])
+    rs = shape.radial_hit(lambda X: head.skin_field(X), O, dirs, rmax=0.2, steps=80, iters=18)
+    f = np.clip(h[m] / 0.104, 0, 1)
+    bulge = 0.010 * np.sin(np.pi * np.minimum(1.0, f * 1.4)) - 0.07 * f ** 3.2
+    lim = rs + clear + bulge - 0.004
+    k = smooth(-0.014, -0.002, h[m])
+    rn = r[m] - k * np.maximum(0.0, r[m] - lim)
+    V = V.copy()
+    V[m] = O + np.outer(h[m], up) + dirs * rn[:, None]
+    return V
+
+
 def build(col):
     specs = style()
     objs = []
@@ -310,7 +339,7 @@ def build(col):
         # Each lock's own highlight: a soft band down the crown of its outer face.
         cc = cc * (1 + 0.16 * smooth(0.55, 0.95, rs) * smooth(0.12, 0.3, sv) * (1 - smooth(0.6, 0.85, sv)))[:, None]
         if dark:
-            cc = cc * 0.72 + dk[None, :] * 0.1
+            cc = cc * 0.84 + dk[None, :] * 0.06
         else:
             # A painted sheen band across the hair mass below the hat brim (zig-zag, outer side).
             rv = V - np.array([0, 0.012, 0])
@@ -326,7 +355,7 @@ def build(col):
         allW.append(np.clip((sv - 0.2) / 0.8, 0, 1) ** 1.5)
         meta.append((grp, vo, nv, P, s))
         vo += nv
-    V = np.vstack(allV)
+    V = _under_hat(np.vstack(allV))
     C = np.vstack(allC)
     ob = make_mesh("hair", V, allF, col)
     # Shaped normals: half the lock's own round tube (one light band per lock, rounded at the sides
