@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mulberry32, pick, range, type Rng } from "../core/rng";
 import { LEAF_CELL, cellUv } from "../render/leafAtlas";
 import { pnoise, roadX, smooth } from "../world/bay/road";
+import { PATHS } from "../world/detail/paths";
 import { ISLAND, LIGHTHOUSE, coastH, headlandsH, poolsDone, tintUnder } from "../world/bay/terrain";
 import { FLORA, flowerMaterial } from "./glsl";
 import { groundY, slopeAt, uOf, type FlowerKind, type Layout } from "./place";
@@ -336,7 +337,7 @@ export class Flowers {
       lavender: lavender(301), poppy: cups(302, 5, [0.35, 0.58], 0.11, "#4a7a36"), pink: cups(303, 6, [0.45, 0.72], 0.1, "#4d7d3a"),
       daisy: daisies(304), yellow: yellows(305), thrift: thrift(306), hydrangea: hydrangea(307), weed: weed(308), fern: fern(309),
     };
-    for (const k of KINDS) this.kinds.set(k, new Kind(k, protos[k], mat, 7000));
+    for (const k of KINDS) this.kinds.set(k, new Kind(k, protos[k], mat, 12000));
     const r = mulberry32(5150);
 
     const put = (kind: FlowerKind, x: number, y: number, z: number, sk = 1) => {
@@ -383,14 +384,17 @@ export class Flowers {
     // 10-60 m; past the flowers' reach the field carries a wash of their colour.
     const WASH: Partial<Record<FlowerKind, string>> = { lavender: "#8a7ab4", daisy: "#c8c8a8", yellow: "#c8b440", pink: "#b07890" };
     const SWATHE: FlowerKind[] = ["lavender", "poppy", "daisy", "yellow", "pink", "lavender", "daisy", "poppy"];
-    for (let k = 0, tries = 0; tries < 600 && k < 30; tries++) {
-      const z = range(r, -275, 245), u = range(r, 14, 150), x = roadX(z) + u;
+    // Fixed anchors where she looks most: round the bench and on the slopes above the opening.
+    const ANCHORS: [number, number][] = [[roadX(80) + 66, 74], [roadX(80) + 80, 88], [roadX(80) + 70, 92], [86, -52], [92, -70], [80, -40], [98, -58]];
+    for (let k = 0, tries = 0; tries < 900 && k < 48; tries++) {
+      const anc = k < ANCHORS.length ? ANCHORS[k] : null;
+      const z = anc ? anc[1] + range(r, -3, 3) : range(r, -275, 245), x = anc ? anc[0] + range(r, -3, 3) : roadX(z) + range(r, 14, 150), u = x - roadX(z);
       if (headlandsH(x, z) > coastH(u, z) + 0.5 || !layout.free(x, z, 3) || slopeAt(x, z) > 0.3) continue;
       k++;
       const kind = SWATHE[k % SWATHE.length];
-      const ang = range(r, -0.6, 0.6) + (r() < 0.5 ? 0 : Math.PI / 2), L = range(r, 8, 18), W = L * range(r, 0.3, 0.5);
+      const ang = range(r, -0.6, 0.6) + (r() < 0.5 ? 0 : Math.PI / 2), L = range(r, 9, 24), W = L * range(r, 0.3, 0.5);
       const ca = Math.cos(ang), sa = Math.sin(ang);
-      const n = Math.round(L * W * range(r, 0.6, 0.95));
+      const n = Math.round(L * W * range(r, 0.9, 1.35));
       this.drifts.push([x, groundY(x, z), z, Math.min(L, 9)]);
       for (let i = 0; i < n; i++) {
         const s = range(r, -1, 1), w = (r() + r() + r() - 1.5) * 0.8 * (1 - 0.5 * Math.abs(s));
@@ -400,6 +404,25 @@ export class Flowers {
       }
       const wash = WASH[kind];
       if (wash) tintUnder(x, z, ang, L * 0.9, W * 0.8, 0.32, _w.set(wash));
+    }
+    // Runs of flowers along both verges of every footpath, two species changing every few metres.
+    const VERGE: FlowerKind[][] = [["daisy", "yellow"], ["lavender"], ["pink", "daisy"], ["yellow"], ["daisy"], ["lavender", "pink"]];
+    for (const path of PATHS) {
+      let kinds = pick(r, VERGE), left = 0;
+      for (let i = 0; i + 1 < path.length; i++) {
+        const [x0, z0] = path[i], [x1, z1] = path[i + 1];
+        const len = Math.hypot(x1 - x0, z1 - z0), nx = -(z1 - z0) / len, nz = (x1 - x0) / len;
+        for (let d = 0; d < len; d += 0.7) {
+          if (--left < 0) { kinds = pick(r, VERGE); left = 6 + Math.floor(r() * 14); }
+          const t = d / len, side = r() < 0.5 ? -1 : 1, off = side * range(r, 1.2, 3.6);
+          const fx = x0 + (x1 - x0) * t + nx * off, fz = z0 + (z1 - z0) * t + nz * off;
+          if (pnoise(fx * 2.5, fz * 2.5, 5) < 0.3 || !layout.free(fx, fz, 0.1) || slopeAt(fx, fz) > 0.4) continue;
+          for (let j = 0; j < 3; j++) {
+            const px = fx + range(r, -0.5, 0.5), pz = fz + range(r, -0.5, 0.5);
+            if (layout.free(px, pz, 0.1)) put(pick(r, kinds), px, groundY(px, pz) - 0.03, pz);
+          }
+        }
+      }
     }
     poolsDone();
     // Headlands: thrift on the cliff tops, yellow among the short grass.

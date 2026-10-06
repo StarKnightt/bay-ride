@@ -43,16 +43,25 @@ function wildTrees(layout: Layout): TreeRegion[] {
   /** A wood: 5-14 trees strung irregularly along an axis, shrubs along its skirts. */
   const wood = (x: number, z: number, ang: number, len: number, n: number, wid: number) => {
     const ax = Math.cos(ang), az = Math.sin(ang);
+    // Each wood has a character: broadleaf, a conifer stand, or mixed with poplars.
+    const mood = r();
+    const pick = (): TreeKind => {
+      const q = r();
+      if (mood < 0.55) return q < 0.12 ? "conifer" : q < 0.36 ? "tall" : "round";
+      if (mood < 0.75) return q < 0.7 ? "conifer" : q < 0.85 ? "pine" : "round";
+      return q < 0.35 ? "poplar" : q < 0.5 ? "conifer" : q < 0.7 ? "tall" : "round";
+    };
     for (let i = 0, tries = 0; i < n && tries < n * 6; tries++) {
       const s = range(r, -0.5, 0.5) * len, w = (r() + r() + r() - 1.5) * wid;
       const tx = x + ax * s - az * w, tz = z + az * s + ax * w;
-      if (!onHill(tx, tz) || !ok(tx, tz, 2.5) || !roomy(tx, tz, 3.4)) continue;
+      // Sizes skew small with the odd giant; spacing follows size so crowns crowd and overlap.
+      const sc = r() < 0.12 ? range(r, 1.35, 1.6) : 0.6 + Math.pow(r(), 1.4) * 0.7;
+      if (!onHill(tx, tz) || !ok(tx, tz, 2.5) || !roomy(tx, tz, 2.3 + sc * 1.2)) continue;
       i++;
       placed.push({ x: tx, z: tz });
-      const kind: TreeKind = r() < 0.3 ? "tall" : "round";
-      hill(tz).push({ x: tx, z: tz, kind, scale: range(r, 0.8, 1.25), seed: seed() });
+      hill(tz).push({ x: tx, z: tz, kind: pick(), scale: sc, seed: seed() });
     }
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < Math.round(n * 1.8); i++) {
       const s = range(r, -0.6, 0.6) * len, w = (r() < 0.5 ? -1 : 1) * range(r, wid * 0.8, wid * 1.8);
       const tx = x + ax * s - az * w, tz = z + az * s + ax * w;
       if (onHill(tx, tz) && ok(tx, tz, 1)) hill(tz).push({ x: tx, z: tz, kind: "bush", scale: range(r, 0.8, 1.4), seed: seed() });
@@ -94,7 +103,21 @@ function wildTrees(layout: Layout): TreeRegion[] {
     const z = range(r, -260, 230), u = range(r, 40, 160), x = roadX(z) + u;
     if (!onHill(x, z) || !ok(x, z, 3)) continue;
     k++;
-    hill(z).push({ x, z, kind: r() < 0.3 ? "tall" : "round", scale: range(r, 0.85, 1.25), seed: seed() });
+    const q = r();
+    hill(z).push({ x, z, kind: q < 0.25 ? "tall" : q < 0.4 ? "conifer" : q < 0.5 ? "poplar" : "round", scale: range(r, 0.65, 1.45), seed: seed() });
+  }
+  // Rows of poplars standing along field edges, the way they line lanes and boundaries.
+  for (let k = 0, tries = 0; k < 5 && tries < 200; tries++) {
+    const z = range(r, -250, 220), u = range(r, 45, 150), x = roadX(z) + u;
+    if (!onHill(x, z) || !ok(x, z, 3)) continue;
+    k++;
+    const a = range(r, 0, Math.PI), m = 4 + Math.floor(r() * 5), gap = range(r, 4.2, 5.5);
+    for (let i = 0; i < m; i++) {
+      const tx = x + Math.cos(a) * gap * i + range(r, -0.6, 0.6), tz = z + Math.sin(a) * gap * i + range(r, -0.6, 0.6);
+      if (!onHill(tx, tz) || !ok(tx, tz, 2) || !roomy(tx, tz, 3)) continue;
+      placed.push({ x: tx, z: tz });
+      hill(tz).push({ x: tx, z: tz, kind: "poplar", scale: range(r, 0.85, 1.15), seed: seed() });
+    }
   }
   for (const z of [-128, -76, -12, 26, 64, 98, 136]) {
     const u = range(r, 10.5, 13), x = roadX(z) + u;
@@ -103,11 +126,14 @@ function wildTrees(layout: Layout): TreeRegion[] {
   // The big tree on the north path, with its bench.
   hill(78).push({ x: roadX(80) + 73.5, z: 80, kind: "hero", scale: 1, seed: 4242 });
   // Shrubs scattered along the meadow's lower edge and up the hill.
-  for (let k = 0, tries = 0; k < 70 && tries < 900; tries++) {
-    const z = range(r, -280, 245), u = 8 + Math.pow(r(), 1.5) * 130, x = roadX(z) + u;
+  for (let k = 0, tries = 0; k < 140 && tries < 1800; tries++) {
+    const z = range(r, -280, 245), u = 8 + Math.pow(r(), 1.5) * 140, x = roadX(z) + u;
     if (!onHill(x, z) || !ok(x, z, 1.2, 0.36)) continue;
     k++;
-    hill(z).push({ x, z, kind: "bush", scale: range(r, 0.7, 1.25), seed: seed() });
+    for (let i = 0, m = r() < 0.5 ? 1 : 2 + Math.floor(r() * 3); i < m; i++) {
+      const bx = x + (i ? range(r, -2.2, 2.2) : 0), bz = z + (i ? range(r, -2.2, 2.2) : 0);
+      if (i === 0 || (onHill(bx, bz) && ok(bx, bz, 0.8, 0.4))) hill(bz).push({ x: bx, z: bz, kind: "bush", scale: range(r, 0.6, 1.4), seed: seed() });
+    }
   }
   // Seaside pines on the headlands, shrubs in their lee.
   for (const [zc, list] of [[262, hn], [-298, hs]] as const) {
@@ -188,7 +214,7 @@ export class Flora {
     for (const reg of regions)
       for (const s of reg.spots) {
         if (s.y !== undefined && !Number.isNaN(s.y)) continue;
-        const big = s.kind === "round" || s.kind === "tall" || s.kind === "hero" || s.kind === "pine";
+        const big = s.kind !== "bush" && s.kind !== "hedge";
         poolUnder(s.x, s.z, (big ? (s.kind === "hero" ? 8 : 5.2) : 2.2) * s.scale, big ? 0.55 : 0.35);
       }
     poolsDone();

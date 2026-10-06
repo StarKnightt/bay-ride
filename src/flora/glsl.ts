@@ -134,10 +134,10 @@ void main(){
   if (!gl_FrontFacing) N = -N;
   // Soft up-facing normals: the field shades as painted drifts, not blade by blade.
   vec3 Ns = normalize(mix(N, vec3(0.0, 1.0, 0.0), 0.55));
-  vec3 base = vCol * mix(vec3(0.86, 1.0, 1.1), vec3(1.2, 1.1, 0.7), vHue);
+  vec3 base = vCol * mix(vec3(0.84, 0.98, 1.06), vec3(1.1, 1.06, 0.84), vHue);
   // Big painted drifts: warmer yellow-green swathes and cooler blue-green hollows.
   float pn = vnoise(vWPos.xz * 0.045 + 3.1);
-  base *= mix(vec3(0.92, 1.0, 1.08), vec3(1.12, 1.06, 0.8), smoothstep(0.35, 0.75, pn));
+  base *= mix(vec3(0.86, 0.97, 1.06), vec3(1.07, 1.05, 0.88), smoothstep(0.35, 0.75, pn));
   // Travelling gust bands lift the leaning tips.
   float wv = sin(dot(vWPos.xz, uWindDir) * 0.22 - uTime * 2.1) * 0.5 + 0.5;
   base *= 1.0 + (smoothstep(0.55, 1.0, wv) * 0.6 + vWave) * vTip * uGrassWave;
@@ -156,7 +156,7 @@ void main(){
   // Sunlight through the blades when looking toward the sun (tips glow yellow-green).
   vec3 V = normalize(cameraPosition - vWPos);
   float back = pow(max(dot(-V, uSunDir), 0.0), 3.0);
-  col += base * uSunColor * vec3(0.95, 1.0, 0.42) * back * vTip * uGrassBack * sv;
+  col += base * uSunColor * vec3(0.9, 1.0, 0.5) * back * vTip * uGrassBack * sv;
   col *= 1.0 - 0.2 * uNight;
   col = applyFog(col, vWPos);
   writeOut(col, Ns, -1.0);
@@ -197,11 +197,12 @@ void main(){
   vec3 N = normalize(vN);
   vec3 base = vCol;
   // Worn footpaths are painted warm into the vertex colour: they keep it.
-  float pathK = smoothstep(-0.01, 0.06, base.r - base.g);
+  // A ratio, so the shade pools' darkening doesn't read as path.
+  float pathK = smoothstep(-0.085, -0.015, (base.r - base.g) / (base.r + base.g + 0.02));
   float pn = vnoise(vWPos.xz * 0.045 + 3.1);
-  vec3 g = base * mix(vec3(0.92, 1.0, 1.08), vec3(1.12, 1.06, 0.8), smoothstep(0.35, 0.75, pn));
+  vec3 g = base * mix(vec3(0.86, 0.97, 1.06), vec3(1.07, 1.05, 0.88), smoothstep(0.35, 0.75, pn));
   float big = vnoise(vWPos.xz * 0.011 + 7.0) * 0.65 + vnoise(vWPos.xz * 0.027 + 2.0) * 0.35;
-  g *= mix(vec3(0.56, 0.72, 0.86), vec3(1.1, 1.08, 0.78), smoothstep(0.3, 0.7, big));
+  g *= mix(vec3(0.5, 0.68, 0.8), vec3(1.06, 1.06, 0.86), smoothstep(0.3, 0.7, big));
   float mid = vnoise(vWPos.xz * 0.06 + 1.7);
   g *= mix(vec3(0.8, 0.88, 0.95), vec3(1.05, 1.04, 0.92), smoothstep(0.25, 0.75, mid));
   // Strokes along the contour (the slope's level direction), small near and broad far.
@@ -217,6 +218,31 @@ void main(){
   float fl = vnoise(vWPos.xz * 1.3 + vec2(s1 * 1.5, 0.0));
   g = mix(g, g * vec3(1.22, 1.2, 0.78), smoothstep(0.7, 0.8, fl) * k1 * 0.5);
   g = mix(g, g * vec3(0.62, 0.74, 0.82), smoothstep(0.3, 0.2, fl) * k1 * 0.5);
+  // Up the hill: a patchwork of fields in warped, rotated cells, divided by hedgerows.
+  // Hedge lines never thin below ~1.5 px so they still read from the bay.
+  float hill = smoothstep(4.0, 12.0, vWPos.y) * (1.0 - pathK);
+  {
+    vec2 w = vec2(dot(vWPos.xz, vec2(0.94, 0.34)), dot(vWPos.xz, vec2(-0.34, 0.94)));
+    w += vec2(7.0 * sin(w.y * 0.043 + 1.0), 6.0 * sin(w.x * 0.061 + 2.0));
+    vec2 sz = vec2(46.0, 34.0);
+    vec2 cP = floor(w / sz), fP = w / sz - cP;
+    float t = hash12(cP + 0.37);
+    vec3 tone = t < 0.28 ? vec3(1.14, 1.1, 0.84) : t < 0.52 ? vec3(0.72, 0.84, 0.9) : t < 0.64 ? vec3(1.26, 1.12, 0.7) : t < 0.8 ? vec3(0.9, 0.98, 0.94) : vec3(1.04, 1.04, 1.0);
+    float rows = 0.5 + 0.5 * sin(dot(w, t < 0.3 ? vec2(0.0, 1.9) : vec2(1.9, 0.0)));
+    tone *= 1.0 + (rows - 0.5) * 0.1 * step(t, 0.64) * k2;
+    g *= mix(vec3(1.0), tone, hill);
+    vec2 sideX = vec2(fP.x < 0.5 ? cP.x : cP.x + 1.0, cP.y), sideY = vec2(cP.x, fP.y < 0.5 ? cP.y : cP.y + 1.0);
+    float dX = min(fP.x, 1.0 - fP.x) * sz.x, dY = min(fP.y, 1.0 - fP.y) * sz.y;
+    float onX = step(hash12(sideX + 5.1), 0.62), onY = step(hash12(sideY + 9.3), 0.55);
+    float bush = vnoise(w * 0.35) * 0.9 + 0.3;
+    // Per-axis screen footprint: at grazing angles the line keeps ~1.6 px across, not its depth smear.
+    vec2 fw = fwidth(w);
+    float wx = max(1.2 * bush, fw.x * 1.6), wy = max(1.2 * bush, fw.y * 1.6);
+    float hx = onX * (1.0 - smoothstep(wx * 0.55, wx, dX)), hy = onY * (1.0 - smoothstep(wy * 0.55, wy, dY));
+    float gap = smoothstep(0.1, 0.22, vnoise(w * 0.09 + 4.0));
+    float hed = max(hx, hy) * gap * hill * smoothstep(0.035, 0.11, gFoot);
+    g = mix(g, vec3(0.015, 0.042, 0.026) * (0.75 + 0.4 * bush), hed);
+  }
   g = mix(g, base * (0.9 + 0.2 * s1), pathK);
   // Full shadow filtering only where a pixel is small enough to show its stair steps.
   gFastShadow = gFoot > 0.12;

@@ -39,10 +39,10 @@ function clumpGeo(blades: number, segs: number, widthK: number, seed: number): G
     const bend = range(r, 0.12, 0.42);
     const bh = range(r, 0.6, 1.0);
     const hw0 = range(r, 0.017, 0.028) * widthK;
-    _a.set("#1c3a24");
-    _m.set(r() < 0.5 ? "#3d7a2f" : "#46803a");
+    _a.set("#123a32");
+    _m.set(r() < 0.5 ? "#3a7340" : "#457d48");
     const tv = r();
-    _b.set(tv < 0.25 ? "#7fae46" : tv < 0.8 ? "#a8c45a" : "#cfca72");
+    _b.set(tv < 0.3 ? "#7aa856" : tv < 0.85 ? "#98ba66" : "#b9c47a");
     const start = pos.length / 3;
     for (let i = 0; i <= segs; i++) {
       const t = i / segs;

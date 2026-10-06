@@ -16,7 +16,7 @@ import { groundY, type Layout } from "./place";
  * static, written straight into one merged geometry per region (one draw each, culled per region).
  */
 
-export type TreeKind = "round" | "tall" | "hero" | "pine" | "bush" | "hedge";
+export type TreeKind = "round" | "tall" | "hero" | "pine" | "poplar" | "conifer" | "bush" | "hedge";
 
 export interface TreeSpot {
   x: number;
@@ -226,6 +226,23 @@ function plant(b: Builder, s: TreeSpot, y: number): { trunk: number; h: number }
       pads.push({ c: end.clone().add(V(0, 0.35, 0)), r: range(r, 1.0, 1.5) });
     }
     crown(t, r, pads, V(top.x, h * 0.8, top.z), PINE, 26, 34, [0.55, 0.8], LEAF_CELL.lance, sway, 0.42);
+  } else if (s.kind === "poplar" || s.kind === "conifer") {
+    // Poplar: a narrow column of stacked clumps. Conifer: a cone of tiers narrowing to a spire.
+    const pop = s.kind === "poplar";
+    h = pop ? range(r, 7.5, 9.5) : range(r, 6, 8);
+    trunk = pop ? 0.24 : 0.22;
+    const sway = swayBy(h + 1, pop ? 1 : 0.5);
+    const top = V(range(r, -0.15, 0.15), h, range(r, -0.15, 0.15));
+    t.geo(bark(V(0, -0.3, 0), top, trunk, trunk * 0.5), null, sway);
+    const cl: Cluster[] = [];
+    const tiers = pop ? 6 : 6 + Math.floor(r() * 2);
+    for (let i = 0; i < tiers; i++) {
+      const f = i / (tiers - 1), y = h * (pop ? 0.3 + f * 0.78 : 0.22 + f * 0.86);
+      const rad = pop ? 1.15 * (1 - 0.55 * Math.abs(f - 0.4) ** 1.5) : 2.1 * (1 - f * 0.82);
+      const a = r() * Math.PI * 2, d = rad * 0.18;
+      cl.push({ c: V(top.x * f + Math.cos(a) * d, y, top.z * f + Math.sin(a) * d), r: rad * range(r, 0.9, 1.1) });
+    }
+    crown(t, r, cl, V(top.x, h * 0.62, top.z), pop ? BROAD : PINE, pop ? 18 : 20, pop ? 60 : 40, pop ? [0.5, 0.72] : [0.55, 0.78], pop ? LEAF_CELL.ovate : LEAF_CELL.lance, sway, pop ? 1 : 0.55, 0.3);
   } else {
     // Shrub (or a clipped hedge clump): low clusters of broad leaves, no trunk to speak of.
     const hedge = s.kind === "hedge";

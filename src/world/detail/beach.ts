@@ -242,9 +242,33 @@ export function buildBeach(layout: Layout, colliders: Collider[]): THREE.Group {
       layout.rect(x - len / 2, x + len / 2, z - len / 2, z + len / 2);
     }
   }
-  // The beach set on the upper sand in shot 2's foreground (eye on the promenade at z 60).
+  // Shot 1's foreground (eye on the wet sand at u -27, z 40, looking along the shore): a log and
+  // dry tufts to landward, pebbles, shells and a strand of weed across the sand in front.
   {
-    const z = 47.5, x = at(-10.6, z);
+    const ex = at(-27, 40), fx = -0.65, fz = -0.76, rx = 0.76, rz = -0.65;
+    const p = (d: number, s: number): [number, number] => [ex + fx * d + rx * s, 40 + fz * d + rz * s];
+    const [lx, lz] = p(6.5, 2.6);
+    if (ok(lx, lz, 1)) {
+      driftwood(r, props, lx, lz, 2.6, 0.12);
+      colliders.push({ x: lx, z: lz, r: 1.2, top: groundY(lx, lz) + 0.2 });
+    }
+    for (let i = 0; i < 70; i++) {
+      const [x, z] = p(range(r, 2.2, 11), range(r, -2.5, 4.5));
+      if (ok(x, z)) add(z, r() < 0.5 ? pebble(r, x, z, r() < 0.5) : shell(r, x, z));
+    }
+    for (let i = 0; i < 46; i++) {
+      const t = i / 45, [x, z] = p(4 + t * 7 + range(r, -0.3, 0.3), 3.8 - t * 6 + range(r, -0.3, 0.3));
+      if (ok(x, z)) add(z, r() < 0.8 ? weed(r, x, z, r() < 0.4) : clump(r, x, z));
+    }
+    for (const [d, s] of [[4.5, 4.2], [8, 5], [10.5, 3.6]] as const) {
+      const [x, z] = p(d, s);
+      if (ok(x, z, 0.3)) layout.spot(x, z, 0.9, 10, ["weed", "weed", "thrift", "weed"]);
+    }
+  }
+  // The beach set on the upper sand, on shot 2's centre line (eye on the road at z 60, looking
+  // over the wall to the island).
+  {
+    const z = 55.2, x = at(-12.2, z);
     umbrella(props, colliders, x - 0.3, z + 1.3);
     towel(props, x + 0.6, z - 0.3, 0.35);
     basket(props, colliders, x + 1.75, z + 0.65);
@@ -264,8 +288,8 @@ export function buildBeach(layout: Layout, colliders: Collider[]): THREE.Group {
     const x = at(WALL_OUT - range(r, 0.6, 1.6), z);
     if (ok(x, z, 0.5)) layout.spot(x, z, range(r, 0.8, 1.6), Math.floor(range(r, 4, 9)), ["weed", "thrift", "weed", "yellow", "thrift"]);
   }
-  layout.spot(at(-8.4, 51.5), 51.5, 1.4, 9, ["weed", "thrift", "weed", "yellow"]);
-  layout.spot(at(-8.2, 43.5), 43.5, 1.2, 7, ["weed", "thrift", "daisy"]);
+  layout.spot(at(-9.6, 59), 59, 1.6, 14, ["weed", "thrift", "weed", "yellow"]);
+  layout.spot(at(-9.4, 51), 51, 1.4, 11, ["weed", "thrift", "daisy"]);
 
   const group = new THREE.Group();
   group.name = "beach";
