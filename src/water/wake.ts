@@ -210,7 +210,7 @@ struct Wake { float h; vec2 grad; float foam; float slick; float aer; float cont
  * along the flow and of mixed sizes, joined by long thin threads; as the density falls the cells
  * open, merge and leave only threads and scraps. Far off it melts into its average coverage.
  */
-float wakeLace(vec2 p, float dens, float seed, float px, float threads){
+float wakeLace(vec2 p, float dens, float seed, float px, float threads, float holes){
   if (dens < 0.02) return 0.0;
   float cov = pow(clamp(dens, 0.0, 1.0), 1.3) * 0.8;
   float far = smoothstep(0.05, 0.16, px);
@@ -236,7 +236,7 @@ float wakeLace(vec2 p, float dens, float seed, float px, float threads){
   float aa = 0.012 + px * 5.0;
   float aaP = aa + 0.05 * (1.0 - smoothstep(0.004, 0.02, px));
   float patchM = smoothstep(th - aaP, th + aaP, c);
-  patchM *= 1.0 - 0.85 * smoothstep(0.6, 0.72, hn) * smoothstep(th, th + 0.22, c) * fine;
+  patchM *= 1.0 - 0.85 * holes * smoothstep(0.6, 0.72, hn) * smoothstep(th, th + 0.22, c) * fine;
   float tw = mix(0.94, 0.82, d);
   float thread = smoothstep(tw - aa * 3.0, tw + aa * 3.0, r) * smoothstep(th - 0.25, th - 0.05, c) * (1.0 - smoothstep(0.012, 0.03, px)) * threads;
   // Thin lace fades rather than shrinking to a few solid flecks (flat white scraps).
@@ -306,7 +306,7 @@ Wake wakeShade(vec2 q, float px, float pxm){
     float latF = mix(1.0, (0.05 + 0.45 * gapA) * gapB, smoothstep(0.85, 2.2, ay)) * mix(1.0, gapA, 0.5 * smoothstep(1.5, 4.0, x))
                * mix(1.0, 0.3 + 0.7 * gapB, smoothstep(0.0, 1.0, daR));
     dens *= mix(latF, 1.0, smoothstep(0.25, 0.8, pxL));
-    float arm = wakeLace(vec2(w.y, w.odo), clamp(dens * 0.85, 0.0, 1.0), 2.0 + sd, pxL, 1.0);
+    float arm = wakeLace(vec2(w.y, w.odo), clamp(dens * 0.85, 0.0, 1.0), 2.0 + sd, pxL, 1.0, 1.0);
 
     // Transverse crests curving across between the arms, from just aft of the transom: painted
     // tone (lighter crests, darker troughs) and broken white along the first one or two.
@@ -319,7 +319,7 @@ Wake wakeShade(vec2 q, float px, float pxm){
     float cTr = cos(inf.x);
     float tTone = (smoothstep(0.35, 0.9, cTr) - 0.7 * smoothstep(-0.2, -0.85, cTr)) * tVis * tRes;
     float tC = smoothstep(0.6, 0.95, cTr) * tVis * tRes * exp(-max(x - xT, 0.0) / (1.3 * lamT)) * inV;
-    float trans = wakeLace(vec2(w.y + 9.0, w.odo * 1.6), clamp(tC * 0.38, 0.0, 1.0), 7.0, pxL, 0.0);
+    float trans = wakeLace(vec2(w.y + 9.0, w.odo * 1.6), clamp(tC * 0.38, 0.0, 1.0), 7.0, pxL, 0.0, 1.0);
 
     // The propeller: a boil about the beam's width right behind the transom for a boat length or
     // two, narrowing and breaking into patches and scraps by ~12 m, a paler aerated band that
@@ -333,7 +333,9 @@ Wake wakeShade(vec2 q, float px, float pxm){
     float boil = w.churn * behind * exp(-lat * lat * 1.6) * stage * mix(sqrt(wP / wPe), 1.0, keep) * (1.0 + 0.8 * smoothstep(0.05, 0.4, pxL));
     boil *= (0.6 + 0.6 * vnoise(vec2(w.odo * 0.3, w.y * 1.4))) * (1.0 + 0.9 * exp(-max(xs, 0.0) / 1.5));
     // Capped short of solid so holes of dark water stay open, densest only in the prop's own wash.
-    float boilF = wakeLace(vec2(w.y * 1.2, w.odo) + vec2(0.0, w.age * 0.5), clamp(boil * 0.8, 0.0, mix(0.72, 0.92, exp(-max(xs, 0.0) / 1.5))), 5.0, pxL, 1.0);
+    // One churned mass: no bubble holes or thread loops (on lone clumps both draw rings), cells
+    // drawn out along the track so the gaps between them are irregular streaks of dark water.
+    float boilF = wakeLace(vec2(w.y * 1.2, w.odo * 0.5) + vec2(0.0, w.age * 0.3), clamp(boil * 0.8, 0.0, mix(0.78, 0.94, exp(-max(xs, 0.0) / 1.5))), 5.0, pxL, 0.0, 0.0);
     // Churned patches with dark water between, drifting as the water ages; whole in the prop wash,
     // and its mean where the pixel is too coarse to draw them.
     float chM = smoothstep(0.32, 0.62, vnoise(vec2(w.y * 2.4, w.odo * 0.9) + w.age * 0.7));
@@ -430,7 +432,7 @@ Wake wakeShade(vec2 q, float px, float pxm){
     // Laced in the boat's own frame: the hull distance has corners and creases that would draw
     // nested outlines of the hull across the water.
     vec2 cq = vec2(s * 1.6, f + uWakeInfo.y + uTime * 0.3);
-    o.foam = max(o.foam, wakeLace(cq, clamp(hf * 1.1, 0.0, 1.0), 11.0, px, 0.0));
+    o.foam = max(o.foam, wakeLace(cq, clamp(hf * 1.1, 0.0, 1.0), 11.0, px, 0.0, 1.0));
     o.contact = (1.0 - smoothstep(0.0, 0.1 + 0.1 * spd, d)) * smoothstep(-0.08, -0.01, d) * sternK * (1.0 - smoothstep(0.1, 0.3, px));
   }
   return o;
