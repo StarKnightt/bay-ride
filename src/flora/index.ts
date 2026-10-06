@@ -223,6 +223,16 @@ function wildTrees(layout: Layout): TreeRegion[] {
       list.push({ x, z, kind: rt() < 0.35 ? "bush" : "round", scale: range(rt, 1.2, 1.8), seed: Math.floor(rt() * 1e9), far: true });
     }
   }
+  // The island's slopes: a dozen big lobed shrubs, so it reads as wooded heath, not a smooth dome.
+  for (let k = 0, tries = 0; k < 12 && tries < 400; tries++) {
+    const a = rt() * Math.PI * 2, d = range(rt, 12, 36);
+    const x = LIGHTHOUSE.x + Math.cos(a) * d, z = LIGHTHOUSE.z + Math.sin(a) * d;
+    if (Math.cos(a) * 0.52 - Math.sin(a) * 0.85 > 0.35 && d < 24) continue;
+    if (groundY(x, z) < SEA_Y + 4.5 || slopeAt(x, z) > 0.42 || !layout.free(x, z, 2.5)) continue;
+    k++;
+    // Trunkless: against the island's own green a small crown vanishes and leaves its trunk.
+    island.push({ x, z, kind: "bush", scale: range(rt, 1.8, 2.5), seed: Math.floor(rt() * 1e9), far: true });
+  }
   return [
     { name: "hill south", spots: south },
     { name: "hill north", spots: north },
