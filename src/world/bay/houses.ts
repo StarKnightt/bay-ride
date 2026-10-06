@@ -81,6 +81,9 @@ interface Lane {
   x0: number;
   /** Ground under the lane centreline at each tread boundary (world x0 + i * TREAD). */
   g: Float64Array;
+  /** The end kerb across the top: its inner face (world x) and its top. */
+  kx: number;
+  ky: number;
 }
 const LANE_GEO: Lane[] = [];
 const PADS: { x0: number; x1: number; z0: number; z1: number; y: number }[] = [];
@@ -92,6 +95,8 @@ const PADS: { x0: number; x1: number; z0: number; z1: number; y: number }[] = []
  */
 export function pavedH(x: number, z: number): number {
   for (const l of LANE_GEO) {
+    // The end kerb is walked on: she steps up onto it and down onto the verge, not through it.
+    if (x > l.kx - 0.05 && x < l.kx + 0.25 && Math.abs(z - l.z) < l.half + 0.22) return l.ky;
     if (Math.abs(z - l.z) > l.half) continue;
     const s = (x - l.x0) / TREAD;
     const i = Math.floor(s);
@@ -466,7 +471,7 @@ function lanes(c: Ctx, stone: Geo[]): void {
       const x = x0 + i * TREAD;
       g[i] = Math.max(meshH(x, L.z), meshH(x, L.z - kz), meshH(x, L.z + kz), meshH(x, L.z - L.half), meshH(x, L.z + L.half));
     }
-    LANE_GEO.push({ z: L.z, half: L.half, x0, g });
+    LANE_GEO.push({ z: L.z, half: L.half, x0, g, kx: x0 + n * TREAD, ky: g[n] + LIFT + 0.08 });
     for (let i = 0; i < n; i++) {
       const a = g[i] + LIFT, b = g[i + 1] - RISER + LIFT;
       const tilt = Math.atan2(b - a, TREAD);

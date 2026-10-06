@@ -11,7 +11,7 @@ import { buildDuneGrass } from "./dunegrass";
 import { WorldDetail } from "../detail";
 import { pathDist } from "../detail/paths";
 import { Life, type LifeTime } from "../../life";
-import { buildPier, deckH, inPier, pierBlocks, pierContact, pierGround, pierWalkH } from "./pier";
+import { PIER, buildPier, deckH, inPier, pierBlocks, pierContact, pierGround, pierWalkH } from "./pier";
 import { beachMaterial } from "../../water/beach";
 import { ROCKS, buildRocks, rockTop } from "../../water/rocks";
 import { buildSlipways, rampH } from "./slipway";
@@ -205,11 +205,13 @@ export class Bay {
 
   /**
    * On the face of the sea wall at (x, z): between its foot and the promenade edge, where the coast
-   * profile (not a headland) makes the ground and no slipway crosses it. Masonry: she never walks up it.
+   * profile (not a headland) makes the ground and no slipway crosses it, nor the pier's root (its
+   * deck rises gently over the wall's line onto the promenade). Masonry: she never walks up it.
    */
   seaWall(x: number, z: number): boolean {
     const u = x - roadX(z);
     if (u < WALL_OUT - 0.1 || u > WALL_IN + 0.05 || rampH(x, z, 0.1) > -Infinity) return false;
+    if (x < PIER.x0 + 0.3 && Math.abs(z - PIER.z) < PIER.half + 0.1) return false;
     return headlandsH(x, z) < coastH(u, z);
   }
 
