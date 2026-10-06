@@ -53,13 +53,16 @@ export function buildSlipways(): THREE.Mesh {
     // A slab along local x, tilted down seaward with its top back edge on the promenade edge, its
     // foot running on under the sand.
     const L = (r.len + 0.4) / Math.cos(th);
-    const g = box(L, T, HALF * 2, "#bdb6a6", M.stone);
     const ex = (-L / 2) * Math.cos(th) + (T / 2) * Math.sin(th), ey = (L / 2) * Math.sin(th) + (T / 2) * Math.cos(th);
-    g.applyMatrix4(new THREE.Matrix4().makeTranslation(-ex, -ey, 0).multiply(tilt));
+    const place = new THREE.Matrix4().makeTranslation(-ex, -ey, 0).multiply(tilt);
     n.set(r.nx, 0, r.nz);
     lat.crossVectors(n, up);
-    g.applyMatrix4(new THREE.Matrix4().makeBasis(n, up, lat).setPosition(r.x, 0, z));
-    parts.push(g);
+    const basis = new THREE.Matrix4().makeBasis(n, up, lat).setPosition(r.x, 0, z);
+    // The deck, and a low kerb down each side (visual only: the walk surface is the deck) so the
+    // slab has edges that catch the light instead of one flat polygon on the sand.
+    const deck = box(L, T, HALF * 2, "#bdb6a6", M.stone);
+    const kerbs = [-1, 1].map((s) => box(L, T + 0.16, 0.2, "#a29b8d", M.stone).translate(0, 0.08, s * (HALF + 0.1)));
+    for (const g of [deck, ...kerbs]) parts.push(g.applyMatrix4(place).applyMatrix4(basis));
   }
   const m = new THREE.Mesh(merge(parts), uber(ID.ground, 0.6));
   m.name = "slipways";

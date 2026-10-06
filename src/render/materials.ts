@@ -594,6 +594,11 @@ void main(){
   vec3 emis = vec3(0.0);
   float mask = uMask;
   int mt = vMat;
+  // Terrain sand off the beach mesh (island shore, coves) takes the evening light like the beach.
+  if (mt == 0 && abs(uId - 1.0) < 0.5) {
+    float sk = smoothstep(0.4, 0.6, base.r) * smoothstep(0.15, 0.28, base.r - base.b);
+    base *= mix(1.0, 0.62 - 0.27 * uStars, uNight * sk);
+  }
 
   if ((HAS(20) && mt == 20)) {           // flower card: five rounded petals + a golden eye, alpha-cut
     vec2 d = vUv - 0.5;
@@ -743,6 +748,21 @@ void main(){
     return;
   } else if ((HAS(13) && mt == 13)) {    // stone
     base *= 0.8 + 0.35 * mix(0.5, vnoise(vWPos.xz * 4.0 + vWPos.y * 3.0), footKeep(4.0));
+    // Up-facing stone (lane treads, slipways, caps): worn paving, slabs in running bond with soft
+    // dark joints, each its own tone, and broad mottling that still reads at play distance.
+    float up = smoothstep(0.75, 0.9, N.y);
+    if (up > 0.0) {
+      vec2 pq = vWPos.xz * vec2(1.25, 1.7);
+      pq.x += 0.5 * floor(pq.y);
+      vec2 f = fract(pq);
+      float j = min(min(f.x, 1.0 - f.x) / 1.25, min(f.y, 1.0 - f.y) / 1.7);
+      float joint = (1.0 - smoothstep(0.01, 0.03, j)) * footKeep(1.7);
+      float tone = mix(1.0, 0.88 + 0.2 * hash12(floor(pq)), footKeep(0.8));
+      float mot = 0.84 + 0.2 * vnoise(vWPos.xz * 0.55) + 0.1 * vnoise(vWPos.xz * 1.9 + 7.0);
+      base *= mix(1.0, tone * mot * (1.0 - 0.3 * joint), up);
+      // Pale paving takes the evening light like the sand, a little less.
+      base *= mix(1.0, 0.75 - 0.15 * uStars, uNight * up);
+    }
     paint = 1.4;
   } else if ((HAS(23) && mt == 23) || (HAS(24) && mt == 24)) { // painted signage from the atlas; 24 = lit (vending, phone)
     vec4 sg = texture(uSignTex, vUv);

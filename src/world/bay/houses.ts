@@ -492,6 +492,12 @@ function lanes(c: Ctx, stone: Geo[]): void {
         c.layout.spot(cx, lz, 0.6, 4, ["fern", "pink", "daisy", "weed"]);
       }
     }
+    // The top: an end kerb across the lane hides the last slab's raw end, and weeds and flowers at
+    // its corners grow it into the verge instead of a slab stopping on the grass.
+    const xe = x0 + n * TREAD, ge = g[n] + LIFT;
+    stone.push(xf(box(0.3, 0.7, L.half * 2 + 0.44, "#9f978a", M.stone), xe + 0.1, ge + 0.08 - 0.35, L.z));
+    for (const sg of [-1, 1]) c.layout.spot(xe + 0.5, L.z + sg * (L.half + 0.3), 0.8, 6, ["weed", "fern", "daisy", "pink"]);
+    c.layout.spot(xe + 0.9, L.z, 0.9, 5, ["weed", "fern", "daisy"]);
     c.layout.seg(x0 - 0.5, L.z, x1 + 0.4, L.z, L.half + 0.3);
   }
 }
