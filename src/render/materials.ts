@@ -865,11 +865,13 @@ void main(){
   if (mt == 7 || mt == 15) shT = herShade(shT);
   // Cream shorts shade toward tan (not the blue-grey of whites in shade); the coral camisole
   // toward a soft rose (the ribbon on the same id is teal and keeps the cool shade).
-  if (uId == 23.0) { gWarmShade = 1.0; shT = herShade(vec3(0.8, 0.71, 0.62)); }
-  if (uId == 22.0 && base.r > base.b * 1.4) { gWarmShade = 1.0; shT = herShade(vec3(0.86, 0.66, 0.66)); }
-  // The mint shirt shades toward olive-sage, not the blue-grey of whites in shade, and its folds
-  // shadowing each other stay soft, so no blue patches over the mint.
-  if (uId == 13.0) { gWarmShade = 1.0; gHairCast = 1.0; shT = herShade(vec3(0.6, 0.68, 0.58)); }
+  if (uId == 23.0) { gWarmShade = 1.0; shT = herShade(vec3(0.7, 0.6, 0.5)); }
+  if (uId == 22.0 && base.r > base.b * 1.4) { gWarmShade = 1.0; shT = herShade(vec3(0.78, 0.55, 0.55)); }
+  // Her value range at play distance: the shades sit deeper (hue-kept) and the sage shirt's lit
+  // side a little brighter, so her figure separates from sand and grass. The mint shirt shades
+  // toward olive-sage, not the blue-grey of whites in shade, and its folds shadowing each other
+  // stay soft, so no blue patches over the mint.
+  if (uId == 13.0) { gWarmShade = 1.0; gHairCast = 1.0; shT = herShade(vec3(0.5, 0.6, 0.5)) / 1.1; base *= 1.1; }
   // The shorts' inseam (the two legs' inner walls meet flush, edge-on from front and back) draws
   // no ink: a few pixels either side of it are unmasked (bind-pose position, y up).
   if (uId == 23.0) mask *= smoothstep(0.008, 0.02, abs(vObj.x)) + step(0.805, vObj.y) + step(vObj.y, 0.6);

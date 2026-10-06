@@ -84,6 +84,8 @@ const C = {
   sheer: new THREE.Color("#4c9fb8"),
   wood: new THREE.Color("#b98451"),
   woodDark: new THREE.Color("#8a5a33"),
+  /** Alternate strakes inside, a shade deeper, so the laps read inside the open boat too. */
+  woodLap: new THREE.Color("#a5703f"),
   rail: new THREE.Color("#a46b3a"),
 };
 
@@ -156,7 +158,7 @@ function planking(skin: Skin, inner: boolean): void {
         flip.push(fl);
       }
       const vn = (i: number) => fn[Math.max(0, i - 1)].clone().add(fn[Math.min(N - 1, i)]).normalize();
-      const col = inner ? (f === 0 ? C.woodDark : C.wood) : f === 0 ? C.bottom : f === 1 ? C.boot : f === F - 1 ? C.sheer : C.side;
+      const col = inner ? (f === 0 ? C.woodDark : f % 2 ? C.wood : C.woodLap) : f === 0 ? C.bottom : f === 1 ? C.boot : f === F - 1 ? C.sheer : C.side;
       // Outside, each painted band is two narrow planks (one for the boot top), each lap painted:
       // a lit lower edge standing proud of the plank below, and a dark shadow line along its top
       // where the plank above overlaps it, wide and dark enough to read from chase distance.
@@ -246,21 +248,98 @@ function sternLantern(parts: THREE.BufferGeometry[]): void {
   LANTERN_AT.y = yb + 0.059;
 }
 
-/** Flat transom: painted outside, varnished inside. */
+/** Transom's crowned top: the sheer height at its sides, arched up by TRANSOM_CROWN at the centreline. */
+const TRANSOM_CROWN = 0.05;
+/** Half width of the motor well: a notch in the crown where the outboard's clamp sits on the sheer line. */
+const WELL = 0.11;
+const transomTop = (x: number, bG: number, sS: number) =>
+  Math.abs(x) < WELL ? sS : sS + TRANSOM_CROWN * (1 - Math.min(1, (x / bG) ** 2)) * Math.min(1, (Math.abs(x) - WELL) / 0.03);
+
+/**
+ * The transom, where the chase camera looks: a crowned top edge, and outside the hull's own bands
+ * carried round it (bottom red, boot top, white) under a blue sheer band with a red pinstripe;
+ * varnished inside. Built in horizontal strips across the section.
+ */
 function transom(skin: Skin): void {
   const p = profile(0);
-  const ring: [number, number][] = [...p.slice().reverse().map(([x, y]) => [x, y] as [number, number]), ...p.slice(1).map(([x, y]) => [-x, y] as [number, number])];
-  const cy = (p[0][1] + p[p.length - 1][1]) / 2;
-  for (const [z, nz, col] of [[ZS, 1, C.sheer], [ZS - 0.04, -1, C.wood]] as const) {
-    const n = v3(0, 0, nz);
-    const c = v3(0, cy, z);
-    for (let i = 0; i < ring.length; i++) {
-      const a = ring[i], b = ring[(i + 1) % ring.length];
-      const A = v3(a[0], a[1], z), B = v3(b[0], b[1], z);
-      const cr = new THREE.Vector3().crossVectors(A.clone().sub(c), B.clone().sub(c));
-      if (cr.z * nz >= 0) skin.tri(c, A, B, n, n, n, col);
-      else skin.tri(c, B, A, n, n, n, col);
+  const [bG, sS] = p[p.length - 1];
+  const kY = p[0][1], cY = p[1][1];
+  // Half width of the section at height y (straight between the profile's points).
+  const half = (y: number) => {
+    for (let i = 0; i < p.length - 1; i++) {
+      const [x0, y0] = p[i], [x1, y1] = p[i + 1];
+      if (y >= y0 && y <= y1) return x0 + ((x1 - x0) * (y - y0)) / Math.max(y1 - y0, 1e-4);
     }
+    return y < kY ? 0 : bG;
+  };
+  const pin = new THREE.Color("#c4483a");
+  const bandAt = (y: number) =>
+    y < cY ? C.bottom : y < cY + 0.05 ? C.boot : y < sS - 0.13 ? C.side : y < sS - 0.105 ? pin : y < sS - 0.09 ? C.side : C.sheer;
+  const ys: number[] = [];
+  for (let y = kY; y < sS; y += 0.02) ys.push(y);
+  for (const y of [cY, cY + 0.05, sS - 0.13, sS - 0.105, sS - 0.09]) ys.push(y);
+  ys.push(sS);
+  ys.sort((a, b) => a - b);
+  for (const [z, nz, inside] of [[ZS, 1, false], [ZS - 0.04, -1, true]] as const) {
+    const n = v3(0, 0, nz);
+    const quad = (A: THREE.Vector3, B: THREE.Vector3, Cc: THREE.Vector3, D: THREE.Vector3, col: THREE.Color) => {
+      // A, B lower left/right; Cc, D upper left/right (x grows to the right).
+      if (nz > 0) {
+        skin.tri(A, B, Cc, n, n, n, col);
+        skin.tri(B, D, Cc, n, n, n, col);
+      } else {
+        skin.tri(A, Cc, B, n, n, n, col);
+        skin.tri(B, Cc, D, n, n, n, col);
+      }
+    };
+    for (let i = 0; i < ys.length - 1; i++) {
+      const y0 = ys[i], y1 = ys[i + 1];
+      if (y1 - y0 < 1e-4) continue;
+      const h0 = half(y0), h1 = half(y1);
+      const col = inside ? C.wood : bandAt((y0 + y1) / 2);
+      quad(v3(-h0, y0, z), v3(h0, y0, z), v3(-h1, y1, z), v3(h1, y1, z), col);
+    }
+    // The crown above the sheer line, in strips across.
+    const NS = 10;
+    for (let j = 0; j < NS; j++) {
+      const xa = -bG + (2 * bG * j) / NS, xb = -bG + (2 * bG * (j + 1)) / NS;
+      quad(v3(xa, sS, z), v3(xb, sS, z), v3(xa, transomTop(xa, bG, sS), z), v3(xb, transomTop(xb, bG, sS), z), inside ? C.wood : C.sheer);
+    }
+  }
+}
+
+/** A varnished capping (rubbing strip) along the transom's crowned top, standing a little proud. */
+function transomCap(parts: THREE.BufferGeometry[]): void {
+  const p = profile(0);
+  const [bG, sS] = p[p.length - 1];
+  const NS = 8;
+  for (let j = 0; j < NS; j++) {
+    const xa = -bG - 0.01 + ((2 * bG + 0.02) * j) / NS, xb = -bG - 0.01 + ((2 * bG + 0.02) * (j + 1)) / NS;
+    const ya = transomTop(Math.min(Math.abs(xa), bG), bG, sS) + 0.008, yb = transomTop(Math.min(Math.abs(xb), bG), bG, sS) + 0.008;
+    parts.push(beam(v3(xa, ya, ZS - 0.015), v3(xb, yb, ZS - 0.015), 0.022, "#a46b3a", M.plain, 5));
+  }
+}
+
+/**
+ * Frames (ribs) inside the planking: steamed oak strips from the keel up each side to the gunwale,
+ * a shade darker than the varnished skin, so the open boat reads as built, not as a tub.
+ */
+function frames(parts: THREE.BufferGeometry[]): void {
+  const RIB = "#7a4f2c";
+  for (const z of [1.05, 0.62, 0.3, -0.12, -0.5, -0.85, -1.2]) {
+    const t = stationOf(z);
+    const pr = profile(t);
+    const bG = pr[pr.length - 1][0];
+    const k = 1 - 0.05 / Math.max(bG, 0.12);
+    const pts = pr.map(([x, y], j) => [x * Math.max(k, 0), j === pr.length - 1 ? y - 0.01 : y + 0.04] as [number, number]);
+    for (const sx of [-1, 1])
+      for (let i = 0; i < pts.length - 1; i++) {
+        // From the floorboards' edge up (under the floor the ribs are hidden anyway).
+        if (pts[i + 1][1] < FLOOR_Y) continue;
+        const a = pts[i], b = pts[i + 1];
+        const ya = Math.max(a[1], FLOOR_Y), xa = ya === a[1] ? a[0] : a[0] + ((b[0] - a[0]) * (ya - a[1])) / Math.max(b[1] - a[1], 1e-4);
+        parts.push(beam(v3(sx * xa, ya, z), v3(sx * b[0], b[1], z), 0.016, RIB, M.plain, 4));
+      }
   }
 }
 
@@ -312,8 +391,19 @@ export function buildBoat(): BoatModel {
       zf = z;
     }
     const z0 = Math.min(1.6, ZS - 0.08), len = z0 - zf;
-    if (len > 0.3) parts.push(xf(box(0.15, 0.025, len, k % 2 ? "#a77446" : "#b07c4c", M.plain), x, floorY - 0.0125, zf + len / 2));
+    if (len <= 0.3) continue;
+    // Darker oiled boards than the varnished skin, each in two lengths with a butt joint
+    // (staggered board to board), so the floor reads as planks with seams from the chase camera.
+    const butt = zf + len * (0.45 + 0.12 * ((k + 2) % 2));
+    for (const [a, b] of [[zf, butt - 0.006], [butt + 0.006, z0]])
+      parts.push(xf(box(0.15, 0.025, b - a, k % 2 ? "#6f4a2c" : "#7a5332", M.plain), x, floorY - 0.0125, (a + b) / 2));
   }
+  // Cross battens under the boards' ends show as dark seams across the floor.
+  for (const z of [1.45, 0.75, -0.05]) {
+    const w = 2 * halfWidthAt(stationOf(z), floorY - 0.02) - 0.04;
+    if (w > 0.2) parts.push(xf(box(w, 0.012, 0.035, "#4a3020", M.plain), 0, floorY + 0.004, z));
+  }
+  frames(parts);
   // Seats: a stern bench, a thwart amidships and a small bow seat, each on two short legs.
   const seat = (z: number, depth: number, top: number) => {
     const t = stationOf(z);
@@ -372,6 +462,7 @@ export function buildBoat(): BoatModel {
   parts.push(xf(box(0.2, 0.2, 0.3, "#c2412f", M.metal), -0.3, floorY + 0.1, 1.3));
   parts.push(xf(cyl(0.025, 0.025, 0.05, "#2e2e30", M.metal, 6), -0.3, floorY + 0.22, 1.2));
 
+  transomCap(parts);
   sternLantern(parts);
   const hull = new THREE.Mesh(merge(parts), uber(ID.boat, 1));
   root.add(hull);
@@ -380,13 +471,21 @@ export function buildBoat(): BoatModel {
   const motor = new THREE.Group();
   const sternTop = profile(0)[4][1];
   motor.position.set(0, sternTop + 0.01, ZS + 0.04);
-  const COWL = "#7d878d", DARK = "#3b4247";
+  // Two-tone: a cream cowling with a rounded top and a red decal band over a dark lower cowl,
+  // a tapered leg, cavitation plate, gearcase and skeg in the dark grey.
+  const COWL = "#e8e1cf", DECAL = "#c8473a", DARK = "#33393d", MID = "#4a5157";
+  const ell = (col: string, x: number, y: number, z: number, rx: number, h: number, rz: number, top = 1) =>
+    xf(cyl(top, 1, 1, col, M.metal, 16), x, y, z, 0, 0, 0, rx, h, rz);
   const mp: THREE.BufferGeometry[] = [
-    xf(box(0.14, 0.15, 0.12, "#55595e", M.metal), 0, -0.04, -0.02),
-    xf(box(0.18, 0.1, 0.25, COWL, M.metal), 0, 0.12, 0.13),
-    xf(sphere(1, COWL, M.metal, 14, 8), 0, 0.17, 0.13, 0, 0, 0, 0.09, 0.055, 0.125),
-    xf(box(0.2, 0.05, 0.27, DARK, M.metal), 0, 0.055, 0.13),
-    xf(box(0.09, 0.62, 0.11, DARK, M.metal), 0, -0.28, 0.12),
+    xf(box(0.14, 0.15, 0.12, MID, M.metal), 0, -0.04, -0.02),
+    // Lower cowl (dark) and its seam band, then the cream hood rounding over the top.
+    ell(DARK, 0, 0.06, 0.13, 0.105, 0.07, 0.145, 0.97),
+    ell(DECAL, 0, 0.1, 0.13, 0.108, 0.022, 0.148),
+    ell(COWL, 0, 0.145, 0.13, 0.104, 0.07, 0.144, 0.92),
+    xf(sphere(1, COWL, M.metal, 16, 8), 0, 0.18, 0.13, 0, 0, 0, 0.095, 0.05, 0.132),
+    // Leg: tapered (elliptical), with the exhaust housing flare under the cowl.
+    ell(DARK, 0, -0.01, 0.12, 0.06, 0.06, 0.085, 1.2),
+    xf(cyl(0.6, 1, 1, DARK, M.metal, 10), 0, -0.3, 0.12, 0, 0, 0, 0.045, 0.52, 0.07),
     xf(box(0.25, 0.018, 0.27, DARK, M.metal), 0, -0.6, 0.15),
     xf(cyl(0.055, 0.045, 0.3, DARK, M.metal, 10), 0, -0.71, 0.15, Math.PI / 2),
     xf(box(0.02, 0.13, 0.13, DARK, M.metal), 0, -0.79, 0.18),

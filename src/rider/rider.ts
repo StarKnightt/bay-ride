@@ -130,6 +130,9 @@ const damp = (a: number, b: number, k: number, dt: number) => b + (a - b) * Math
 
 const _v = new THREE.Vector3(), _v2 = new THREE.Vector3(), _v3 = new THREE.Vector3(), _v4 = new THREE.Vector3();
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
+/** Shorts samples for the hands' clearance, and how far outside the cloth the finger tips keep (m). */
+const CLEAR_N = 360;
+const CLEAR_M = 0.014;
 const _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(), _pq = new THREE.Quaternion();
 const _Y = new THREE.Vector3(0, 1, 0);
 const _ik0 = new THREE.Vector3(), _ik1 = new THREE.Vector3();
@@ -491,6 +494,21 @@ export class Rider {
       p.bind(m.skeleton, m.bindMatrix);
       this.shadowProxies.push(p);
     }
+    const shorts = this.meshes.get("shorts");
+    if (shorts) {
+      const pos = shorts.geometry.attributes.position;
+      const step = Math.max(1, Math.floor(pos.count / CLEAR_N));
+      // Which side of the bind pose her right thigh is on, from its bind matrix.
+      const sk = shorts.skeleton, ti = sk.bones.indexOf(this.legs[0].thigh);
+      const rightX = ti >= 0 ? _v.setFromMatrixPosition(new THREE.Matrix4().copy(sk.boneInverses[ti]).invert()).x : -1;
+      for (let i = 0; i < pos.count && this.clearIdx.length < CLEAR_N; i += step) {
+        this.clearIdx.push(i);
+        this.clearLeg.push(pos.getX(i) * rightX > 0 ? 0 : 1);
+        this.clearPts.push(new THREE.Vector3());
+      }
+      this.shortsMesh = shorts;
+    }
+    this.fingers = (["R", "L"] as const).map((s) => ["index", "middle", "ring", "pinky"].map((f) => [this.bone(`${f}1_${s}`), this.bone(`${f}2_${s}`)] as [THREE.Bone, THREE.Bone]));
     FACE_U.uLens.value = 1;
     this.walker.add(blobShadow(0.62, 0.62));
     this.weights(1, 0, 0, 0, 0);
@@ -691,6 +709,7 @@ export class Rider {
     if (seat > 0) this.seatLegs(seat);
     else this.bodyLife(f, gait, run, jw);
     if (f.reach && (f.reachW ?? 0) > 1e-3) this.reachIK(f.reach, f.reachW!, f.reachSide ?? -1);
+    if (seat < 0.5) this.handsClearShorts();
     if (seat > 0 && f.grip) this.armIK(f.grip, seat);
     this.secondary(dt, f, seat);
     this.simInit = true;
@@ -1009,6 +1028,71 @@ export class Rider {
     t.lerpVectors(cur, t, seat).clone();
     twoBone(up, fore, hand, t.clone(), new THREE.Vector3(0, -1, 0));
     setWorldQuat(hand, hq);
+  }
+
+  private shortsMesh: THREE.SkinnedMesh | null = null;
+  private readonly clearIdx: number[] = [];
+  private readonly clearLeg: number[] = [];
+  private readonly clearPts: THREE.Vector3[] = [];
+  private fingers: [THREE.Bone, THREE.Bone][][] = [];
+
+  /**
+   * Her hands hang beside the wide shorts: where the fingers would sink into the cloth (an inked
+   * skin blot on the thigh at play distance), swing that arm out from the shoulder until the
+   * finger tips sit just outside it. Samples the posed shorts on that hand's side.
+   */
+  private handsClearShorts(): void {
+    const m = this.shortsMesh;
+    if (!m) return;
+    this.walker.updateMatrixWorld(true);
+    m.skeleton.update();
+    for (let k = 0; k < this.clearIdx.length; k++) m.getVertexPosition(this.clearIdx[k], this.clearPts[k]).applyMatrix4(m.matrixWorld);
+    for (let side = 0; side < 2; side++) {
+      // side 0 = her right (arms[1], legs[0]); side 1 = her left (arms[0], legs[1]).
+      const L = this.legs[side], arm = this.arms[1 - side];
+      wpos(L.thigh, _ch);
+      wpos(L.shin, _cb).sub(_ch);
+      const axLen2 = Math.max(_cb.lengthSq(), 1e-6);
+      let worst = CLEAR_M;
+      for (const [b1, b2] of this.fingers[side]) {
+        // A point past the middle knuckle, near the finger tip.
+        wpos(b2, _ct).sub(wpos(b1, _o5)).multiplyScalar(1.6).add(_o5);
+        let best = 1e9, bi = -1;
+        for (let k = 0; k < this.clearIdx.length; k++) {
+          if (this.clearLeg[k] !== side) continue;
+          const d = this.clearPts[k].distanceToSquared(_ct);
+          if (d < best) { best = d; bi = k; }
+        }
+        if (bi < 0 || best > 0.0064) continue;
+        // Outward at that sample: away from the thigh's axis.
+        const v = this.clearPts[bi];
+        const s = clamp(_o4.subVectors(v, _ch).dot(_cb) / axLen2, 0, 1.2);
+        _o4.copy(_ch).addScaledVector(_cb, s);
+        _o3.subVectors(v, _o4);
+        const r = _o3.length();
+        if (r < 1e-4) continue;
+        _o3.divideScalar(r);
+        const pen = _o2.subVectors(_ct, v).dot(_o3);
+        if (pen < worst) { worst = pen; _oH.copy(_ct); }
+      }
+      if (worst >= CLEAR_M) continue;
+      // Out sideways, away from her hips' midline: the fingers curl onto the front of the thigh, where
+      // the cloth's own normal points forward and in, and following it would swing the arm into her.
+      wpos(this.legs[0].thigh, _o1).add(wpos(this.legs[1].thigh, _o0)).multiplyScalar(0.5);
+      _oH.sub(_o1);
+      wpos(this.bone("neck"), _o0).sub(_o1).normalize();
+      _oH.addScaledVector(_o0, -_oH.dot(_o0));
+      if (_oH.lengthSq() < 1e-6) continue;
+      _oH.normalize();
+      // Rotate the upper arm so the hand moves out that way.
+      wpos(arm.up, _o1);
+      _oT.subVectors(wpos(arm.hand, _o0), _o1);
+      const len = _oT.length();
+      _o2.crossVectors(_oT, _oH);
+      if (_o2.lengthSq() < 1e-8 || len < 0.1) continue;
+      _o2.normalize();
+      rotateWorld(arm.up, _q.setFromAxisAngle(_o2, Math.min(0.35, (CLEAR_M - worst) / len)));
+    }
   }
 
   // ---------------------------------------------------------------- procedural body over the clips
