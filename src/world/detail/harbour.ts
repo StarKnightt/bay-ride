@@ -178,6 +178,127 @@ function shed(c: Ctx, boxes: Box[]): void {
   c.layout.spot(x + W / 2 + 0.6, z - 1.0, 1.1, 7, ["thrift", "thrift", "yellow"]);
 }
 
+const FISH = ["#3a7ab0", "#e8e4da", "#e8632c", "#4f8a6a"];
+
+/** Fish boxes: shallow plastic trays stacked, each a little askew. */
+function fishBoxes(c: Ctx, x: number, y: number, z: number, n: number, yaw: number): void {
+  for (let i = 0; i < n; i++) {
+    const col = pick(c.r, FISH), a = yaw + range(c.r, -0.12, 0.12);
+    c.out.push(xf(box(0.72, 0.2, 0.46, col, M.plain), x + range(c.r, -0.04, 0.04), y + 0.1 + i * 0.21, z, 0, a, 0));
+    c.out.push(xf(box(0.76, 0.03, 0.5, "#2c2f33", M.plain), x, y + 0.2 + i * 0.21, z, 0, a, 0));
+  }
+}
+
+/** Iron bollard with a rope looped over it and the slack coiled at its foot. */
+function bollard(c: Ctx, x: number, y: number, z: number, rope = true): void {
+  c.out.push(xf(cyl(0.15, 0.19, 0.55, "#33383d", M.metal, 10), x, y + 0.275, z));
+  c.out.push(xf(cyl(0.22, 0.22, 0.08, "#33383d", M.metal, 10), x, y + 0.59, z));
+  if (rope) {
+    const t = new THREE.TorusGeometry(0.19, 0.035, 5, 14);
+    t.rotateX(Math.PI / 2 - 0.2);
+    c.out.push(xf(prep(t, "#cdbf9a", M.plain), x, y + 0.45, z));
+    ropeCoil(c, x + 0.45, y, z + 0.2);
+  }
+  c.colliders.push({ x, z, r: 0.25, top: y + 0.63 });
+}
+
+function bench(c: Ctx, x: number, y: number, z: number, yaw: number): void {
+  const parts = [box(1.6, 0.06, 0.42, "#8a6f52", M.planks), box(1.6, 0.36, 0.05, "#8a6f52", M.planks)];
+  parts[0].translate(0, 0.45, 0);
+  parts[1].translate(0, 0.72, -0.2);
+  for (const lx of [-0.7, 0.7]) parts.push(box(0.06, 0.45, 0.4, "#33383d", M.metal).translate(lx, 0.22, 0));
+  for (const p of parts) c.out.push(xf(p, x, y, z, 0, yaw, 0));
+  const cx = Math.cos(yaw) * 0.6, sz = -Math.sin(yaw) * 0.6;
+  c.colliders.push({ x: x + cx, z: z + sz, r: 0.32, top: y + 0.9 }, { x: x - cx, z: z - sz, r: 0.32, top: y + 0.9 });
+}
+
+/** Short harbour lantern post. */
+function lantern(c: Ctx, x: number, y: number, z: number): void {
+  c.out.push(xf(cyl(0.06, 0.08, 2.3, "#2c3135", M.metal, 8), x, y + 1.15, z));
+  c.out.push(xf(box(0.26, 0.34, 0.26, "#f2d796", M.glass), x, y + 2.45, z));
+  c.out.push(xf(cyl(0.02, 0.2, 0.14, "#2c3135", M.metal, 8), x, y + 2.68, z));
+  c.colliders.push({ x, z, r: 0.14, top: y + 2.7 });
+}
+
+/** Terracotta pot with flowers. */
+function pot(c: Ctx, x: number, y: number, z: number, s = 1): void {
+  c.out.push(xf(cyl(0.24 * s, 0.17 * s, 0.38 * s, "#b5643e", M.plain, 10), x, y + 0.19 * s, z));
+  c.out.push(xf(cyl(0.26 * s, 0.26 * s, 0.05 * s, "#a35a38", M.plain, 10), x, y + 0.37 * s, z));
+  c.layout.spot(x, z, 0.12 * s, 3, ["pink", "poppy", "yellow", "lavender", "daisy"], y + 0.36 * s, 0.7);
+  c.colliders.push({ x, z, r: 0.27 * s, top: y + 0.4 * s });
+}
+
+/**
+ * The harbour edge, all landward of the berth so the opening stays open: more gear along both
+ * deck sides of the pier's landward half (fish boxes, a crate stack, a net over the rail, fenders
+ * outside it), then the promenade either side of the pier root and the slipway at z -205
+ * (bollards with rope, gear stacks, a bench, lanterns) and pots on the town side of the road.
+ * The deck's middle 2 m and the road-to-pier crossing (z -195..-191) stay clear.
+ */
+function harbourEdge(c: Ctx): void {
+  const Z = PIER.z, N = Z + PIER.half - 0.5, S = Z - PIER.half + 0.5;
+  // Deck, landward of the existing gear.
+  fishBoxes(c, -30.6, deckH(-30.6), S, 3, 0.04);
+  fishBoxes(c, -29.8, deckH(-29.8), S + 0.02, 2, -0.06);
+  c.colliders.push({ x: -30.2, z: S, r: 0.55, top: deckH(-30.2) + 0.7 });
+  crate(c, -26.4, deckH(-26.4), N, 0.55, 0.1);
+  crate(c, -25.8, deckH(-25.8), N, 0.5, -0.15);
+  fishBoxes(c, -26.1, deckH(-26.1) + 0.55, N, 1, 0.2);
+  c.colliders.push({ x: -26.1, z: N, r: 0.6, top: deckH(-26.1) + 0.8 });
+  ropeCoil(c, -21.2, deckH(-21.2), S);
+  c.colliders.push({ x: -21.2, z: S, r: 0.35, top: deckH(-21.2) + 0.25 });
+  // A net draped over the north rail.
+  const ny = deckH(-17.5);
+  const net = prep(blob(0.6, 1, 0.3, 7.1), "#3f5048", M.plain);
+  net.scale(1.5, 0.75, 0.14);
+  c.out.push(xf(net, -17.5, ny + 0.62, Z + PIER.half - 0.04));
+  floatsPile(c, -16.7, ny, N + 0.15, 2);
+  c.colliders.push({ x: -17.5, z: N + 0.2, r: 0.45, top: ny + 1.0 });
+  // Fenders hung outside the south rail.
+  for (let i = 0; i < 3; i++) {
+    const x = -13.2 + i * 1.1, y = deckH(x), fz = Z - PIER.half - 0.1;
+    c.out.push(beam(V(x, y + 1.0, fz + 0.06), V(x, y + 0.62, fz), 0.01, "#cdbf9a", M.plain, 3));
+    c.out.push(xf(cyl(0.12, 0.12, 0.48, i === 1 ? "#f4f1ea" : "#2f6e9a", M.plain, 10), x, y + 0.36, fz));
+  }
+  // Promenade at the pier root (paving at y 0), the wall edge at u -5.6.
+  const P = (u: number, z: number): [number, number] => [roadX(z) + u, z];
+  for (const z of [-189.4, -197.2]) bollard(c, P(-5.05, z)[0], 0, z);
+  for (const z of [-190.9, -195.3]) lantern(c, P(-4.9, z)[0], 0, z);
+  {
+    const [x, z] = P(-4.2, -187.6);
+    lobsterPot(c, x, 0, z, 0.4);
+    lobsterPot(c, x + 0.1, 0, z - 0.7, 0.2);
+    lobsterPot(c, x + 0.05, 0.33, z - 0.35, 0.6);
+    c.colliders.push({ x: x + 0.05, z: z - 0.35, r: 0.7, top: 0.7 });
+  }
+  {
+    const [x, z] = P(-4.25, -199.6);
+    crate(c, x, 0, z, 0.6, 0.3);
+    crate(c, x + 0.05, 0.6, z, 0.5, 0.1);
+    fishBoxes(c, x + 0.1, 0, z - 0.8, 3, 0.4);
+    c.colliders.push({ x, z: z - 0.4, r: 0.8, top: 1.1 });
+  }
+  { const [x, z] = P(-4.75, -201.9); bench(c, x, 0, z, -Math.PI / 2 + 0.2); }
+  // Slipway at z -205 (ramp z -206.4..-203.6 left clear): gear either side of its head.
+  bollard(c, P(-5.05, -207.4)[0], 0, -207.4);
+  {
+    const [x, z] = P(-4.3, -208.8);
+    fishBoxes(c, x, 0, z, 2, 0.3);
+    lobsterPot(c, x + 0.1, 0, z - 0.8, 0.5);
+    c.colliders.push({ x, z: z - 0.4, r: 0.7, top: 0.6 });
+  }
+  {
+    const [x, z] = P(-4.3, -202.7);
+    for (const o of [0, 0.3]) c.out.push(beam(V(x - 0.4 + o, 0.02, z), V(x + 0.2 + o, 2.0, z - 0.1), 0.03, "#b89a6a", M.planks, 5));
+    c.colliders.push({ x, z, r: 0.35, top: 2 });
+  }
+  // Pots on the town side of the road facing the pier root.
+  for (const [u, z, s] of [[3.35, -188.4, 1], [3.4, -189.2, 0.8], [3.35, -197.6, 1.1], [3.4, -198.5, 0.85], [3.4, -183.2, 1]] as const) {
+    const [x] = P(u, z);
+    pot(c, x, Math.max(0.02, meshH(x, z)), z, s);
+  }
+}
+
 /** A white rowboat drawn up on the sand, rolled onto its bilge, oars across the thwarts. */
 function rowboat(c: Ctx): void {
   const z = -185.5, u = -15.8, x = roadX(z) + u;
@@ -204,6 +325,7 @@ function rowboat(c: Ctx): void {
 export function buildHarbour(layout: Layout, colliders: Collider[], boxes: Box[]): THREE.Group {
   const c: Ctx = { out: [], hull: [], r: mulberry32(8181), colliders, layout };
   pierClutter(c);
+  harbourEdge(c);
   shed(c, boxes);
   rowboat(c);
   // Thrift and dune flowers on the sand at the pier root, either side of the deck.
