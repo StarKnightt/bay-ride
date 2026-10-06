@@ -36,6 +36,11 @@ export const SHOTS: Record<number, Shot> = {
   9: { name: "bay to the north shore", eye: v(-120, SEA_Y + 3.2, 110), look: v(80, 24, 150), fov: 55 },
   10: { name: "on the hill", eye: v(roadX(-10) + 70, terrainH(roadX(-10) + 70, -10) + 1.7, -10), look: v(roadX(30) + 40, terrainH(roadX(30) + 40, 30) + 0.5, 30), fov: 55 },
   11: { name: "beach to the island", eye: v(roadX(-40) - 16, SEA_Y + 2.1, -40), look: v(ISLAND.x, SEA_Y + 6, ISLAND.z), fov: 55 },
+  // On the town hill's crest (her walk bound), looking on over the land past it, and back down.
+  12: { name: "crest, onward", eye: v(roadX(-60) + 196, terrainH(roadX(-60) + 196, -60) + 1.7, -60), look: v(roadX(-40) + 300, terrainH(roadX(-40) + 300, -40) + 2, -40), fov: 55 },
+  13: { name: "crest, back to the bay", eye: v(roadX(-60) + 196, terrainH(roadX(-60) + 196, -60) + 1.7, -60), look: v(roadX(-90) + 20, 0, -90), fov: 55 },
+  // In the town: from the coast road up between the houses.
+  14: { name: "town lane", eye: v(roadX(-178) + 6, terrainH(roadX(-178) + 6, -178) + 1.65, -178), look: v(roadX(-188) + 60, terrainH(roadX(-188) + 60, -188) + 3, -188), fov: 55 },
 };
 
 export interface CaptureParams {

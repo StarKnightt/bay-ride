@@ -149,7 +149,7 @@ export class Meadow {
     };
     let rows = 0;
     for (let z = -300; z < 268; z += STEP) {
-      for (let x = roadX(z) + 7.5; x < roadX(z) + 168; x += STEP) try1(x + range(r, -0.95, 0.95) * STEP, z + range(r, -0.95, 0.95) * STEP);
+      for (let x = roadX(z) + 7.5; x < roadX(z) + 230; x += STEP) try1(x + range(r, -0.95, 0.95) * STEP, z + range(r, -0.95, 0.95) * STEP);
       if (++rows % 48 === 0) await pause();
     }
     await pause();

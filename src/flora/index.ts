@@ -158,7 +158,7 @@ function wildTrees(layout: Layout): TreeRegion[] {
       i++;
       placed.push({ x: tx, z: tz });
       const q = rf();
-      (tz < -40 ? farS : farN).push({ x: tx, z: tz, kind: q < 0.14 ? "conifer" : q < 0.38 ? "tall" : "round", scale: sc, seed: Math.floor(rf() * 1e9), far: true });
+      (tz < -40 ? farS : farN).push({ x: tx, z: tz, kind: q < 0.14 ? "conifer" : q < 0.38 ? "tall" : "round", scale: sc, seed: Math.floor(rf() * 1e9), far: uOf(tx, tz) > 215 });
     }
   }
   // Lone field trees and shrub clumps between the woods.
@@ -168,7 +168,7 @@ function wildTrees(layout: Layout): TreeRegion[] {
     k++;
     placed.push({ x, z });
     const bush = rf() < 0.45;
-    (z < -40 ? farS : farN).push({ x, z, kind: bush ? "bush" : rf() < 0.3 ? "tall" : "round", scale: bush ? range(rf, 1.6, 2.4) : range(rf, 0.9, 1.4), seed: Math.floor(rf() * 1e9), far: true });
+    (z < -40 ? farS : farN).push({ x, z, kind: bush ? "bush" : rf() < 0.3 ? "tall" : "round", scale: bush ? range(rf, 1.6, 2.4) : range(rf, 0.9, 1.4), seed: Math.floor(rf() * 1e9), far: uOf(x, z) > 215 });
   }
   // Seaside pines on the headlands, shrubs in their lee.
   for (const [zc, list] of [[262, hn], [-298, hs]] as const) {
@@ -259,7 +259,7 @@ function wildTrees(layout: Layout): TreeRegion[] {
       hedgeCell.add(key);
       const tree = rh() < 0.06 && roomy(x, z, 5);
       if (tree) placed.push({ x, z });
-      hill(z).push({ x, z, kind: tree ? (rh() < 0.5 ? "round" : "tall") : "bush", scale: tree ? range(rh, 1.0, 1.4) : range(rh, 1.35, 1.9), seed: Math.floor(rh() * 1e9), far: !tree });
+      hill(z).push({ x, z, kind: tree ? (rh() < 0.5 ? "round" : "tall") : "bush", scale: tree ? range(rh, 1.0, 1.4) : range(rh, 1.35, 1.9), seed: Math.floor(rh() * 1e9) });
     }
   }
   // Dark copses in the hill's folds (where the ground sits below its surroundings), and a few big
@@ -292,7 +292,7 @@ function wildTrees(layout: Layout): TreeRegion[] {
     if (groundY(x, z) < SEA_Y + 4.5 || slopeAt(x, z) > 0.42 || !layout.free(x, z, 2.5)) continue;
     k++;
     // Trunkless: against the island's own green a small crown vanishes and leaves its trunk.
-    island.push({ x, z, kind: "bush", scale: range(rt, 1.8, 2.5), seed: Math.floor(rt() * 1e9), far: true });
+    island.push({ x, z, kind: "bush", scale: range(rt, 1.8, 2.5), seed: Math.floor(rt() * 1e9) });
   }
   return [
     { name: "hill south", spots: south },
