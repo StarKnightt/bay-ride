@@ -504,7 +504,10 @@ function frame(now: number) {
     started = true;
     post.warmSmaa();
     bootLog.push(["total", Math.round(performance.now() - bootT0)]);
-    if (SKIP_INTRO) loader.remove();
+    if (SKIP_INTRO) {
+      loader.remove();
+      if (HINTS) hints = new Hints();
+    }
     else {
       // The gesture that dismisses the loader also starts the audio (autoplay policy).
       fadeEl.style.display = "none";
