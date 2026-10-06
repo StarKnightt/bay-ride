@@ -215,8 +215,9 @@ export class Spray {
         void main(){
           float u = vK.x, v = vK.y;
           float spd = uBow.x;
-          // Water slides aft along the hull: the pattern is tied to the distance run.
-          float sx = (1.0 - u) * 3.2 + uBow.y + uTime * 0.35;
+          // Water slides aft along the hull: the pattern is tied to the distance run. u is 1 at the
+          // stem, so the run is subtracted for the pattern to travel toward the transom.
+          float sx = (1.0 - u) * 3.2 - uBow.y - uTime * 0.35;
           float n = vnoise(vec2(sx * 2.2, vK.z * 7.0)) * 0.65 + vnoise(vec2(sx * 6.0, v * 3.0 + vK.z)) * 0.35;
           // Crest height above the floating waterline: a low lapping collar at rest, a tall
           // curling sheet at the stem when she runs, sinking aft along the hull.
@@ -227,10 +228,14 @@ export class Spray {
           float teeth = abs(fract(sx * 3.1 + 0.4 * vnoise(vec2(sx * 1.3, vK.z))) * 2.0 - 1.0);
           float edge = crest + (teeth * teeth - 0.35) * (0.012 + 0.03 * spd * bowK) + (vnoise(vec2(sx * 9.0, vK.z * 5.0)) - 0.5) * 0.012;
           float aw = max(fwidth(vH), 1e-4) * 0.75;
+          // The holes' torn edge (below) is dropped where its noise is under ~3 px a cycle.
+          float fineK = 1.0 - smoothstep(0.2, 0.45, max(fwidth(sx) * 14.0, fwidth(vH) * 70.0));
           float top = 1.0 - smoothstep(edge - aw, edge + aw, vH);
           if (top < 0.01) discard;
-          // Holes most toward its top; aft it breaks up into scraps rather than fading.
-          float hn = vnoise(vec2(sx * 4.0, vH * 22.0) + vK.z * 3.0) + 0.35 * (1.0 - smoothstep(crest - 0.06, crest, vH))
+          // Holes most toward its top; aft it breaks up into scraps rather than fading. A finer noise
+          // tears their edges like the arm foam's lace.
+          float rag = (vnoise(vec2(sx * 14.0, vH * 70.0) + vK.z * 5.0) - 0.5) * 0.2 * fineK;
+          float hn = vnoise(vec2(sx * 4.0, vH * 22.0) + vK.z * 3.0) + rag + 0.35 * (1.0 - smoothstep(crest - 0.06, crest, vH))
                    - 0.7 * (1.0 - smoothstep(0.0, 0.3, u));
           float hw = max(fwidth(hn), 1e-3) * 0.75;
           float a = top * smoothstep(0.42 - hw, 0.42 + hw, hn) * mix(0.97, 0.75, uNight);
