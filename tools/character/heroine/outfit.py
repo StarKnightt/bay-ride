@@ -154,7 +154,8 @@ def shorts(col):
         L = len(top)
         cen = np.array([s * 0.098, 0.004, SH_CROTCH])
         ang = np.arctan2((top[:, 0] - cen[0]) * s, -(top[:, 1] - cen[1]))
-        lz = np.linspace(SH_CROTCH - 0.012, SH_HEM, 9)
+        # The first ring starts under the crotch seam's dip, so the cloth there never folds back up.
+        lz = np.linspace(SH_CROTCH - 0.034, SH_HEM, 9)
         rings = [top]
         for k, z in enumerate(lz):
             f = smooth(SH_CROTCH, SH_CROTCH - 0.07, z)
@@ -174,7 +175,7 @@ def shorts(col):
             # the thigh, never into it. It starts right under the crotch seam (a weaker pull there
             # had left a slot just below it, dark from the front and back).
             xi = P[:, 0] * s
-            inner = smooth(0.06, 0.010, xi) * min(1.0, 0.7 + f)
+            inner = smooth(0.075, 0.012, xi)
             P[:, 0] = s * (xi * (1 - inner) + 0.0012 * inner)
             # The two legs never cross the middle.
             P[:, 0] = np.where(P[:, 0] * s < 0.0012, s * 0.0012, P[:, 0])
@@ -209,6 +210,15 @@ def shorts(col):
     C = C * (1 - 0.3 * np.maximum(pocket, fly)[:, None])
     C = C * (1 - 0.08 * smooth(0.95, 1.0, z)[:, None] * 0)
     ob = _mk("shorts", V, F, C, col, "cloth", "shorts")
+    # Down the inseam the legs' flat inner walls meet the front and back in a crease. They shade
+    # as the cloth across the join would (facing front or back), so it reads as closed shorts with
+    # no dark slot and no normal break for the ink to draw.
+    me = ob.data
+    n = np.zeros(len(me.vertices) * 3)
+    me.vertices.foreach_get("normal", n)
+    k = (1 - smooth(0.006, 0.05, np.abs(x))) * smooth(SH_CROTCH + 0.012, SH_CROTCH - 0.01, z)
+    fb = np.stack([np.zeros(len(V)), np.where(y < 0.006, -1.0, 1.0), np.zeros(len(V))], axis=1)
+    set_normals(ob, norm(n.reshape(-1, 3) * (1 - k[:, None]) + fb * k[:, None]))
     # Waistband, belt loops, button, rolled cuffs.
     parts = [ob]
     wbV, wbF = _band(lambda thv, zv: _shorts_hip_r(thv, zv) + 0.0032, 1.040, SH_TOP + 0.002, 48, 4, round_top=True)

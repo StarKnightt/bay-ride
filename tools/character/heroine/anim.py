@@ -424,7 +424,8 @@ def gait_pose(fk, body, t, T, v, duty, run=False, drop=None):
             delta.update(arms_down(s, adduct=17.0, flex=-17.0 * a + 2.0, elbow=14.0 + 10.0 * max(0.0, -a)))
             local.update(hand_relax(s, 1.0))
         else:
-            delta.update(arms_down(s, adduct=13.0, flex=-34.0 * a + 4.0, elbow=82.0 + 14.0 * max(0.0, -a)))
+            # The forward hand swings to chest height, not head height.
+            delta.update(arms_down(s, adduct=13.0, flex=-27.0 * a + 2.0, elbow=74.0 + 12.0 * max(0.0, -a)))
             local.update(hand_fist(s, 0.75))
         delta[f"shoulder_{sf}"] = rot(X, 3.0 * a) @ rot(Y, s * -1.0)
     pose, _ = fk.solve(delta, absr, local, loc)
@@ -505,7 +506,7 @@ def jump_pose(fk, body, t):
     T_TAKE, T_LAND = 0.40, 0.85
     # A deep anticipation crouch, and a soft landing absorb that sinks and rises back slowly. The
     # game plays its short crouch from 0.27 (the bottom), so the bottom holds to 0.31.
-    crouch = 0.23 * smooth(0.0, 0.25, t) * (1 - smooth(0.31, 0.40, t)) + 0.16 * smooth(0.85, 0.94, t) * (1 - smooth(0.97, 1.2, t))
+    crouch = 0.23 * smooth(0.0, 0.25, t) * (1 - smooth(0.31, 0.40, t)) + 0.22 * smooth(0.85, 0.91, t) * (1 - smooth(0.97, 1.2, t))
     air = smooth(0.36, 0.46, t) * (1 - smooth(0.78, 0.86, t))
     lean = 24.0 * smooth(0.05, 0.25, t) * (1 - smooth(0.30, 0.42, t)) + 5.0 * air + 14.0 * smooth(0.85, 0.93, t) * (1 - smooth(0.97, 1.2, t))
     loc["hips"] = np.array([0.0, 0.01 * lean / 16.0, -crouch])
@@ -522,9 +523,14 @@ def jump_pose(fk, body, t):
     fwd_land = smooth(0.82, 0.9, t) * (1 - smooth(0.98, 1.2, t))
     for s in (1, -1):
         sf = "L" if s > 0 else "R"
-        flex = -58.0 * back + 120.0 * up + (24.0 + 12.0 * s) * apex * (1 - up) + 30.0 * fwd_land
-        add = 15.0 - 8.0 * back - 24.0 * up - (42.0 + 10.0 * s) * apex
-        elbow = 16.0 + 10.0 * back + 18.0 * up + (38.0 - 12.0 * s) * apex + 28.0 * fwd_land
+        # Flex swings the arm forward about her side axis; add is measured from the 25-degree A of
+        # the rest pose (negative raises the arm out to the side). In the air the arms float out
+        # and a little up for balance with almost no forward swing, then lower into the landing.
+        # The take-off swing raises them up and out in a V, so they come down by the sides, never
+        # through the front at shoulder height.
+        flex = -58.0 * back + 45.0 * up + (6.0 + 6.0 * s) * apex * (1 - up) + 16.0 * fwd_land
+        add = 15.0 - 8.0 * back - 95.0 * up - (58.0 + 12.0 * s) * apex * (1 - up) - 22.0 * fwd_land
+        elbow = 16.0 + 10.0 * back + 18.0 * up + (36.0 - 10.0 * s) * apex + 30.0 * fwd_land
         delta.update(arms_down(s, adduct=add, flex=flex, elbow=elbow))
         local.update(hand_relax(s, 1.0 - 0.35 * up))
     pose, _ = fk.solve(delta, absr, local, loc)

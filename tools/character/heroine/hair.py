@@ -303,7 +303,12 @@ def build(col):
         # Lock separation: each flattened clump darkens toward its two side edges, so neighbouring
         # locks read as painted strands instead of one sheet.
         cs = np.concatenate([np.tile(np.abs(np.cos(np.linspace(0, 2 * np.pi, NR, endpoint=False))), len(s)), [0.0]])[:nv]
-        cc = cc * (1 - 0.22 * smooth(0.55, 1.0, cs) * smooth(0.05, 0.25, sv))[:, None]
+        cc = cc * (1 - 0.36 * smooth(0.5, 1.0, cs) * smooth(0.05, 0.25, sv))[:, None]
+        # The side facing into the hair mass sits in the shadow of the locks over it.
+        rs = np.concatenate([np.tile(np.sin(np.linspace(0, 2 * np.pi, NR, endpoint=False)), len(s)), [1.0]])[:nv]
+        cc = cc * (1 - 0.25 * smooth(0.1, -0.7, rs) * smooth(0.05, 0.3, sv))[:, None]
+        # Each lock's own highlight: a soft band down the crown of its outer face.
+        cc = cc * (1 + 0.16 * smooth(0.55, 0.95, rs) * smooth(0.12, 0.3, sv) * (1 - smooth(0.6, 0.85, sv)))[:, None]
         if dark:
             cc = cc * 0.72 + dk[None, :] * 0.1
         else:
@@ -324,8 +329,8 @@ def build(col):
     V = np.vstack(allV)
     C = np.vstack(allC)
     ob = make_mesh("hair", V, allF, col)
-    # Shaped normals: mostly the hair mass (a soft volume round the head), a little of the clump,
-    # so the cel step runs in smooth bands across the mass; locks separate by ink and colour.
+    # Shaped normals: half the lock's own round tube (one light band per lock, rounded at the sides
+    # and back), half the hair mass (a soft volume round the head, so the cel step doesn't speckle).
     me = ob.data
     n = np.zeros(len(me.vertices) * 3)
     me.vertices.foreach_get("normal", n)
@@ -334,7 +339,7 @@ def build(col):
     Nv = norm(V - axis + np.array([0, 0, 0.0]) + (V[:, 2:3] > HC[2] + 0.02) * (V - HC) * 0.0)
     Nv[:, 2] += 0.25 * smooth(HC[2] - 0.1, HC[2] + 0.06, V[:, 2])
     Nv = norm(Nv)
-    set_normals(ob, norm(Nv * 0.84 + Ng * 0.16))
+    set_normals(ob, norm(Nv * 0.45 + Ng * 0.55))
     set_colors(ob, C)
     set_float(ob, "_wind", np.concatenate(allW))
     ob["part"] = "hair"
