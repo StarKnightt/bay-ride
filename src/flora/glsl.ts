@@ -194,7 +194,7 @@ const GROUND_VS = /* glsl */ `
 ${COMMON}
 out vec3 vWPos;
 out vec3 vN;
-out vec3 vCol;
+centroid out vec3 vCol;
 void main(){
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vWPos = wp.xyz;
@@ -210,7 +210,7 @@ ${OUT}
 ${FLORA_UNI}
 in vec3 vWPos;
 in vec3 vN;
-in vec3 vCol;
+centroid in vec3 vCol;
 void main(){
   gFoot = max(length(dFdx(vWPos)), length(dFdy(vWPos)));
   vec3 N = normalize(vN);
@@ -301,7 +301,7 @@ in float aMat;
 in float aWind;
 out vec3 vWPos;
 out vec3 vN;
-out vec3 vCol;
+centroid out vec3 vCol;
 out vec2 vUv;
 flat out int vMat;
 void main(){
@@ -333,7 +333,7 @@ ${OUT}
 ${FLORA_UNI}
 in vec3 vWPos;
 in vec3 vN;
-in vec3 vCol;
+centroid in vec3 vCol;
 in vec2 vUv;
 flat in int vMat;
 void main(){
@@ -427,7 +427,7 @@ in vec4 aOff;   // world x, y, z, yaw
 in vec4 aTint;  // petal tint rgb, scale
 out vec3 vWPos;
 out vec3 vN;
-out vec3 vCol;
+centroid out vec3 vCol;
 out vec2 vUv;
 flat out int vPart;
 void main(){
@@ -458,7 +458,7 @@ ${OUT}
 ${FLORA_UNI}
 in vec3 vWPos;
 in vec3 vN;
-in vec3 vCol;
+centroid in vec3 vCol;
 in vec2 vUv;
 flat in int vPart;
 // Petal outline of each bloom kind: > 0 inside (in uv units), r = distance from the centre.
