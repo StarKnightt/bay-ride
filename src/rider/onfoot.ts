@@ -891,7 +891,9 @@ export class Explore {
     this.turn = 0;
     const g = this.bay.groundAt(x, z, this.y);
     if (g) {
-      this.y = this.gy = g.h;
+      // On the stair: the free walk's line through the tread middles, not the tread heights.
+      const sb = stairBodyH(x, z);
+      this.y = this.gy = Number.isNaN(sb) || Math.abs(sb - g.h) > 0.3 ? g.h : sb;
       this.surface = g.kind;
     }
     this.rider.walker.position.set(x, this.y, z);

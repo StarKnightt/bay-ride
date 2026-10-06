@@ -4,20 +4,20 @@ import type { Rider } from "../rider/rider";
 import type { Boat } from "../boat/boat";
 import { gaitCycle, jumpClock } from "../rider/rider";
 import { SPAWN } from "../boat/berth";
-import { PIER, deckH } from "../world/bay/pier";
+import { PIER, PIER_STAIR, deckH } from "../world/bay/pier";
 import { SEA_Y, roadX } from "../world/bay/road";
 import { terrainH, waterlineU } from "../world/bay/terrain";
 
 /**
- * Character capture views (?cam=portrait | turn&a=<deg> | walk[&run=1] | jump | boatseat | board | leave | stairs, ?pose=wade). Each puts
+ * Character capture views (?cam=portrait | turn&a=<deg> | walk[&run=1] | jump | boatseat | board | leave | stairs | stairwalk, ?pose=wade). Each puts
  * her somewhere fixed (or on a fixed path that is a function of t) and the camera relative to her,
  * so the same t always gives the same frame. See .gauntlet/SHOTS.md.
  */
-export type CharCamMode = "portrait" | "turn" | "walk" | "jump" | "boatseat" | "wade" | "board" | "leave" | "stairs";
+export type CharCamMode = "portrait" | "turn" | "walk" | "jump" | "boatseat" | "wade" | "board" | "leave" | "stairs" | "stairwalk";
 
 export function charMode(params: URLSearchParams): CharCamMode | null {
   const c = params.get("cam");
-  if (c === "portrait" || c === "turn" || c === "walk" || c === "jump" || c === "boatseat" || c === "board" || c === "leave" || c === "stairs") return c;
+  if (c === "portrait" || c === "turn" || c === "walk" || c === "jump" || c === "boatseat" || c === "board" || c === "leave" || c === "stairs" || c === "stairwalk") return c;
   if (params.get("pose") === "wade") return "wade";
   return null;
 }
@@ -34,6 +34,30 @@ export const TRANSIT_LOOK = new THREE.Vector3(-91.0, -2.2, -196.0);
 /** Closer, from above the water south of the stair: her feet on the treads, the hand on the rail. */
 export const STAIRS_EYE = new THREE.Vector3(-88.0, -0.15, -199.4);
 export const STAIRS_LOOK = new THREE.Vector3(-89.6, -1.75, -195.1);
+/**
+ * Free walk on the stair (stairwalk), from t = TRANSIT_T0: legs of [start t, end t, from x, to x],
+ * walked at the free walk's stair speed (0.52 m/s) with 0.4 s ramps, standing between them. Down
+ * from the head to tread 3 (stop), on down onto the stage, a turn there, then back up to the head.
+ */
+const SW_Z = (PIER_STAIR.z0 + PIER_STAIR.z1) / 2;
+const SW_LEGS: [number, number, number, number][] = [
+  [0, 2.9, -88.4, -89.71],
+  [4.4, 7.4, -89.71, -91.0],
+  [8.6, 13.6, -91.0, -88.4],
+];
+const SW_RAMP = 0.4;
+/** Distance along a leg at time u into it (trapezoidal speed), and the speed. */
+function swLeg(u: number, dur: number, dist: number): [number, number] {
+  const v = dist / (dur - SW_RAMP), a = v / SW_RAMP;
+  if (u <= 0) return [0, 0];
+  if (u >= dur) return [dist, 0];
+  if (u < SW_RAMP) return [0.5 * a * u * u, a * u];
+  if (u > dur - SW_RAMP) {
+    const r = dur - u;
+    return [dist - 0.5 * a * r * r, a * r];
+  }
+  return [0.5 * v * SW_RAMP + v * (u - SW_RAMP), v];
+}
 /** Water depth she wades in along the shore (m). */
 const WADE_D = 0.14;
 
@@ -66,7 +90,7 @@ export class CharDirector {
     if (mode === "wade") rider.settleT = 12;
     if (mode === "walk") rider.settleT = 6;
     if (mode === "jump") rider.settleT = 1;
-    if (mode === "board" || mode === "leave" || mode === "stairs") {
+    if (mode === "board" || mode === "leave" || mode === "stairs" || mode === "stairwalk") {
       // Frozen frames re-run the last seconds along the move itself.
       rider.settleT = 2.5;
       rider.settlePath = (time) => {
@@ -124,6 +148,21 @@ export class CharDirector {
       const x = this.wadeX(z), x2 = this.wadeX(z + 0.5);
       const yaw = Math.atan2(-(x2 - x), -0.5);
       e.drive(x, z, yaw, WADE_V, ((WADE_V * t) / gaitCycle(0, WADE_V)) * Math.PI * 2, t);
+    } else if (this.mode === "stairwalk") {
+      const u = t - TRANSIT_T0, L = gaitCycle(0, 0.52);
+      let x = SW_LEGS[0][2], v = 0, yaw = Math.PI / 2, walked = 0;
+      for (const [t0, t1, x0, x1] of SW_LEGS) {
+        if (u < t0) break;
+        const [s, sv] = swLeg(u - t0, t1 - t0, Math.abs(x1 - x0));
+        x = x0 + Math.sign(x1 - x0) * s;
+        v = sv;
+        walked += s;
+        yaw = x1 < x0 ? Math.PI / 2 : -Math.PI / 2;
+      }
+      // The turn on the stage, standing (between the second and third legs).
+      const tt = smooth01((u - 7.8) / 0.7);
+      if (u >= SW_LEGS[1][1] && u < SW_LEGS[2][0]) yaw = Math.PI / 2 - Math.PI * tt;
+      e.drive(x, SW_Z, yaw, v, (walked / L) * Math.PI * 2, t);
     } else if (this.mode === "board" || this.mode === "stairs") {
       e.transitAt("board", t - TRANSIT_T0, t, SPAWN.x, SPAWN.z, SPAWN.yaw);
     } else if (this.mode === "leave") {
@@ -186,6 +225,14 @@ export class CharDirector {
         eye = STAIRS_EYE.clone();
         look = STAIRS_LOOK.clone().lerp(this.head, 0.2);
         fov = 40;
+        r.gazeTarget = null;
+        break;
+      }
+      case "stairwalk": {
+        // Side-on and low from over the water south of the stage: her feet and the treads.
+        eye = V(Math.min(-88.4, Math.max(-91.0, p.x)) + 0.3, Math.max(p.y + 0.32, -2.3), -197.3);
+        look = V(p.x, p.y + 0.22, p.z);
+        fov = 38;
         r.gazeTarget = null;
         break;
       }
