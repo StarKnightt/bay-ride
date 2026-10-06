@@ -223,6 +223,67 @@ function wildTrees(layout: Layout): TreeRegion[] {
       list.push({ x, z, kind: rt() < 0.35 ? "bush" : "round", scale: range(rt, 1.2, 1.8), seed: Math.floor(rt() * 1e9), far: true });
     }
   }
+  // Hedge volumes on the field boundaries the ground shader paints (same warped, rotated cells and
+  // the same per-edge hash), so from the bay each band is a row of bushes with height and shadow.
+  const rh = mulberry32(6363);
+  const fr = (v: number) => v - Math.floor(v);
+  const hash12 = (px: number, py: number) => {
+    let a = fr(px * 0.1031), b = fr(py * 0.1031), c = fr(px * 0.1031);
+    const d = a * (b + 33.33) + b * (c + 33.33) + c * (a + 33.33);
+    a += d; b += d; c += d;
+    return fr((a + b) * c);
+  };
+  const vn = (px: number, py: number) => {
+    const ix = Math.floor(px), iy = Math.floor(py), fx = px - ix, fy = py - iy;
+    const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+    const l = (a: number, b: number, t: number) => a + (b - a) * t;
+    return l(l(hash12(ix, iy), hash12(ix + 1, iy), ux), l(hash12(ix, iy + 1), hash12(ix + 1, iy + 1), ux), uy);
+  };
+  const hedgeCell = new Set<string>();
+  for (let z = -275; z < 245; z += 1.5) {
+    for (let u = 30; u < 205; u += 1.5) {
+      const x = roadX(z) + u + range(rh, -0.4, 0.4);
+      const y = groundY(x, z);
+      if (y < 9 || !onHill(x, z)) continue;
+      const w0 = 0.94 * x + 0.34 * z, w1 = -0.34 * x + 0.94 * z;
+      const wx = w0 + 3.5 * Math.sin(w1 * 0.043 + 1), wy = w1 + 3 * Math.sin(w0 * 0.061 + 2);
+      const cx = Math.floor(wx / 46), cy = Math.floor(wy / 34), fx = wx / 46 - cx, fy = wy / 34 - cy;
+      const dX = Math.min(fx, 1 - fx) * 46, dY = Math.min(fy, 1 - fy) * 34;
+      const onX = hash12((fx < 0.5 ? cx : cx + 1) + 5.1, cy + 5.1) <= 0.62;
+      const onY = hash12(cx + 9.3, (fy < 0.5 ? cy : cy + 1) + 9.3) <= 0.55;
+      if (!((onX && dX < 0.9) || (onY && dY < 0.9))) continue;
+      if (vn(wx * 0.09 + 4, wy * 0.09 + 4) < 0.24) continue;
+      // One bush per ~3.2 m cell of the line, a hedgerow tree now and then.
+      const key = `${Math.round(x / 3.2)},${Math.round(z / 3.2)}`;
+      if (hedgeCell.has(key) || slopeAt(x, z) > 0.42 || !layout.free(x, z, 1.2)) continue;
+      hedgeCell.add(key);
+      const tree = rh() < 0.06 && roomy(x, z, 5);
+      if (tree) placed.push({ x, z });
+      hill(z).push({ x, z, kind: tree ? (rh() < 0.5 ? "round" : "tall") : "bush", scale: tree ? range(rh, 1.0, 1.4) : range(rh, 1.35, 1.9), seed: Math.floor(rh() * 1e9), far: !tree });
+    }
+  }
+  // Dark copses in the hill's folds (where the ground sits below its surroundings), and a few big
+  // lone trees standing out on the open slopes.
+  for (let k = 0, tries = 0; k < 14 && tries < 900; tries++) {
+    const z = range(rh, -265, 235), u = range(rh, 45, 190), x = roadX(z) + u;
+    const y = groundY(x, z), ring = (groundY(x + 14, z) + groundY(x - 14, z) + groundY(x, z + 14) + groundY(x, z - 14)) / 4;
+    if (ring - y < 0.9 || !onHill(x, z) || !ok(x, z, 3, 0.4) || !roomy(x, z, 6)) continue;
+    k++;
+    for (let i = 0, n = 5 + Math.floor(rh() * 5); i < n; i++) {
+      const tx = x + range(rh, -9, 9), tz = z + range(rh, -9, 9);
+      if (!onHill(tx, tz) || !ok(tx, tz, 2.2, 0.42) || !roomy(tx, tz, 3.2)) continue;
+      placed.push({ x: tx, z: tz });
+      const q = rh();
+      hill(tz).push({ x: tx, z: tz, kind: q < 0.45 ? "conifer" : q < 0.75 ? "round" : "tall", scale: range(rh, 0.95, 1.45), seed: Math.floor(rh() * 1e9) });
+    }
+  }
+  for (let k = 0, tries = 0; k < 7 && tries < 400; tries++) {
+    const z = range(rh, -250, 225), u = range(rh, 55, 175), x = roadX(z) + u;
+    if (!onHill(x, z) || !ok(x, z, 5, 0.3) || !roomy(x, z, 14)) continue;
+    k++;
+    placed.push({ x, z });
+    hill(z).push({ x, z, kind: "hero", scale: range(rh, 1.0, 1.25), seed: Math.floor(rh() * 1e9) });
+  }
   // The island's slopes: a dozen big lobed shrubs, so it reads as wooded heath, not a smooth dome.
   for (let k = 0, tries = 0; k < 12 && tries < 400; tries++) {
     const a = rt() * Math.PI * 2, d = range(rt, 12, 36);
