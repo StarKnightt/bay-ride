@@ -720,6 +720,10 @@ void main(){
     N = normalize(mix(N, vec3(0.0, 1.0, 0.0), 0.7));
     // Cool dense grass: offset the warm sun so lit tips land near the authored #6f9a3e.
     base *= vec3(1.0, 1.22, 1.75);
+    // Pale straw (marram, tussocks, bleached tips) takes the evening light like the sand it grows
+    // in, or it is the lightest thing on the beach at dusk; the green salt grass keeps its value.
+    float straw = smoothstep(0.75, 0.95, vCol.r / max(vCol.g, 1e-3));
+    base *= mix(1.0, 0.62 - 0.27 * uStars, uNight * straw);
     // Wind-sway bands: tips brighten where the travelling gust wave (same as windOffset) leans them.
     float wv = sin(dot(vWPos.xz, uWindDir) * 0.22 - uTime * 2.1) * 0.5 + 0.5;
     base *= 1.0 + smoothstep(0.5, 1.0, wv) * clamp(vObj.y * 1.3 - 0.25, 0.0, 1.0) * 0.28;
