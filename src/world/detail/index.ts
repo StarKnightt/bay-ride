@@ -4,7 +4,8 @@ import { mulberry32, range } from "../../core/rng";
 import { uber } from "../../render/materials";
 import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../../render/lightpasses";
 import { roadX } from "../bay/road";
-import { coastH, headlandsH } from "../bay/terrain";
+import { ISLAND, coastH, headlandsH, islandH } from "../bay/terrain";
+import { SEA_Y } from "../bay/road";
 import type { Box, Collider } from "../bay";
 import { Layout, groundY, slopeAt, uOf } from "../../flora/place";
 import { Flora, setTier, type Tier } from "../../flora";
@@ -88,14 +89,10 @@ function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
   const stone = new THREE.Color("#8e877c"), dark = new THREE.Color("#6b665f"), moss = new THREE.Color("#5f7a3a"), lichen = new THREE.Color("#c4b45e");
   const top = new THREE.Color("#b3a88f"), warm = new THREE.Color("#9a8670"), cool = new THREE.Color("#6c7282"), lichenO = new THREE.Color("#c08a4c");
   const c = new THREE.Color();
+  const wet = new THREE.Color("#4f4c49");
   let n = 0;
-  for (let tries = 0; tries < 600 && n < 42; tries++) {
-    const z = range(r, -285, 250), u = 9 + Math.pow(r(), 1.3) * 150;
-    const x = roadX(z) + u;
-    if (headlandsH(x, z) > coastH(u, z) + 0.5 && r() < 0.5) continue;
-    if (!layout.free(x, z, 1.5) || slopeAt(x, z) > 0.35) continue;
-    n++;
-    const s = range(r, 0.5, 1.4);
+  /** One faceted stone; `shore`: the island's sea-worn rocks, darker, low-contrast, no moss. */
+  const stoneAt = (x: number, z: number, s: number, y: number, shore: boolean) => {
     // Faceted: each plane takes one painted tone (light warm tops, warm mid faces, cool shadow
     // planes underneath), with moss on the tops and lichen patches of a few faces each.
     const raw = blob(1, 2, 0.22, r() * 100).toNonIndexed();
@@ -111,9 +108,12 @@ function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
       else if (up > -0.1) c.copy(stone).lerp(warm, 0.5 + 0.5 * Math.sin(px * 3.1 + pz * 2.3 + n));
       else c.copy(cool);
       c.lerp(dark, r() * 0.22 + (py < -0.2 ? 0.2 : 0));
-      c.lerp(moss, Math.max(0, Math.min(1, (up - 0.5 + (mot - 0.5) * 0.6) * 2.2)) * 0.75);
-      const lp = Math.sin(px * 7.1 - n) * Math.sin(pz * 6.3 + n * 0.7) * Math.sin(py * 5.9 + n);
-      if (lp > 0.45 && up > -0.2) c.lerp(lp > 0.7 ? lichenO : lichen, 0.7);
+      if (shore) c.lerp(wet, 0.55 + (py < 0 ? 0.2 : 0));
+      else {
+        c.lerp(moss, Math.max(0, Math.min(1, (up - 0.5 + (mot - 0.5) * 0.6) * 2.2)) * 0.75);
+        const lp = Math.sin(px * 7.1 - n) * Math.sin(pz * 6.3 + n * 0.7) * Math.sin(py * 5.9 + n);
+        if (lp > 0.45 && up > -0.2) c.lerp(lp > 0.7 ? lichenO : lichen, 0.7);
+      }
       for (let k = 0; k < 3; k++) {
         col[(i + k) * 3] = c.r;
         col[(i + k) * 3 + 1] = c.g;
@@ -122,13 +122,41 @@ function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
     }
     g.setAttribute("color", new THREE.BufferAttribute(col, 3));
     g.scale(s * range(r, 1.0, 1.5), s * range(r, 0.55, 0.8), s * range(r, 0.9, 1.3));
-    parts.push(xf(g, x, groundY(x, z) + s * 0.12, z, range(r, -0.15, 0.15), r() * 6.28, range(r, -0.15, 0.15)));
-    colliders.push({ x, z, r: s * 1.1, top: groundY(x, z) + s * 0.75, kind: "rock" });
+    parts.push(xf(g, x, y + s * (shore ? 0.02 : 0.12), z, range(r, -0.15, 0.15), r() * 6.28, range(r, -0.15, 0.15)));
+    colliders.push({ x, z, r: s * 1.1, top: y + s * 0.75, kind: "rock" });
     layout.rect(x - s * 1.1, x + s * 1.1, z - s * 1.1, z + s * 1.1);
+  };
+  for (let tries = 0; tries < 600 && n < 42; tries++) {
+    const z = range(r, -285, 250), u = 9 + Math.pow(r(), 1.3) * 150;
+    const x = roadX(z) + u;
+    if (headlandsH(x, z) > coastH(u, z) + 0.5 && r() < 0.5) continue;
+    if (!layout.free(x, z, 1.5) || slopeAt(x, z) > 0.35) continue;
+    n++;
+    const s = range(r, 0.5, 1.4);
+    stoneAt(x, z, s, groundY(x, z), false);
     // A drift of flowers on the sunny side, ferns in the shade.
     layout.spot(x - s * 1.6, z + range(r, -1, 1), s * 1.8, Math.round(8 + s * 8), ["daisy", "yellow", "lavender", "poppy", "pink"]);
     layout.spot(x + s * 1.3, z, s, 4, ["fern", "weed"]);
     if (uOf(x, z) < 60) layout.perches.push([x, groundY(x, z) + s * 0.72, z, r() * 6.28]);
+  }
+  // The island's shore: dark sea-worn outcrops bedded in the sand and shingle at irregular spacing,
+  // big enough (1-2.6 m) to read as shapes from the beach, not as dots.
+  for (let a = r() * 0.4, k = 0; a < Math.PI * 2 && k < 30; a += range(r, 0.25, 0.6), k++) {
+    const ca = Math.cos(a), sa = Math.sin(a);
+    let rs = 12;
+    while (rs < 80 && islandH(ISLAND.x + ca * rs, ISLAND.z + sa * rs) > SEA_Y + 0.1) rs += 0.5;
+    if (rs >= 80) continue;
+    const lift = range(r, 0.05, 1.1);
+    let rr = rs;
+    while (rr > 8 && islandH(ISLAND.x + ca * rr, ISLAND.z + sa * rr) < SEA_Y + lift) rr -= 0.4;
+    const group = r() < 0.45 ? 1 : r() < 0.6 ? 2 : 3;
+    for (let j = 0; j < group; j++) {
+      const x = ISLAND.x + ca * rr + range(r, -1.6, 1.6) * j, z = ISLAND.z + sa * rr + range(r, -1.6, 1.6) * j;
+      const s = j === 0 ? range(r, 1.1, 2.6) : range(r, 0.6, 1.3);
+      n++;
+      stoneAt(x, z, s, islandH(x, z), true);
+      if (j === 0 && r() < 0.35) layout.perches.push([x, islandH(x, z) + s * 0.7, z, r() * 6.28]);
+    }
   }
   const m = new THREE.Mesh(parts.length ? merge(parts) : new THREE.BufferGeometry(), uber(ID.berm, 0.8));
   m.name = "boulders";

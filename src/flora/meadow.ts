@@ -178,7 +178,8 @@ export class Meadow {
         const xx = x + range(r, -0.5, 0.5) * STEP, zz = z + range(r, -0.5, 0.5) * STEP;
         if (Math.hypot(xx - LIGHTHOUSE.x, zz - LIGHTHOUSE.z) < 4) continue;
         const y = groundY(xx, zz);
-        if (y < SEA_Y + 3.4 || slopeAt(xx, zz) > 0.3) continue;
+        // Thinning out down the shore: sparse sea-grass tufts reach the top of the shingle.
+        if (y < SEA_Y + 1.9 || slopeAt(xx, zz) > 0.3 || (y < SEA_Y + 3.4 && r() > (y - SEA_Y - 1.9) / 1.5 * 0.6)) continue;
         put(xx, y, zz, range(r, 0.6, 0.95), range(r, 0.9, 1.3), range(r, 0.4, 0.95));
       }
     await pause();

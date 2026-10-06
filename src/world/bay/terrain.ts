@@ -187,6 +187,8 @@ const C = {
   ochre: new THREE.Color("#a68b62"),
   earth: new THREE.Color("#8a7350"),
   rockDark: new THREE.Color("#6a6258"),
+  shingle: new THREE.Color("#9d968a"),
+  wrack: new THREE.Color("#6e6a48"),
   path: new THREE.Color("#b5a07a"),
 };
 
@@ -212,8 +214,20 @@ function surface(u: number, z: number, x: number, y: number, slope: number, out:
   // Rock is layered in painted strata (warm ochre, grey and dark bands that wobble along the
   // contour); between the crags the flanks are heath: grass with patches of bare earth.
   // The island's gentle shore: a strip of sand at the waterline where a boat can be beached.
-  if (u < -500 && y > SEA_Y - 1 && y < SEA_Y + 0.7 + 0.5 * n && slope < 0.2) {
-    out.copy(C.sandDry).lerp(C.sandWet, 1 - smooth(SEA_Y + 0.1, SEA_Y + 0.6, y));
+  // The island's low shore, seen mostly from 300-600 m: broad bands only, every wobble from noise of
+  // 15 m and up so neighbouring vertices (about 2 m apart) agree and nothing speckles. Dark wet sand
+  // at the water, a grey shingle band, an olive drift line, then sea-grass tint up into the heath.
+  if (u < -500 && y > SEA_Y - 1 && y < SEA_Y + 1.5 + 0.5 * n && slope < 0.24) {
+    const lo = pnoise(x * 0.06, z * 0.06, 23), lo2 = pnoise(x * 0.035, z * 0.035, 29);
+    const h = y - SEA_Y;
+    const sh0 = 0.42 + 0.22 * lo, sh1 = 0.95 + 0.35 * lo2;
+    out.copy(C.sandDry).lerp(C.sandWet, 1 - smooth(0.05, 0.4 + 0.1 * lo, h));
+    out.lerp(C.sandWet, (1 - smooth(-0.2, 0.18, h)) * 0.5).multiplyScalar(1 - 0.12 * (1 - smooth(-0.1, 0.2, h)));
+    const shingle = smooth(sh0 - 0.1, sh0 + 0.08, h) * (1 - smooth(sh1 - 0.1, sh1 + 0.12, h));
+    out.lerp(C.shingle, shingle * (0.55 + 0.35 * smooth(0.3, 0.7, lo2)));
+    const drift = 1 - smooth(0.06, 0.2, Math.abs(h - (sh0 - 0.08 + 0.1 * lo2)));
+    out.lerp(C.wrack, drift * 0.6 * smooth(0.25, 0.55, lo));
+    out.lerp(C.grassDark, smooth(sh1 - 0.05, sh1 + 0.45, h) * smooth(0.35, 0.65, lo) * 0.45);
     return M.plain;
   }
   if (u < -500 && y > SEA_Y - 1 && (y < SEA_Y + 1.6 + 1.2 * n || slope > 0.36 + 0.15 * n)) {
