@@ -129,7 +129,7 @@ export class SoundEngine {
     limiter.attack.value = 0.003;
     limiter.release.value = 0.25;
     const trim = ctx.createGain();
-    trim.gain.value = 0.7;
+    trim.gain.value = 1.25;
     const clip = ctx.createWaveShaper();
     clip.curve = softCeiling();
     mix.connect(sub).connect(high).connect(top).connect(glue).connect(this.volume).connect(limiter).connect(trim).connect(clip).connect(dest);

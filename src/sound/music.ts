@@ -40,7 +40,7 @@ const MOODS: Record<MoodName, Mood> = {
   golden: { key: 3, bpm: 68, meter: 4, lydian: 0.1, progs: [3, 4, 0, 7, 2, 8], accomp: ["broken", "rolled", "flow"], melodyBox: 0, sparkle: 0.1, pad: 0.7, strings: 0.45, density: 0.6, bright: 3800, center: 7 , gain: 1.1 },
   sunset: { key: 1, bpm: 64, meter: 4, lydian: 0, progs: [3, 7, 4, 2, 9], accomp: ["rolled", "broken"], melodyBox: 0, sparkle: 0.08, pad: 0.8, strings: 0.6, density: 0.5, bright: 3500, center: 7 , gain: 1.1 },
   dusk: { key: 10, bpm: 62, meter: 3, lydian: 0.1, progs: [7, 2, 3, 8, 0], accomp: ["waltz", "rock"], melodyBox: 0.3, sparkle: 0.15, pad: 0.75, strings: 0.35, density: 0.45, bright: 3200, center: 7 , gain: 1 },
-  night: { key: 7, bpm: 60, meter: 3, lydian: 0, progs: [0, 7, 2, 9], accomp: ["rock", "waltz"], melodyBox: 0.7, sparkle: 0.2, pad: 0.6, strings: 0.15, density: 0.4, bright: 3000, center: 5 , gain: 0.8 },
+  night: { key: 7, bpm: 60, meter: 3, lydian: 0, progs: [0, 7, 2, 9], accomp: ["rock", "waltz"], melodyBox: 0.7, sparkle: 0.2, pad: 0.6, strings: 0.15, density: 0.4, bright: 3000, center: 5 , gain: 0.55 },
 };
 
 /** Chords by name: root (semitones above the tonic) and voiced intervals above the root. */
