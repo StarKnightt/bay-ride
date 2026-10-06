@@ -142,10 +142,19 @@ export class Meadow {
       // Tall in the lower fields, shorter up the hill and on the steeper ground, short lawns in places.
       let h = range(r, 0.7, 1.12) * (1 - 0.35 * smooth(60, 150, u)) * (1 - sl * 1.1);
       h *= 0.55 + 0.45 * smooth(0.3, 0.55, lawn);
-      // Shorter at a lane or wall foot: the edge reads as trodden.
+      // At a lane or wall foot: trodden short between tufts that stand full and packed against the
+      // edge, so the verge reads in clumps.
       const cl = layout.clearance(x, z, 2);
-      h *= 0.55 + 0.45 * smooth(0.0, 1.6, cl);
-      put(x, y, z, Math.max(0.28, h), range(r, 0.85, 1.25), Math.min(1, Math.max(0, range(r, 0, 0.75) + (drift - 0.5) * 0.5)));
+      const edge = 1 - smooth(0.6, 1.9, cl);
+      const tuft = edge * smooth(0.48, 0.62, pnoise(x * 0.55, z * 0.55, 14));
+      h *= (0.55 + 0.45 * smooth(0.0, 1.6, cl)) * (1 - tuft) + tuft * 1.05;
+      const hue = Math.min(1, Math.max(0, range(r, 0, 0.75) + (drift - 0.5) * 0.5));
+      put(x, y, z, Math.max(0.28, h), range(r, 0.85, 1.25), hue);
+      if (tuft > 0.5)
+        for (let i = 0; i < 2; i++) {
+          const xx = x + range(r, -0.3, 0.3), zz = z + range(r, -0.3, 0.3);
+          if (layout.free(xx, zz, 0.1)) put(xx, groundY(xx, zz), zz, h * range(r, 0.75, 1), range(r, 0.9, 1.3), hue);
+        }
     };
     let rows = 0;
     for (let z = -300; z < 268; z += STEP) {

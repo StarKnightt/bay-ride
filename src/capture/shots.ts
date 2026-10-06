@@ -41,6 +41,9 @@ export const SHOTS: Record<number, Shot> = {
   13: { name: "crest, back to the bay", eye: v(roadX(-60) + 196, terrainH(roadX(-60) + 196, -60) + 1.7, -60), look: v(roadX(-90) + 20, 0, -90), fov: 55 },
   // In the town: from the coast road up between the houses.
   14: { name: "town lane", eye: v(roadX(-178) + 6, terrainH(roadX(-178) + 6, -178) + 1.65, -178), look: v(roadX(-188) + 60, terrainH(roadX(-188) + 60, -188) + 3, -188), fov: 55 },
+  // Standing on the beach under the wall, along the dunes toward each headland's foot.
+  15: { name: "dunes north", eye: v(roadX(140) - 15, SEA_Y + 1.8, 140), look: v(roadX(200) - 14, SEA_Y + 1.5, 200), fov: 55 },
+  16: { name: "dunes south", eye: v(roadX(-205) - 9, SEA_Y + 1.8, -205), look: v(roadX(-262) - 14, SEA_Y + 1.5, -262), fov: 55 },
 };
 
 export interface CaptureParams {

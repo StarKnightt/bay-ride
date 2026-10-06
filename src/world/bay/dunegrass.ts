@@ -70,7 +70,9 @@ function clump(n: number, h: number, w: number, lean: number, spread: number, ro
 }
 
 const saltGrass = (s: number) => clump(16, 0.62, 0.034, 0.22, 0.2, "#2f4a2c", "#5d7d42", "#bdb978", s);
-const marram = (s: number) => clump(14, 0.9, 0.026, 0.38, 0.16, "#59603a", "#8e9152", "#ddd29b", s);
+const marram = (s: number) => clump(16, 0.9, 0.042, 0.38, 0.18, "#59603a", "#8e9152", "#ddd29b", s);
+/** A full marram tussock for a hummock's crown: dense, arching wide, dead straw at the skirt. */
+const tussock = (s: number) => clump(36, 1.1, 0.055, 0.5, 0.32, "#615f3c", "#949456", "#e2d6a2", s);
 
 /** Sea thrift: a low dark cushion with a few pink heads on wiry stems. */
 function thrift(seed: number): Geo {
@@ -96,7 +98,7 @@ const CHUNK = 50;
 export function buildDuneGrass(colliders: readonly Collider[], layout?: Layout): THREE.Group {
   const group = new THREE.Group();
   group.name = "dune grass";
-  const kinds = [saltGrass(11), marram(23), thrift(37)];
+  const kinds = [saltGrass(11), marram(23), thrift(37), tussock(41)];
   // No ink: outlined, every clump turns into a scribble.
   const mat = uber(ID.grass, 0, THREE.DoubleSide);
   const free = (x: number, z: number) => {
@@ -114,7 +116,7 @@ export function buildDuneGrass(colliders: readonly Collider[], layout?: Layout):
   const up = new THREE.Vector3(0, 1, 0);
   const z0 = Math.min(ROAD_Z0, ROAD_Z1), z1 = Math.max(ROAD_Z0, ROAD_Z1);
   for (let cz = z0; cz < z1; cz += CHUNK) {
-    const lists: THREE.Matrix4[][] = [[], [], []];
+    const lists: THREE.Matrix4[][] = [[], [], [], []];
     const put = (k: number, x: number, z: number, scale: number) => {
       p.set(x, terrainH(x, z) - 0.03, z);
       q.setFromAxisAngle(up, r() * Math.PI * 2);
@@ -138,9 +140,12 @@ export function buildDuneGrass(colliders: readonly Collider[], layout?: Layout):
         const uu = u + range(r, -0.35, 0.35), zz = z + range(r, -0.35, 0.35);
         const x = rx + uu;
         const hum = pnoise(x * 0.22, zz * 0.22, 33);
-        const pr = (1 - smooth(2.0, 6.2, WALL_OUT - uu)) * (0.35 + 0.65 * smooth(0.3, 0.55, hum));
+        const crown = smooth(0.5, 0.68, hum);
+        const pr = (1 - smooth(2.5, 6.2, WALL_OUT - uu)) * (0.45 + 0.55 * smooth(0.3, 0.55, hum));
         if (r() > pr || !free(x, zz)) continue;
-        put(r() < 0.12 ? 2 : 1, x, zz, range(r, 0.85, 1.3) * (0.8 + 0.4 * hum));
+        // Hummock crowns grow full tussocks; marram rings them and runs thinner between.
+        if (r() < crown * 0.55) put(3, x, zz, range(r, 0.85, 1.25) * (0.85 + 0.3 * hum));
+        else put(r() < 0.1 ? 2 : 1, x, zz, range(r, 0.85, 1.3) * (0.8 + 0.5 * hum));
       }
     }
     lists.forEach((list, k) => {
