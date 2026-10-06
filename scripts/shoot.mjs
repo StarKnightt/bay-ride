@@ -44,6 +44,9 @@ const FPS = argv.includes("--fps");
 const GUARD = !argv.includes("--noguard");
 const SERVE = arg("serve", "preview");
 const EXTRA = arg("extra", "") ? `&${arg("extra", "")}` : "";
+// Scene resolution scale: stills at a fixed scale (default 1); fps views fixed with --fpsres=, else adaptive.
+const STILL_RES = `&res=${arg("scale", "1")}`;
+const FPS_RES = arg("fpsres", "") ? `&res=${arg("fpsres", "")}` : "";
 const VARIANTS = arg("variants", "").split("|").filter(Boolean);
 const RES = arg("res", "1920x1080").split(",").filter(Boolean).map((r) => r.split("x").map(Number));
 const DPRS = arg("dpr", "1").split(",").filter(Boolean).map(Number);
@@ -126,7 +129,7 @@ for (const [W, H] of RES) for (const dpr of DPRS) {
       const t0 = Date.now();
       const charQ = (c) => (c === "wade" ? "pose=wade" : c.startsWith("turn") ? `cam=turn&a=${c.slice(4) || 0}` : c === "boatseat" ? "cam=boatseat&boat=1" : `cam=${c}`);
       const q = cam ? `?boat=1&cam=${cam}&skipintro=1&t=${T}` : ch ? `?${charQ(ch)}&t=${T}` : s === "open" ? `?skipintro=1&t=${T}` : s === "intro" ? `?t=${T}` : `?shot=${s}&t=${T}`;
-      await page.goto(`${URL}${q}&tod=${tod}${s === "open" || s === "intro" ? "" : "&hud=0"}${EXTRA}${vq ? `&${vq}` : ""}`, { waitUntil: "load" });
+      await page.goto(`${URL}${q}&tod=${tod}${s === "open" || s === "intro" ? "" : "&hud=0"}${STILL_RES}${EXTRA}${vq ? `&${vq}` : ""}`, { waitUntil: "load" });
       if (!gpuChecked) { await assertGpu(page); gpuChecked = true; }
       if (s === "intro") {
         await page.waitForFunction(() => window.__ride?.waiting === true, null, { timeout: 300_000, polling: 100 });
@@ -150,13 +153,14 @@ if (FPS) {
   const ctx = await browser.newContext({ viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
   watch(page, "fps");
-  await page.goto(`${URL}?autoplay=1&skipintro=1&tod=golden`, { waitUntil: "load" });
+  await page.goto(`${URL}?autoplay=1&skipintro=1&tod=golden${FPS_RES}`, { waitUntil: "load" });
   if (!gpuChecked) { await assertGpu(page); gpuChecked = true; }
   await page.waitForFunction(() => window.__ride?.ready === true, null, { timeout: 300_000 });
   await page.waitForTimeout(8000);
   const log = await page.evaluate(() => window.__ride.fpsLog);
   const st = await page.evaluate(() => window.__ride.stats());
-  console.log(`fps (headless, not vsync-locked): ${log.join(",")}  calls=${st.sceneCalls} tris=${(st.sceneTris / 1e6).toFixed(2)}M`);
+  const ws = await page.evaluate(() => window.__ride.post.scale);
+  console.log(`fps (headless, not vsync-locked): ${log.join(",")}  s=${ws}  calls=${st.sceneCalls} tris=${(st.sceneTris / 1e6).toFixed(2)}M`);
   await page.screenshot({ path: path.join(OUT, "walk_golden.png") });
   await page.close();
   // Live (unfrozen) fixed views over the open water, where the sea fills most of the frame;
@@ -166,12 +170,13 @@ if (FPS) {
     const p = await ctx.newPage();
     watch(p, `fps shot${s}`);
     const q = s === "open" ? "?skipintro=1" : `?shot=${s}&hud=0`;
-    await p.goto(`${URL}${q}&tod=${tod}${EXTRA}`, { waitUntil: "load" });
+    await p.goto(`${URL}${q}&tod=${tod}${FPS_RES}${EXTRA}`, { waitUntil: "load" });
     if (s === "open") await p.waitForFunction(() => window.__ride?.ready === true, null, { timeout: 300_000, polling: 100 });
     else await p.waitForFunction(() => window.__ready === true, null, { timeout: 300_000, polling: 100 });
-    await p.waitForTimeout(5000);
+    await p.waitForTimeout(FPS_RES ? 5000 : 9000);
     const l = await p.evaluate(() => window.__ride.fpsLog);
-    console.log(`fps ${s === "open" ? "open" : "shot" + s}_${tod}${EXTRA} (live): ${l.slice(-4).join(",")}`);
+    const sc = await p.evaluate(() => window.__ride.post.scale);
+    console.log(`fps ${s === "open" ? "open" : "shot" + s}_${tod}${FPS_RES}${EXTRA} (live): ${l.slice(-4).join(",")}  s=${sc}`);
     await p.close();
   }
   await ctx.close();

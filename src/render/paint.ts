@@ -34,7 +34,8 @@ const TENSOR = /* glsl */ `
 ${COMMON_FS}
 uniform sampler2D tColor;
 uniform vec2 uStep;  // one half-res texel in uv
-vec3 tap(vec2 d){ vec3 c = safe3(textureLod(tColor, vUv + d * uStep, 0.0).rgb); return c / (1.0 + c); }
+uniform vec2 uS, uMaxF;
+vec3 tap(vec2 d){ vec3 c = safe3(textureLod(tColor, min(vUv * uS + d * uStep, uMaxF), 0.0).rgb); return c / (1.0 + c); }
 void main(){
   vec3 a = tap(vec2(-1.0, -1.0)), b = tap(vec2(0.0, -1.0)), c = tap(vec2(1.0, -1.0));
   vec3 d = tap(vec2(-1.0, 0.0)), f = tap(vec2(1.0, 0.0));
@@ -49,13 +50,14 @@ const BLUR = /* glsl */ `
 ${COMMON_FS}
 uniform sampler2D tTensor;
 uniform vec2 uStep;
+uniform vec2 uS, uMaxH;
 void main(){
   // 3x3 bilinear taps 1.5 texels apart: a ~6x6 Gaussian-ish footprint for 9 fetches.
   vec4 s = vec4(0.0);
   float wsum = 0.0;
   for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
     float w = (i == 0 ? 2.0 : 1.0) * (j == 0 ? 2.0 : 1.0);
-    s += textureLod(tTensor, vUv + vec2(float(i), float(j)) * 1.5 * uStep, 0.0) * w;
+    s += textureLod(tTensor, min(vUv * uS + vec2(float(i), float(j)) * 1.5 * uStep, uMaxH), 0.0) * w;
     wsum += w;
   }
   o = s / wsum;
@@ -72,8 +74,9 @@ uniform vec2 uFull;    // one full-res texel in uv
 uniform float uRadius; // kernel radius in half-res texels
 uniform float uQ, uHard, uZero;
 uniform float uNear, uFar;
+uniform vec2 uS, uMaxF, uMaxH;
 float linz(float d){ float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
-vec3 src(vec2 uv){ return sqrt(clamp(safe3(textureLod(tColor, uv, 0.0).rgb), 0.0, 16.0)); }
+vec3 src(vec2 uv){ return sqrt(clamp(safe3(textureLod(tColor, min(uv, uMaxF), 0.0).rgb), 0.0, 16.0)); }
 void main(){
   // One exact full-res texel under this half-res pixel (a bilinear read would blend the ids).
   ivec2 fp = ivec2(gl_FragCoord.xy * 2.0);
@@ -85,9 +88,10 @@ void main(){
   float rk = (id == 19.0 || id == 2.0) ? 0.0 : (id == 13.0 || id == 14.0 || id == 18.0 || (id >= 20.0 && id <= 24.0)) ? 0.45
            : (id == 3.0 || id == 6.0 || id == 16.0) ? 1.35 : 1.0;
   float R = uRadius * rk;
-  vec3 c0 = src(vUv);
+  vec2 uv0 = vUv * uS;
+  vec3 c0 = src(uv0);
   if (R < 0.6) { o = vec4(c0 * c0, dz); return; }
-  vec3 g = textureLod(tTensor, vUv, 0.0).xyz;
+  vec3 g = textureLod(tTensor, min(uv0, uMaxH), 0.0).xyz;
   float disc = sqrt(max((g.x - g.z) * (g.x - g.z) + 4.0 * g.y * g.y, 0.0));
   float l1 = 0.5 * (g.x + g.z + disc), l2 = 0.5 * (g.x + g.z - disc);
   // t: the minor eigenvector, along the local stroke; the kernel stretches along it.
@@ -115,7 +119,7 @@ void main(){
       vec2 off = vec2(float(i), float(j));
       vec2 w2 = SR * off;
       if (dot(w2, w2) > 0.25) continue;
-      vec3 c = src(vUv + off * step2);
+      vec3 c = src(uv0 + off * step2);
       float w[8];
       float sum = 0.0, z, vxx, vyy;
       vxx = zeta - eta * w2.x * w2.x;
@@ -164,6 +168,7 @@ uniform sampler2D tPaint;
 uniform vec2 uHalf;    // half-res texture size in texels
 uniform float uStrength;
 uniform float uNear, uFar;
+uniform vec2 uS, uMaxH;
 float linz(float d){ float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
 void main(){
   ivec2 fp = ivec2(gl_FragCoord.xy);
@@ -178,11 +183,11 @@ void main(){
   // Depth-aware upsample: the four nearest half-res texels, weighted by how close their depth is
   // to this pixel's (no background paint bleeding onto a silhouette, or the reverse).
   float dz = linz(texelFetch(tDepth, fp, 0).r);
-  vec2 hp = vUv * uHalf - 0.5;
+  vec2 hp = vUv * uS * uHalf - 0.5;
   vec2 b = floor(hp), f = hp - b;
   vec4 acc = vec4(0.0);
   for (int j = 0; j < 2; j++) for (int i = 0; i < 2; i++) {
-    vec4 p = textureLod(tPaint, (b + vec2(float(i), float(j)) + 0.5) / uHalf, 0.0);
+    vec4 p = textureLod(tPaint, min((b + vec2(float(i), float(j)) + 0.5) / uHalf, uMaxH), 0.0);
     float bw = (i == 0 ? 1.0 - f.x : f.x) * (j == 0 ? 1.0 - f.y : f.y);
     float dw = exp(-abs(p.a - dz) / max(dz * 0.04, 0.02) * 2.0);
     float ww = bw * dw + 1e-5;
@@ -228,6 +233,12 @@ export class Paint {
   private readonly kuwa: FullScreenQuad;
   private readonly comp: FullScreenQuad;
   private H = 1080;
+  private W = 1920;
+  /** Share of the frame the scene is drawn at (see Post.setScale); the passes run on the same sub-rectangle. */
+  private scale = 1;
+  readonly uS = { value: new THREE.Vector2(1, 1) };
+  private readonly uMaxF = { value: new THREE.Vector2(1, 1) };
+  private readonly uMaxH = { value: new THREE.Vector2(1, 1) };
 
   constructor(W: number, H: number, mrt: THREE.WebGLRenderTarget) {
     const hw = Math.max(1, Math.floor(W / 2)), hh = Math.max(1, Math.floor(H / 2));
@@ -237,16 +248,17 @@ export class Paint {
     this.output = rt(W, H);
     this.output.texture.name = "painted";
     const color = mrt.textures[0], normal = mrt.textures[1], depth = mrt.depthTexture;
-    this.tensor = quad(TENSOR, { tColor: { value: color }, uStep: { value: new THREE.Vector2() } });
-    this.blur = quad(BLUR, { tTensor: { value: this.tA.texture }, uStep: { value: new THREE.Vector2() } });
+    const { uS, uMaxF, uMaxH } = this;
+    this.tensor = quad(TENSOR, { tColor: { value: color }, uStep: { value: new THREE.Vector2() }, uS, uMaxF });
+    this.blur = quad(BLUR, { tTensor: { value: this.tA.texture }, uStep: { value: new THREE.Vector2() }, uS, uMaxH });
     this.kuwa = quad(KUWAHARA, {
       tColor: { value: color }, tNormal: { value: normal }, tDepth: { value: depth }, tTensor: { value: this.tB.texture },
       uFull: { value: new THREE.Vector2() }, uRadius: { value: 3 }, uQ: { value: 8 }, uHard: { value: 8 },
-      uZero: { value: 0.58 }, uNear: { value: 0.15 }, uFar: { value: 4200 },
+      uZero: { value: 0.58 }, uNear: { value: 0.15 }, uFar: { value: 4200 }, uS, uMaxF, uMaxH,
     });
     this.comp = quad(COMPOSITE, {
       tColor: { value: color }, tNormal: { value: normal }, tDepth: { value: depth }, tPaint: { value: this.kw.texture },
-      uHalf: { value: new THREE.Vector2(hw, hh) }, uStrength: { value: this.strength }, uNear: { value: 0.15 }, uFar: { value: 4200 },
+      uHalf: { value: new THREE.Vector2(hw, hh) }, uStrength: { value: this.strength }, uNear: { value: 0.15 }, uFar: { value: 4200 }, uS, uMaxH,
     });
     this.setSize(W, H);
   }
@@ -260,10 +272,28 @@ export class Paint {
     for (const t of [this.tA, this.tB, this.kw]) t.setSize(hw, hh);
     this.output.setSize(W, H);
     this.H = H;
+    this.W = W;
+    this.setScale(this.scale);
     (this.tensor.material as THREE.ShaderMaterial).uniforms.uStep.value.set(1 / hw, 1 / hh);
     (this.blur.material as THREE.ShaderMaterial).uniforms.uStep.value.set(1 / hw, 1 / hh);
     (this.kuwa.material as THREE.ShaderMaterial).uniforms.uFull.value.set(1 / W, 1 / H);
     (this.comp.material as THREE.ShaderMaterial).uniforms.uHalf.value.set(hw, hh);
+  }
+
+  /**
+   * Draw on the lower-left `s` of every target (the scene was drawn there at the same scale): no
+   * reallocation, only viewports and uniforms change.
+   */
+  setScale(s: number): void {
+    this.scale = s;
+    const sw = s >= 1 ? this.W : 2 * Math.max(1, Math.round((this.W * s) / 2));
+    const sh = s >= 1 ? this.H : 2 * Math.max(1, Math.round((this.H * s) / 2));
+    const hw = Math.max(1, Math.floor(this.W / 2)), hh = Math.max(1, Math.floor(this.H / 2));
+    this.uS.value.set(sw / this.W, sh / this.H);
+    this.uMaxF.value.set((sw - 0.5) / this.W, (sh - 0.5) / this.H);
+    this.uMaxH.value.set((sw / 2 - 0.5) / hw, (sh / 2 - 0.5) / hh);
+    for (const t of [this.tA, this.tB, this.kw]) t.viewport.set(0, 0, Math.ceil(sw / 2), Math.ceil(sh / 2));
+    this.output.viewport.set(0, 0, sw, sh);
   }
 
   setNear(n: number): void {
@@ -275,7 +305,7 @@ export class Paint {
   render(renderer: THREE.WebGLRenderer): boolean {
     if (this.strength <= 0) return false;
     const k = this.kuwa.material as THREE.ShaderMaterial;
-    k.uniforms.uRadius.value = Math.min(7, this.radius * Math.max(0.5, this.H / 1080));
+    k.uniforms.uRadius.value = Math.min(7, this.radius * Math.max(0.5, this.H / 1080) * this.uS.value.y);
     (this.comp.material as THREE.ShaderMaterial).uniforms.uStrength.value = Math.min(1, this.strength);
     const prev = renderer.getRenderTarget();
     renderer.setRenderTarget(this.tA);

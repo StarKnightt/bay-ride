@@ -9,6 +9,10 @@ import { Paint } from "./paint";
 import { renderSplit } from "./mrtSplit";
 import type { Profiler } from "./profiler";
 
+/** Lowest scene resolution scale the adaptive controller goes to. */
+const RES_FLOOR = 0.75;
+const RES_STEP = 0.05;
+
 const FS_VS = /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 
 /**
@@ -31,6 +35,28 @@ export class Post {
   private wrapped = false;
   sceneCalls = 0;
   sceneTris = 0;
+  /**
+   * Scene resolution scale: the scene and the paint filter draw on the lower-left `scale` of their
+   * full-size targets (no reallocation or recompile on a change), and the ink pass upsamples into
+   * the full-resolution post chain. ?res=1 or ?res=0.8 fixes it; otherwise it adapts between 1 and
+   * RES_FLOOR to a GPU frame-time budget.
+   */
+  scale = 1;
+  readonly adaptive: boolean;
+  private W: number;
+  private H: number;
+  private timer: { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null;
+  private queries: WebGLQuery[] = [];
+  private freeQ: WebGLQuery[] = [];
+  private lastFrame = 0;
+  private ctlT = 0;
+  private ema = 0;
+  private over = 0;
+  private under = 0;
+  private hold = 0;
+  private lastRaise = -1e9;
+  private raiseBlock = 0;
+  private backoff = 4000;
 
   get msaa(): number {
     return this.mrt.samples;
@@ -47,6 +73,12 @@ export class Post {
   constructor(private renderer: THREE.WebGLRenderer, w: number, h: number, opts: { kuwahara: boolean; msaa?: number }) {
     const pr = renderer.getPixelRatio();
     const W = Math.floor(w * pr), H = Math.floor(h * pr);
+    this.W = W;
+    this.H = H;
+    const res = new URLSearchParams(location.search).get("res");
+    const fixed = res !== null && res !== "" && Number.isFinite(Number(res)) ? THREE.MathUtils.clamp(Number(res), 0.5, 1) : null;
+    this.adaptive = fixed === null;
+    this.timer = renderer.getContext().getExtension("EXT_disjoint_timer_query_webgl2");
     this.mrt = new THREE.WebGLRenderTarget(W, H, {
       count: 2,
       type: THREE.HalfFloatType,
@@ -73,12 +105,15 @@ export class Post {
         uWidth: { value: Math.max(1.0, H / 1080) * 1.35 },
         uKuwa: { value: opts.kuwahara ? 1 : 0 },
         uInk: { value: new THREE.Color("#1c1418") },
+        uS: { value: new THREE.Vector2(1, 1) },
+        uMax: { value: new THREE.Vector2(1, 1) },
       },
       vertexShader: FS_VS,
       fragmentShader: /* glsl */ `
         ${SAFE_GLSL}
         uniform sampler2D tColor, tNormal, tDepth;
         uniform vec2 uRes; uniform float uNear, uFar, uWidth, uKuwa; uniform vec3 uInk;
+        uniform vec2 uS, uMax;
         varying vec2 vUv;
         float linz(float d){ float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
         float lum(vec3 c){ return dot(c, vec3(0.299, 0.587, 0.114)); }
@@ -91,7 +126,7 @@ export class Post {
             vec2 dir = vec2(k == 1 || k == 2 ? -1.0 : 1.0, k >= 2 ? -1.0 : 1.0);
             vec3 sum = vec3(0.0); float sq = 0.0;
             for (int j = 0; j <= 2; j++) for (int i = 0; i <= 2; i++){
-              vec3 c = textureLod(tColor, uv + vec2(float(i), float(j)) * dir * px, 0.0).rgb;
+              vec3 c = textureLod(tColor, min(uv + vec2(float(i), float(j)) * dir * px, uMax), 0.0).rgb;
               sum += c; float l = lum(c); sq += l * l;
             }
             vec3 mean = sum / 9.0; float lm = lum(mean);
@@ -104,23 +139,27 @@ export class Post {
         }
 
         void main(){
-          vec2 px = uWidth / uRes;
-          vec3 col = safe3(textureLod(tColor, vUv, 0.0).rgb);
+          // The scene fills the lower-left uS of its targets (adaptive resolution); line widths stay
+          // in output pixels. Colour upsamples bilinearly; ids and depth come from the nearest texel.
+          vec2 px = uWidth * uS / uRes;
+          vec2 uv = vUv * uS;
+          vec2 uvC = (floor(uv * uRes) + 0.5) / uRes;
+          vec3 col = safe3(textureLod(tColor, uv, 0.0).rgb);
+          vec4 nC = textureLod(tNormal, uvC, 0.0);
           // Eye features (irises, catch-lights, lashes, brows, glasses) stay crisp: no paint filter.
-          bool crisp = abs(textureLod(tNormal, vUv, 0.0).z * 32.0 - 19.0) < 0.5;
-          float dC = linz(textureLod(tDepth, vUv, 0.0).r);
+          bool crisp = abs(nC.z * 32.0 - 19.0) < 0.5;
+          float dC = linz(textureLod(tDepth, uvC, 0.0).r);
           float iC = 1.0 / dC;
-          vec4 nC = textureLod(tNormal, vUv, 0.0);
           float eD = 0.0, eN = 0.0, eI = 0.0, mask = max(nC.a, 0.0), nBoat = 0.0;
           vec2 offs[4];
           offs[0] = vec2(1.0, 0.0); offs[1] = vec2(0.0, 1.0); offs[2] = vec2(0.7071, 0.7071); offs[3] = vec2(0.7071, -0.7071);
           for (int i = 0; i < 4; i++){
             vec2 o = offs[i] * px;
-            vec4 n1 = textureLod(tNormal, vUv + o, 0.0), n2 = textureLod(tNormal, vUv - o, 0.0);
+            vec4 n1 = textureLod(tNormal, min(uv + o, uMax), 0.0), n2 = textureLod(tNormal, uv - o, 0.0);
             // Excluded surfaces (mask < 0: grass, leaf cards, motes) never ink or induce ink.
             if (n1.a < 0.0 || n2.a < 0.0) continue;
-            float i1 = 1.0 / linz(textureLod(tDepth, vUv + o, 0.0).r);
-            float i2 = 1.0 / linz(textureLod(tDepth, vUv - o, 0.0).r);
+            float i1 = 1.0 / linz(textureLod(tDepth, min(uv + o, uMax), 0.0).r);
+            float i2 = 1.0 / linz(textureLod(tDepth, uv - o, 0.0).r);
             // Laplacian of 1/z is zero on planes: only creases and silhouettes light up.
             eD = max(eD, abs(i1 + i2 - 2.0 * iC) / iC);
             eN = max(eN, length(n1.xy - nC.xy) + length(n2.xy - nC.xy));
@@ -136,7 +175,7 @@ export class Post {
           if (uKuwa > 0.5 && !crisp) {
             float wK = 0.5 * smoothstep(6.0, 40.0, dC) * (1.0 - clamp(max(e, min(eI, 1.0)) * 1.5, 0.0, 1.0));
             if (wK > 0.02) {
-              vec4 k = kuwahara(vUv);
+              vec4 k = kuwahara(uv);
               wK *= 1.0 - smoothstep(0.0015, 0.012, k.a);
               if (!badF3(k.rgb) && !badF1(wK)) col = mix(col, k.rgb, wK);
             }
@@ -244,6 +283,85 @@ export class Post {
         }`,
     });
     this.composer.addPass(this.sharpen);
+    this.setScale(fixed ?? 1);
+  }
+
+  /** Draw the scene at `s` of the output resolution (viewports and uniforms only). */
+  setScale(s: number): void {
+    this.scale = s;
+    const sw = s >= 1 ? this.W : 2 * Math.max(1, Math.round((this.W * s) / 2));
+    const sh = s >= 1 ? this.H : 2 * Math.max(1, Math.round((this.H * s) / 2));
+    this.mrt.viewport.set(0, 0, sw, sh);
+    this.ink.uniforms.uS.value.set(sw / this.W, sh / this.H);
+    this.ink.uniforms.uMax.value.set((sw - 0.5) / this.W, (sh - 0.5) / this.H);
+    this.paint?.setScale(s);
+  }
+
+  /**
+   * Adaptive resolution: `ms` is the frame's GPU time (scene + post, or the whole frame interval
+   * without a timer). Over budget for 0.5 s steps down, under the low mark for 2 s steps up; the
+   * gap between the marks exceeds one step's cost, and a drop soon after a raise blocks raising
+   * for a growing while, so it settles instead of oscillating.
+   */
+  private control(ms: number, gpu: boolean): void {
+    const now = performance.now();
+    const dt = Math.min(0.1, Math.max(0, (now - this.ctlT) / 1000));
+    this.ctlT = now;
+    if (now < this.hold) return;
+    this.ema = this.ema > 0 ? this.ema + (ms - this.ema) * 0.15 : ms;
+    // The timer misses the shadow and reflection passes (~1 ms at 1080p).
+    const hi = gpu ? 14.5 : 15.5, lo = gpu ? 12 : 13;
+    if (this.ema > hi) { this.over += dt; this.under = 0; }
+    else if (this.ema < lo) { this.under += dt; this.over = 0; }
+    else { this.over = 0; this.under = 0; }
+    let next = this.scale;
+    if (this.over >= 0.5 && this.scale > RES_FLOOR) {
+      next = Math.max(RES_FLOOR, Math.round((this.scale - RES_STEP) * 20) / 20);
+      if (now - this.lastRaise < 3000) {
+        this.raiseBlock = now + this.backoff;
+        this.backoff = Math.min(30000, this.backoff * 2);
+      }
+    } else if (this.under >= 2 && this.scale < 1 && now >= this.raiseBlock) {
+      next = Math.min(1, Math.round((this.scale + RES_STEP) * 20) / 20);
+      this.lastRaise = now;
+    }
+    if (next !== this.scale) {
+      this.setScale(next);
+      this.over = this.under = 0;
+      this.ema = 0;
+      this.hold = now + 300;
+    }
+  }
+
+  private timeBegin(pf: Profiler | null): WebGLQuery | null {
+    if (!this.adaptive) return null;
+    const now = performance.now();
+    const gpu = !!this.timer && !pf;
+    if (!gpu && this.lastFrame > 0 && now - this.lastFrame < 250) this.control(now - this.lastFrame, false);
+    this.lastFrame = now;
+    if (!gpu) return null;
+    const gl = this.renderer.getContext() as WebGL2RenderingContext;
+    const ext = this.timer!;
+    const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
+    while (this.queries.length) {
+      const q = this.queries[0];
+      if (!gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) break;
+      const ns = gl.getQueryParameter(q, gl.QUERY_RESULT) as number;
+      if (!disjoint) this.control(ns / 1e6, true);
+      this.freeQ.push(q);
+      this.queries.shift();
+    }
+    if (this.queries.length > 4) return null;
+    const q = this.freeQ.pop() ?? gl.createQuery()!;
+    gl.beginQuery(ext.TIME_ELAPSED_EXT, q);
+    return q;
+  }
+
+  private timeEnd(q: WebGLQuery | null): void {
+    if (!q) return;
+    const gl = this.renderer.getContext() as WebGL2RenderingContext;
+    gl.endQuery(this.timer!.TIME_ELAPSED_EXT);
+    this.queries.push(q);
   }
 
   /** Compile the SMAA programs up front, so a later step down to SMAA doesn't hitch mid-ride. */
@@ -263,6 +381,8 @@ export class Post {
   setSize(w: number, h: number): void {
     const pr = this.renderer.getPixelRatio();
     const W = Math.floor(w * pr), H = Math.floor(h * pr);
+    this.W = W;
+    this.H = H;
     this.mrt.setSize(W, H);
     this.paint?.setSize(W, H);
     this.composer.setSize(w, h);
@@ -270,6 +390,7 @@ export class Post {
     this.ink.uniforms.uWidth.value = Math.max(1.0, H / 1080) * 1.35;
     this.grade.uniforms.uRes.value.set(W, H);
     this.sharpen.uniforms.uTexel.value.set(1 / W, 1 / H);
+    this.setScale(this.scale);
   }
 
   /**
@@ -320,6 +441,7 @@ export class Post {
         };
       });
     }
+    const q = this.timeBegin(pf);
     pf?.begin("scene", this.renderer);
     const cs = performance.now();
     [this.sceneCalls, this.sceneTris] = this.renderScene(scene, camera);
@@ -332,5 +454,6 @@ export class Post {
     this.renderer.setRenderTarget(null);
     this.grade.uniforms.uTime.value = time;
     this.composer.render();
+    this.timeEnd(q);
   }
 }
