@@ -361,7 +361,8 @@ export function buildBeach(layout: Layout, colliders: Collider[]): THREE.Group {
 
   const group = new THREE.Group();
   group.name = "beach";
-  const small = uber(ID.ground, 0.6);
+  // Not inked: outlined, a hand-sized pebble or strand of weed is a black scribble on the sand.
+  const small = uber(ID.ground, -1);
   for (const [k, list] of chunks) {
     const m = new THREE.Mesh(merge(list), small);
     m.name = `beach debris ${k}`;
