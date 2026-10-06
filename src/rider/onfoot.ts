@@ -53,9 +53,13 @@ const LAND_T = 0.26;
 /** Flight time of a standing jump on the flat (s). */
 const FLY_T = (2 * JUMP_V) / GRAV;
 const DROP_FALL = 0.3;
-/** Steepest ground she walks up (tan 38°) and the highest step she takes in her stride (m). */
-const SLOPE_UP = 0.78;
+/** Steepest ground she scrambles up (tan 58°: only cliffs and the sea wall's masonry stop her) and
+ * the highest step she takes in her stride (m). */
+const SLOPE_UP = 1.6;
 const STEP_UP = 0.3;
+/** Uphill she slows from this grade (rise over run along her way), and no longer runs past RUN_GRADE. */
+const SLOW_GRADE = 0.2;
+const RUN_GRADE = 0.45;
 /** How far ahead (m) a steep rise stops her: about her body's half width. */
 const LOOK_AHEAD = 0.25;
 /** Orbit pitch limits: never steeper than ~55° looking down or below ~-10° looking up. */
@@ -89,6 +93,8 @@ export class Explore {
   private jumpBuf = 0;
   private jumpsSeen = 0;
   private run = 0;
+  /** Uphill grade along her way, eased (0 on the level or downhill). */
+  private grade = 0;
   private phase = 0;
   private turn = 0;
   private look = 0;
@@ -504,7 +510,7 @@ export class Explore {
     const out = this._pen;
     out.pen = out.nx = out.nz = 0;
     for (const k of this.bay.colliders) {
-      if (k.kind === "house" || k.top < this.y + 0.25) continue;
+      if (k.kind === "house" || k.kind === "plant" || k.top < this.y + 0.25) continue;
       const dx = x - k.x, dz = z - k.z, rr = k.r + BODY_R;
       if (Math.abs(dx) >= rr || Math.abs(dz) >= rr) continue;
       const d2 = dx * dx + dz * dz;
@@ -533,7 +539,7 @@ export class Explore {
       let hit = (roof > 0 && p.y < roof) || p.y < this.bay.camFloor(p.x, p.z) - 0.05;
       if (!hit && p.y < 3.2) {
         for (const k of this.bay.colliders)
-          if (!k.kind && p.y < k.top && k.r >= 0.35 && k.r <= 1.2 && Math.hypot(p.x - k.x, p.z - k.z) < k.r * 0.7 + 0.2) {
+          if ((!k.kind || k.kind === "plant") && p.y < k.top && k.r >= 0.35 && k.r <= 1.2 && Math.hypot(p.x - k.x, p.z - k.z) < k.r * 0.7 + 0.2) {
             hit = true;
             break;
           }
@@ -570,13 +576,13 @@ export class Explore {
     if (Number.isNaN(h) || this.bay.roofAt(x, z, BODY_R) > 0) return false;
     // Aloft she clears anything below her feet and lands on it; anything higher stops her, and so
     // does a steep face rising ahead (no hopping up the sea wall a jump at a time).
-    if (this.air) return h <= this.y + 0.05 && (h <= this.takeoffY + 0.05 || this.steepness(x, z, h) <= SLOPE_UP);
+    if (this.air) return h <= this.y + 0.05 && (h <= this.takeoffY + 0.05 || (this.steepness(x, z, h) <= SLOPE_UP && !this.bay.seaWall(x, z)));
     const rise = h - this.gy;
-    if (rise > STEP_UP || (rise > 0 && this.steepness(x, z, h) > SLOPE_UP)) return false;
+    if (rise > STEP_UP || (rise > 0 && (this.steepness(x, z, h) > SLOPE_UP || this.bay.seaWall(x, z)))) return false;
     const dx = x - this.x, dz = z - this.z, d = Math.hypot(dx, dz) || 1;
     const ax = x + (dx / d) * LOOK_AHEAD, az = z + (dz / d) * LOOK_AHEAD;
     const a = this.bay.walkH(ax, az, h);
-    return Number.isNaN(a) || a - this.gy < 0.05 || this.steepness(ax, az, a) <= SLOPE_UP;
+    return Number.isNaN(a) || a - this.gy < 0.05 || (this.steepness(ax, az, a) <= SLOPE_UP && !this.bay.seaWall(ax, az));
   }
 
   /** Rise over run of the ground at (x, z), whose height is h. */
@@ -830,6 +836,12 @@ export class Explore {
       const ah = 0.45 + 0.4 * this.speed, ax = this.x - Math.sin(this.yaw) * ah, az = this.z - Math.cos(this.yaw) * ah;
       const onStair = (x: number, z: number) => x < PIER_STAIR.x1 + 0.05 && x > STAIR_FOOT_X - 0.05 && z <= PIER_STAIR.z0 + 0.1 && z >= PIER_STAIR.z1 - 0.05;
       if (onStair(this.x, this.z) || onStair(ax, az)) want = Math.min(want, runKey ? STAIR_RUN : STAIR_WALK);
+      // Uphill: no running up the steep, and slower the steeper (eased, so facets don't judder her).
+      const gH = this.bay.walkH(this.x + wx * 0.6, this.z + wz * 0.6, this.y + 0.3);
+      const grade = Number.isNaN(gH) ? 0 : Math.max(0, (gH - this.gy) / 0.6);
+      this.grade = damp(this.grade, grade, 4, dt);
+      want = Math.min(want, WALK + (RUN - WALK) * (1 - smooth01((this.grade - RUN_GRADE + 0.15) / 0.3)));
+      want *= 1 - 0.62 * smooth01((this.grade - SLOW_GRADE) / (SLOPE_UP - 0.4 - SLOW_GRADE));
       const err = this.steerToward(Math.atan2(-wx, -wz), dt, want > WALK ? 7 : 9);
       // Turn on the spot for big direction changes, then set off.
       want *= clamp(Math.cos(err) * 1.2, 0.1, 1);
@@ -948,19 +960,21 @@ export class Explore {
   }
 
   updateCamera(dt: number, cam: THREE.PerspectiveCamera): void {
-    const head = this.rider.headWorld(new THREE.Vector3());
+    const head = this.rider.headWorld(_head);
     head.y -= PIVOT_DROP;
     this.pivot.x = damp(this.pivot.x, head.x, 9, dt);
     this.pivot.z = damp(this.pivot.z, head.z, 9, dt);
     this.pivot.y = damp(this.pivot.y, head.y, 5, dt);
     const cp = Math.cos(this.oPitch);
-    const dir = new THREE.Vector3(Math.sin(this.oYaw) * cp, Math.sin(this.oPitch), Math.cos(this.oYaw) * cp);
+    const dir = _dir.set(Math.sin(this.oYaw) * cp, Math.sin(this.oPitch), Math.cos(this.oYaw) * cp);
     // Pull in ahead of houses, trunks and the ground; ease back out.
     const lim = this.obstruct(this.pivot, dir, this.oDist);
     this.dCur = lim < this.dCur ? lim : damp(this.dCur, lim, 2.5, dt);
     cam.position.copy(this.pivot).addScaledVector(dir, this.dCur);
-    // Pulled in to its minimum it can still sit in a slope: never below the ground.
-    cam.position.y = Math.max(cam.position.y, this.bay.camFloor(cam.position.x, cam.position.z));
+    // Pulled in to its minimum it can still sit in a slope: never below the ground, nor below the
+    // ground just round it (on a hillside the slope above would fill the near view).
+    const px = cam.position.x, pz = cam.position.z, F = this.bay;
+    cam.position.y = Math.max(cam.position.y, F.camFloor(px, pz), F.camFloor(px + 0.6, pz), F.camFloor(px - 0.6, pz), F.camFloor(px, pz + 0.6), F.camFloor(px, pz - 0.6));
     cam.fov = 45;
     cam.near = 0.1;
     cam.updateProjectionMatrix();
@@ -970,6 +984,8 @@ export class Explore {
 }
 
 const _mi = new THREE.Matrix4();
+const _head = new THREE.Vector3();
+const _dir = new THREE.Vector3();
 /** Sample offsets round a foot's ankle (m): about its length. */
 const RING = [[0.1, 0], [-0.1, 0], [0, 0.1], [0, -0.1]];
 const _v = new THREE.Vector3();

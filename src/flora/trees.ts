@@ -262,15 +262,19 @@ function plant(b: Builder, s: TreeSpot, y: number): { trunk: number; h: number }
   return { trunk: trunk * k, h: h * k };
 }
 
+/** Trunk radius (m) from which a trunk stops her. */
+const TRUNK_SOLID = 0.12;
+
 function placeInto(b: Builder, s: TreeSpot, layout: Layout, colliders: Collider[]): void {
   const y = s.y !== undefined && !Number.isNaN(s.y) ? s.y : groundY(s.x, s.z) - 0.15;
   const { trunk, h } = plant(b, s, y);
   if (trunk > 0) {
-    colliders.push({ x: s.x, z: s.z, r: trunk + 0.12, top: y + h });
+    // A real trunk stops her; a sapling's she brushes past.
+    colliders.push({ x: s.x, z: s.z, r: trunk + 0.12, top: y + h, kind: trunk >= TRUNK_SOLID ? undefined : "plant" });
     layout.rect(s.x - trunk - 0.25, s.x + trunk + 0.25, s.z - trunk - 0.25, s.z + trunk + 0.25);
   } else if (s.kind === "bush" || s.kind === "hedge") {
     const rr = 0.45 * s.scale;
-    colliders.push({ x: s.x, z: s.z, r: rr, top: y + h * 0.8 });
+    colliders.push({ x: s.x, z: s.z, r: rr, top: y + h * 0.8, kind: "plant" });
   }
 }
 

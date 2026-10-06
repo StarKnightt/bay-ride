@@ -3,7 +3,7 @@ import { ID, M, cyl, merge, xf } from "../geo";
 import { roadMaterial, uber } from "../../render/materials";
 import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../../render/lightpasses";
 import { ROAD_HALF, ROAD_Z0, ROAD_Z1, RIBBON_HALF, SEA_Y, roadX } from "./road";
-import { ISLAND, LIGHTHOUSE, WALL_IN, buildIsland, buildRoadRibbon, buildTerrain, islandH, meshH } from "./terrain";
+import { ISLAND, LIGHTHOUSE, WALL_IN, WALL_OUT, buildIsland, buildRoadRibbon, buildTerrain, coastH, headlandsH, islandH, meshH } from "./terrain";
 import type { StepSurface } from "../../sound/steps";
 import { LighthouseBeam } from "./beam";
 import { pavedH } from "./houses";
@@ -30,8 +30,14 @@ export interface Collider {
   r: number;
   /** World height of its top: she walks over anything whose top is below her feet (the deck over a rock). */
   top: number;
-  /** Rocks stop her but not the camera (it clears them by height); houses only keep grass out. */
-  kind?: "rock" | "house";
+  /** Rocks stop her but not the camera (it clears them by height); houses only keep grass out;
+   * plants (bushes, hedges, saplings) she brushes through, but the camera still pulls in ahead of them. */
+  kind?: "rock" | "house" | "plant";
+}
+
+/** Past the edge of the drawn land (the terrain grid runs u to 700 and z -660 to 620), less a margin. */
+function offMap(x: number, z: number): boolean {
+  return z < -640 || z > 600 || x < -600 || x - roadX(z) > 680;
 }
 
 /** A building's footprint (world AABB) and its ridge height: she can't walk in, the camera stays out. */
@@ -159,7 +165,7 @@ export class Bay {
    * current height: the pier deck is ground from above, the sand under it from below.
    */
   groundAt(x: number, z: number, y = Infinity): Ground | null {
-    if (Math.abs(z) > 520 || x < -600 || x > 600) return null;
+    if (offMap(x, z)) return null;
     const p = pierGround(x, z, y);
     if (p !== undefined) return p;
     const h = this.surfaceH(x, z);
@@ -177,7 +183,7 @@ export class Bay {
 
   /** Height of walkable ground at (x, z) as groundAt finds it, or NaN; no allocation (per-frame probes). */
   walkH(x: number, z: number, y = Infinity): number {
-    if (Math.abs(z) > 520 || x < -600 || x > 600) return NaN;
+    if (offMap(x, z)) return NaN;
     const p = pierWalkH(x, z, y);
     if (p === -Infinity) return NaN;
     if (!Number.isNaN(p)) return p;
@@ -192,6 +198,16 @@ export class Bay {
     const road = Math.abs(u) < RIBBON_HALF && z < ROAD_Z0 + 30 && z > ROAD_Z1 - 30 ? 0.02 : -Infinity;
     const isle = Math.abs(x - ISLAND.x) < 80 && Math.abs(z - ISLAND.z) < 80 ? islandH(x, z) : -Infinity;
     return Math.max(h, isle, road, rampH(x, z), u > 4 && u < 60 ? pavedH(x, z) : -Infinity);
+  }
+
+  /**
+   * On the face of the sea wall at (x, z): between its foot and the promenade edge, where the coast
+   * profile (not a headland) makes the ground and no slipway crosses it. Masonry: she never walks up it.
+   */
+  seaWall(x: number, z: number): boolean {
+    const u = x - roadX(z);
+    if (u < WALL_OUT - 0.1 || u > WALL_IN + 0.05 || rampH(x, z, 0.1) > -Infinity) return false;
+    return headlandsH(x, z) < coastH(u, z);
   }
 
   /** Inside a building footprint grown by `pad` m? Returns its ridge height, or 0. */
