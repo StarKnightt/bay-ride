@@ -386,7 +386,9 @@ const FS = /* glsl */ `
     float tv = dot(gC, fwd) / max(sigR, 0.004);
     float aw = fwidth(tv) * 1.5 + 0.1;
     // Tones wider than the filter can hold fade to flat instead of shimmering.
-    float tone = (smoothstep(0.55 - aw, 0.55 + aw, tv) - smoothstep(0.55 - aw, 0.55 + aw, -tv)) * (1.0 - smoothstep(0.6, 1.4, aw)) * (1.0 - farK);
+    // At dusk the swing is halved: the mirror holds the pale afterglow and the dark violet sky above
+    // it, and full-strength tones cut the water into hard dark blotches between them.
+    float tone = (smoothstep(0.55 - aw, 0.55 + aw, tv) - smoothstep(0.55 - aw, 0.55 + aw, -tv)) * (1.0 - smoothstep(0.6, 1.4, aw)) * (1.0 - farK) * (1.0 - 0.5 * uDusk);
     vec2 gU = mix(gC, fwd * tone * sigR * 1.3 + side * dot(gC, side) * 0.6, 0.7) * (1.0 - farK) * (1.0 - 0.75 * wk.slick);
     // Near the eye, short horizontal ripple bands break the mirrored sky into strokes.
     float band = 0.0;
@@ -544,6 +546,9 @@ const FS = /* glsl */ `
     // are no lights); the lamps' own reflections (pre-divided by the world tint, as light) and
     // the lighthouse lamp's column, which also gathers its sparkles in the glitter below.
     float nK = smoothstep(0.35, 0.7, uNight) * (1.0 - wk.near);
+    // The lamps' own reflections come from the water's slopes, not the mirror, so they also lie
+    // round the moored skiff: the end lamp's pool and column are right beside her.
+    float nL = smoothstep(0.35, 0.7, uNight);
     vec3 lampAdd = vec3(0.0);
     float lampCol = 0.0;
     if (uReflOn > 0.5) {
@@ -554,19 +559,24 @@ const FS = /* glsl */ `
       // into broken vertical bands), painted gentler than the physics so they stay readable.
       // At night less sideways zig-zag, so lit windows streak instead of squiggling.
       vec2 dS = tilt * vec2(0.05 * (1.0 - 0.5 * uNight), 0.08) * (0.25 + 0.75 * near);
-      vec2 dO = vec2(vFoc.x * dot(tilt, side) * 0.25, vFoc.y * dot(tilt, fwd)) * 0.3 * (1.0 - 0.85 * farK);
+      vec2 dO = vec2(vFoc.x * dot(tilt, side) * 0.25, vFoc.y * dot(tilt, fwd) * (1.0 - 0.45 * uDusk)) * 0.3 * (1.0 - 0.85 * farK);
       // Near the eye the chop would shear the mirror into vertical slivers; there it is shifted
       // by the horizontal ripple bands instead.
       vec2 tB = rip + sl * 0.6 + fwd * band * 0.06;
       // Close to the eye a few metres of water span many rows of the mirror, so the swell's tilt
       // is eased there or it would stretch tall objects apart (a gap under the lantern).
       vec2 dB = vec2(vFoc.x * dot(tB, side) * 0.25, vFoc.y * dot(tB, fwd) * mix(0.2, 1.0, smoothstep(5.0, 60.0, dist))) * 0.3;
+      vec2 ruv0 = ruv;
       ruv += mix(dS, mix(dO, dB, 1.0 - smoothstep(60.0, 400.0, dist)), chopK);
       // Churned water behind the boat scatters what little mirror is left into fragments.
       if (wk.brk > 0.002) ruv += (vec2(vnoise(q * 2.3 + uTime), vnoise(q * 2.3 - uTime + 4.0)) - 0.5) * 0.05 * wk.brk;
       // Inside a break band the facets look further up the scene (sky shows through a dark
       // reflection), the band's ends shifted sideways; the strokes jog the image up and down.
       ruv += vec2(brkB.z * brkB.x * 0.006, -brkB.x * (0.01 + 0.02 * grazing) - strokes * 0.006 - dabs * 0.004);
+      // A broad tilt of the shallows could carry the image off the texture's side, where its edge
+      // column smeared into a straight vertical seam: the sideways shift is capped, and the taps
+      // fold back at the texture's sides (below) rather than clamping.
+      ruv.x = ruv0.x + clamp(ruv.x - ruv0.x, -0.03, 0.03);
       // Beyond the mirrored horizon the texture holds only the underside of the sky dome (dark):
       // no tap may cross it, so the far water never picks up dark patches.
       vec4 rh = uReflMat * vec4(cameraPosition.x + V.x * 2e4, uReflY, cameraPosition.z + V.z * 2e4, 1.0);
@@ -598,7 +608,7 @@ const FS = /* glsl */ `
         float fi = float(i) * 0.5 + tj;
         float wob = sin(wph + fi * 2.7) * wam;
         vec2 tu = ruv + vec2(wob, fi * span);
-        tu.y = min(tu.y, hy);
+        tu = vec2(1.0 - abs(1.0 - abs(tu.x)), min(tu.y, hy));
         vec4 c4 = textureLod(uRefl, clamp(tu, 0.001, 0.999), 0.0);
         // At night reflected land and roofs are a darker band than the sky they stand against.
         vec3 c = mix(skyFill, c4.rgb * (1.0 - 0.4 * nDim), clamp(c4.a, 0.0, 1.0));
@@ -626,30 +636,6 @@ const FS = /* glsl */ `
         float az = oAz(V);
         // Long dashes with uneven gaps (a few short breaks), not a row of short squiggles.
         float dn2 = vnoise(vec2(az * 30.0, lr * 3.2 - uTime * 0.4)) * 0.6 + vnoise(vec2(az * 60.0 + 3.0, lr * 8.0 + uTime * 0.7)) * 0.4;
-        // Taps closer together than a window is tall, so the smear is continuous: fewer would
-        // print a ladder of window copies, and dithering them reads as hatching.
-        vec3 lm = vec3(0.0);
-        float lmB = 0.0, fB = 0.0, lcB = 0.0;
-        float wph2 = vnoise(vec2(ruv.y * 22.0, uTime * 0.6 + az * 9.0)) * 6.2831853;
-        for (int i = 0; i < 16; i++) {
-          float fi = (float(i) + 0.5) / 16.0;
-          float wob = sin(wph2 + fi * 4.3) * 0.002 * chopK * (0.5 + fi);
-          vec2 tu = ruv + vec2(wob, fi * sl2);
-          tu.y = min(tu.y, hy);
-          vec3 c = textureLod(uRefl, clamp(tu, 0.001, 0.999), 0.0).rgb;
-          float lc = dot(c, vec3(0.2126, 0.7152, 0.0722));
-          // Lamps and windows are warm; the pale tower, the sky and the moon are not. Relative, as
-          // a lamp's over-bright core is nearly white.
-          float wm = max(smoothstep(0.04, 0.12, (c.r - c.b) / (c.r + 0.05)), smoothstep(0.9, 1.6, lc) * step(c.b, c.r * 1.02));
-          vec3 ct = c * smoothstep(0.1, 0.3, lc) * wm * (1.0 - 0.4 * fi);
-          float cl = dot(ct, vec3(0.2126, 0.7152, 0.0722));
-          if (cl > lmB) { lmB = cl; fB = fi; lcB = lc; }
-          lm = max(lm, ct);
-        }
-        float dash = smoothstep(0.24, 0.36, dn2 + 0.2 * brkB.x - 0.15 * brkB.y + 0.1 * strokes);
-        // A light's own mirror image is broken by the same dashes and held below the light: warm,
-        // never clipped to white (the lantern is far brighter than the tone curve can show).
-        vec3 warmL = vec3(1.0, 0.56, 0.24);
         float lumR = dot(refl, vec3(0.2126, 0.7152, 0.0722));
         // Dim, broad light (the beams' haze in the mirror) is broken by the chop into uneven
         // patches with a few sparkles at their edges, never a smooth band or a chain of puffs.
@@ -660,50 +646,92 @@ const FS = /* glsl */ `
         // Whatever the mirror shows above the sky's own level (the beam haze, the pale tower)
         // breaks into those patches too.
         vec3 exS = max(refl - skyFill, 0.0);
-        refl -= exS * (1.0 - mix(1.0, bBrk, 0.85)) * nK;
+        refl -= exS * (1.0 - mix(1.0, bBrk, 0.85)) * nK * (1.0 - 0.7 * uDusk);
         // Wide enough to take the window's anti-aliased rim too, or hollow frames are left behind.
-        // Also the near-white lamp room: bright and not blue (the moon and the sky are).
+        // Also the near-white lamp room: bright and not blue (the moon and the sky are). At dusk
+        // the pale pink afterglow is no lamp: only what stands well above the sky's own level.
         float hk = smoothstep(0.06, 0.2, lumR) * max(smoothstep(-0.02, 0.05, refl.r - refl.b), smoothstep(0.3, 0.6, lumR) * step(refl.b, refl.r * 1.05)) * nK;
-        refl = mix(refl, min(refl, skyFill * 0.45), hk);
-        // Dashes measured in log distance along the water (smooth down the streak), uneven lengths
-        // and gaps from the noise, wider gaps further from the light. One field for every light, so
-        // a lamp's dim rim and bright core break together (two would leave a hollow outline).
-        float dashS = smoothstep(0.27 + 0.3 * fB, 0.38 + 0.3 * fB, vnoise(vec2(az * 22.0 + 5.0, lr * 9.0 - uTime * 0.5)) * 0.7 + 0.3 * vnoise(vec2(az * 47.0 + 9.0, lr * 23.0 + uTime * 0.9)));
-        dash = mix(dashS, dash * dashS, 0.3);
-        // Unbroken at the light itself: its own image stays whole, the gaps open further down.
-        dash = max(dash, 1.0 - smoothstep(0.03, 0.15, fB));
-        vec3 sk = max(lm - refl, 0.0);
-        float skL = dot(sk, vec3(0.2126, 0.7152, 0.0722));
-        // Capped first, dashed after, so the gaps stay gaps however bright the light.
-        // Light, not paint: a warm glow added over the dark water, a bright soft-shouldered core
-        // (never clipped), dark water in the gaps, fading down the streak.
-        // Soft shoulder: the light's own falloff survives instead of a flat plateau, and the red
-        // stays below where the tone curve would bleach it pink-grey.
-        float lampK = smoothstep(1.2, 3.0, lcB);
-        float skC = skL / (skL + mix(0.6, 3.0, lampK));
-        float fade = (1.0 - 0.55 * fB) * (0.75 + 0.25 * vnoise(vec2(az * 140.0, ruv.y * 90.0)));
-        // Lights far brighter than a window glow gold rather than grey: more gain, deeper orange.
-        sk = mix(vec3(1.0, 0.55, 0.2) * 0.85, vec3(1.0, 0.5, 0.16) * 1.5, lampK) * skC * dash * fade;
-        float dimK = 1.0 - smoothstep(0.2, 0.45, lcB);
-        sk *= mix(1.0, bBrk, dimK);
-        // The lighthouse lantern and the pier lamps get their own reflections below: they are left
-        // out of the smear, which copied the lamp room's hard outline down the water as flat blocks
-        // (and in the clear shallows, where the mirror is gone, left one floating on its own).
-        vec2 tuB = vec2(ruv.x, min(ruv.y + fB * sl2, hy));
-        vec2 asp = vec2(vFoc.y / vFoc.x, 1.0);
+        hk *= mix(1.0, smoothstep(1.2, 1.7, lumR / max(dot(skyFill, vec3(0.2126, 0.7152, 0.0722)), 0.02)), uDusk);
+        // Held at about the water's own mirror value, so the gaps in a light's streak are water,
+        // never darker than the water round it.
+        refl = mix(refl, min(refl, skyFill * 0.6), hk);
+        // Every light the smear can pick up (windows, street and promenade lamps) stands on the
+        // mainland, landward of x = -8; the lantern and the pier lamps have their own reflections
+        // below. A mirrored ray that heads out to sea, or climbs too steeply to come down past the
+        // highest light (90 m) before it reaches the land, finds none, so the taps are skipped:
+        // most of the bay from the high views, everything looking out from the pier and the beach.
+        // The bound is conservative: the taps' furthest reach toward the horizon (in mirror rows
+        // over the focal length, so never less steep than the real ray), and a few degrees of
+        // sideways wobble on the heading.
+        float lV = max(length(V.xz), 1e-4);
+        float dxm = V.x / lV + 0.06;
+        float dC = q.x >= -8.0 ? 0.0 : (dxm > 0.02 ? (-8.0 - q.x) / dxm : 1e6);
+        float tP = -V.y / lV;
+        float dE = 2.0 * max(min(ruv.y + sl2 + 0.004, hy) - ruv0.y, 0.0) / vFoc.y;
+        float tMin = tP - dE * (1.0 + tP * tP);
+        vec3 sk = vec3(0.0);
         float exL = 1.0;
-        vec4 luv = uReflMat * vec4(uLampPos, 1.0);
-        if (luv.w > 0.0) {
-          float rL = 0.5 * vFoc.y * 3.4 / max(distance(cameraPosition, uLampPos), 1.0);
-          exL = smoothstep(rL * 0.7, rL * 1.5, length((tuB - luv.xy / luv.w) * asp));
-        }
-        for (int i = 0; i < 3; i++) {
-          vec4 Lp = uPierLamps[i];
-          if (Lp.w < 0.5) continue;
-          vec4 puv = uReflMat * vec4(Lp.xyz, 1.0);
-          if (puv.w <= 0.0) continue;
-          float rP = 0.5 * vFoc.y * 0.8 / max(distance(cameraPosition, Lp.xyz), 1.0);
-          exL = min(exL, smoothstep(rP * 0.7, rP * 1.5, length((tuB - puv.xy / puv.w) * asp)));
+        if (tMin * (length(rq) + dC) < 90.0 + max(cameraPosition.y - uReflY, 0.0)) {
+          // Taps closer together than a window is tall, so the smear is continuous: fewer would
+          // print a ladder of window copies, and dithering them reads as hatching.
+          vec3 lm = vec3(0.0);
+          float lmB = 0.0, fB = 0.0, lcB = 0.0;
+          float wph2 = vnoise(vec2(ruv.y * 22.0, uTime * 0.6 + az * 9.0)) * 6.2831853;
+          for (int i = 0; i < 16; i++) {
+            float fi = (float(i) + 0.5) / 16.0;
+            float wob = sin(wph2 + fi * 4.3) * 0.002 * chopK * (0.5 + fi);
+            vec2 tu = ruv + vec2(wob, fi * sl2);
+            tu = vec2(1.0 - abs(1.0 - abs(tu.x)), min(tu.y, hy));
+            vec3 c = textureLod(uRefl, clamp(tu, 0.001, 0.999), 0.0).rgb;
+            float lc = dot(c, vec3(0.2126, 0.7152, 0.0722));
+            // Lamps and windows are warm; the pale tower, the sky and the moon are not. Relative, as
+            // a lamp's over-bright core is nearly white.
+            float wm = max(smoothstep(0.04, 0.12, (c.r - c.b) / (c.r + 0.05)), smoothstep(0.9, 1.6, lc) * step(c.b, c.r * 1.02));
+            vec3 ct = c * smoothstep(0.1, 0.3, lc) * wm * (1.0 - 0.4 * fi);
+            float cl = dot(ct, vec3(0.2126, 0.7152, 0.0722));
+            if (cl > lmB) { lmB = cl; fB = fi; lcB = lc; }
+            lm = max(lm, ct);
+          }
+          float dash = smoothstep(0.24, 0.36, dn2 + 0.2 * brkB.x - 0.15 * brkB.y + 0.1 * strokes);
+          // Dashes measured in log distance along the water (smooth down the streak), uneven lengths
+          // and gaps from the noise, wider gaps further from the light. One field for every light, so
+          // a lamp's dim rim and bright core break together (two would leave a hollow outline).
+          float dashS = smoothstep(0.27 + 0.3 * fB, 0.38 + 0.3 * fB, vnoise(vec2(az * 22.0 + 5.0, lr * 9.0 - uTime * 0.5)) * 0.7 + 0.3 * vnoise(vec2(az * 47.0 + 9.0, lr * 23.0 + uTime * 0.9)));
+          dash = mix(dashS, dash * dashS, 0.3);
+          // Unbroken at the light itself: its own image stays whole, the gaps open further down.
+          dash = max(dash, 1.0 - smoothstep(0.03, 0.15, fB));
+          sk = max(lm - refl, 0.0);
+          float skL = dot(sk, vec3(0.2126, 0.7152, 0.0722));
+          // Capped first, dashed after, so the gaps stay gaps however bright the light.
+          // Light, not paint: a warm glow added over the dark water, a bright soft-shouldered core
+          // (never clipped), dark water in the gaps, fading down the streak.
+          // Soft shoulder: the light's own falloff survives instead of a flat plateau, and the red
+          // stays below where the tone curve would bleach it pink-grey.
+          float lampK = smoothstep(1.2, 3.0, lcB);
+          float skC = skL / (skL + mix(0.6, 3.0, lampK));
+          float fade = (1.0 - 0.55 * fB) * (0.75 + 0.25 * vnoise(vec2(az * 140.0, ruv.y * 90.0)));
+          // Lights far brighter than a window glow gold rather than grey: more gain, deeper orange.
+          sk = mix(vec3(1.0, 0.55, 0.2) * 0.85, vec3(1.0, 0.5, 0.16) * 1.5, lampK) * skC * dash * fade;
+          float dimK = 1.0 - smoothstep(0.2, 0.45, lcB);
+          sk *= mix(1.0, bBrk, dimK);
+          // The lighthouse lantern and the pier lamps get their own reflections below: they are left
+          // out of the smear, which copied the lamp room's hard outline down the water as flat blocks
+          // (and in the clear shallows, where the mirror is gone, left one floating on its own).
+          vec2 tuB = vec2(ruv.x, min(ruv.y + fB * sl2, hy));
+          vec2 asp = vec2(vFoc.y / vFoc.x, 1.0);
+          vec4 luv = uReflMat * vec4(uLampPos, 1.0);
+          if (luv.w > 0.0) {
+            float rL = 0.5 * vFoc.y * 3.4 / max(distance(cameraPosition, uLampPos), 1.0);
+            exL = smoothstep(rL * 0.7, rL * 1.5, length((tuB - luv.xy / luv.w) * asp));
+          }
+          for (int i = 0; i < 3; i++) {
+            vec4 Lp = uPierLamps[i];
+            if (Lp.w < 0.5) continue;
+            vec4 puv = uReflMat * vec4(Lp.xyz, 1.0);
+            if (puv.w <= 0.0) continue;
+            float rP = 0.5 * vFoc.y * 0.8 / max(distance(cameraPosition, Lp.xyz), 1.0);
+            exL = min(exL, smoothstep(rP * 0.7, rP * 1.5, length((tuB - puv.xy / puv.w) * asp)));
+          }
         }
         // Replaces the brushed-taps streak, which has no dashes.
         streak = mix(streak, sk * exL, nK);
@@ -733,17 +761,23 @@ const FS = /* glsl */ `
         for (int i = 0; i < 3; i++) {
           vec4 Lp = uPierLamps[i];
           if (Lp.w < 0.5) continue;
+          vec3 toL = Lp.xyz - cameraPosition;
+          float dL2 = dot(toL, toL);
+          vec2 dq = q - Lp.xz;
+          float dq2 = dot(dq, dq);
+          // Past 300 m a pier lamp's column is a few pixels (it fades out from 200 m) and its pool
+          // is gone 20 m from its foot: nothing left to draw.
+          if (dL2 > 9e4 && dq2 > 400.0) continue;
           vec3 Hp = normalize(normalize(Lp.xyz - Pw) - V + vec3(0.0, 1e-4, 0.0));
           vec2 ep = -Hp.xz / max(Hp.y, 0.05) - mG;
           float ee = dot(ep, ep);
           float gP = exp(-ee / (2.0 * sgG * sgG)), cP = exp(-ee / (2.0 * sgC * sgC));
-          vec3 toL = Lp.xyz - cameraPosition;
-          float nearP = 1.0 / (1.0 + dot(toL, toL) / 3600.0);
-          vec2 dq = q - Lp.xz;
-          float pool = exp(-dot(dq, dq) / 50.0) * (0.55 + 0.45 * bP);
-          lampAdd += vec3(1.0, 0.6, 0.26) * ((0.14 * gP * mix(dashL, 1.0, cP) + 0.5 * cP) * nearP + 0.075 * pool);
+          float nearP = (1.0 - smoothstep(4e4, 9e4, dL2)) / (1.0 + dL2 / 3600.0);
+          // A wide soft pool round the lamp's foot (the deck shades the water right under it).
+          float pool = exp(-dq2 / 90.0) * (0.55 + 0.45 * bP);
+          lampAdd += vec3(1.0, 0.6, 0.26) * ((0.14 * gP * mix(dashL, 1.0, cP) + 0.5 * cP) * nearP + 0.09 * pool);
         }
-        lampAdd *= nK * shL;
+        lampAdd *= nL * shL;
       }
       // In the surf zone the breaking crests stand between the water and distant land, so the
       // shallows mirror only the sky.
@@ -909,11 +943,32 @@ const FS = /* glsl */ `
       float th = 1.0 - path * 0.32;
       dn = smoothstep(th, th + 0.07, dn) * smoothstep(0.04, 0.3, path) * 1.8 * path;
     }
+    // The path itself: a dense broken column of short flat flecks, each a pixel or two high and a
+    // few to a dozen wide (sub-cells of the far marks' view-anchored rows, so they keep their
+    // on-screen size and never shimmer), lit at random as the facets turn, more of them where the
+    // path is stronger. Hard-edged: no radial falloff, so nothing reads as a soft disc.
+    float pd = 0.0, pdM = 0.0;
+    if (deepK > 0.0 && path > 0.04) {
+      vec2 sf = fract(fmF) * vec2(4.0, 3.0);
+      vec2 sc = fmId * vec2(4.0, 3.0) + floor(sf);
+      vec2 sid = sc + floor(uTime * 2.5 + hash12(sc) * 7.0) * vec2(17.0, 31.0);
+      vec2 f = fract(sf), sA = fmA * vec2(4.0, 3.0) + 1e-4;
+      float hL = hash12(sid + 0.7), hY = hash12(sid + 4.1);
+      float len = 0.25 + 0.6 * hL, x0 = (1.0 - len) * hash12(sid + 9.3);
+      float th = mix(0.3, 0.55, step(0.6, hY)), y0 = (1.0 - th) * fract(hY * 5.3);
+      float fl = smoothstep(x0 - sA.x, x0 + sA.x, f.x) * (1.0 - smoothstep(x0 + len - sA.x, x0 + len + sA.x, f.x))
+               * smoothstep(y0 - sA.y * 0.5, y0 + sA.y * 0.5, f.y) * (1.0 - smoothstep(y0 + th - sA.y * 0.5, y0 + th + sA.y * 0.5, f.y));
+      pd = fl * step(hash12(sid + 2.3), clamp(path * 1.3, 0.0, 0.8)) * (0.55 + 0.45 * hash12(sid + 5.9));
+      // The few flecks a resolved facet near the eye may light: one to three, not a disc.
+      pdM = fl * step(hash12(sid + 6.6), 0.35);
+    }
     // Open water: resolved facets near, stochastic facets in view-anchored cells further out. One
     // pass over the cells serves the sun or moon path and the lighthouse lamp (column and beams).
     float glit = 0.0, lampG = 0.0;
     bool gA = deepK > 0.0 && path > 0.04;
-    bool gB = deepK > 0.0 && max(bk, lampCol * nK) > 0.002;
+    // Only where its sparkles can show: the column's outer skirt and the beams' faint rims (a large
+    // share of the bay from the high views) skip the cell pass.
+    bool gB = deepK > 0.0 && (bk > 0.02 || lampCol * nL > 0.1);
     if (gA || gB) {
       // Where the chop is all too fine to draw there are no resolved facets.
       float gN = 0.0;
@@ -921,8 +976,9 @@ const FS = /* glsl */ `
         vec2 e2 = sl * 0.6 + gC * spread - sH0;
         float rN = sigR * spread * 0.22 + 0.003;
         float aN = fwidth(length(e2)) + 1e-4;
-        // Broken into dabs so the resolved facets never draw continuous slope contours.
-        gN = (1.0 - smoothstep(rN - aN, rN + aN, length(e2))) * smoothstep(0.45, 0.7, vnoise(q * 0.45 + O_WIND * uTime * 1.5));
+        // Broken into the path's flecks so the resolved facets never draw continuous slope
+        // contours or a round blob.
+        gN = (1.0 - smoothstep(rN - aN, rN + aN, length(e2))) * pdM;
       }
       // Every facet is a mix of the drawn chop and finer ripples, so the cells sit on the chop.
       float sigF = sqrt(resV * 0.5 + lostV) * spread * 2.6 + 0.02;
@@ -934,7 +990,7 @@ const FS = /* glsl */ `
     // Under a low sun the path is crisp broken sparkle dabs over a gentle glow: the dabs brighter and
     // near-white, the sheen and the glow held down so the dabs outshine them (and the paint filter
     // keeps them), and capped below the blown white that the bloom would smear into a soft column.
-    float glitter = mix(dn, glit * (1.6 + 1.2 * lowSun) + dn * 0.6, deepK) + path * uGlintShape.y * (1.0 - 0.6 * lowSun);
+    float glitter = mix(dn, glit * (1.6 + 1.2 * lowSun) + pd * (1.1 + 1.1 * lowSun) * (1.0 - 0.5 * uNight) + dn * 0.6, deepK) + path * uGlintShape.y * (1.0 - 0.6 * lowSun);
     // No sun flakes on the boat's own mirror image or right round her, where a lone white dab
     // reads as a stray scrap floating off the hull.
     float gk = uGlint * lightUp * (1.0 - s.foam) * mix(0.35, 1.0, smoothstep(0.8, 4.0, s.h)) * (1.0 - wk.brk) * (1.0 - objR * rk) * (1.0 - 0.6 * wk.near);
@@ -944,7 +1000,7 @@ const FS = /* glsl */ `
     col += gAdd;
     col += gCol * glow * gk * (0.05 + 0.32 * warmSky * (1.0 - 0.65 * lowSun) + 0.1 * uNight);
     // The lighthouse lamp's own sparkles in its column on the water.
-    col += vec3(1.0, 0.72, 0.42) * lampG * lampCol * nK * 0.9 / max(uWorldTint, vec3(0.05));
+    col += vec3(1.0, 0.72, 0.42) * lampG * lampCol * nL * smoothstep(0.1, 0.25, lampCol * nL) * 0.9 / max(uWorldTint, vec3(0.05));
 
     // Foam: white water of the breaking waves, surf on the rocks, and a skirt of surf where the
     // swell meets the island and headland shores (the beach has its own bores and swash).
@@ -1095,13 +1151,14 @@ const FS = /* glsl */ `
       vec3 Nf = normalize(Nw + vec3(0.0, 1.2, 0.0));
       vec3 fc = wFoamColor(normalize(Nf - vec3(0.0, 0.3 * s.crest, 0.0)), q, col, path);
       // Wake foam is lit by the scene: the low sun's warmth and a broken lit-and-shaded tone through
-      // its clumps by day; under the moon only a dim cool grey a little above the dark water. Its
-      // lace lets the water show through, more so at night.
+      // its clumps by day; under the moon a dim cool grey lace a step above the dark water (about a
+      // quarter of the day's contrast, so it still reads beside the boat). Its lace lets the water
+      // show through, more so at night.
       if (foamW > 0.5) {
         float ft = 0.8 + 0.2 * vnoise(q * 1.9 + vec2(uTime * 0.25, 3.0));
-        fc = mix(fc * mix(vec3(1.0), sunHue, 0.45 * warmSky) * ft, mix(col, fc, 0.45), uNight);
+        fc = mix(fc * mix(vec3(1.0), sunHue, 0.45 * warmSky) * ft, mix(col, fc * vec3(0.92, 0.97, 1.08), 0.62), uNight);
       }
-      col = mix(col, fc, foam * mix(1.0, mix(0.88, 0.6, uNight), foamW));
+      col = mix(col, fc, foam * mix(1.0, mix(0.88, 0.7, uNight), foamW));
     }
 
     // Lighthouse beams sweeping over the water (the wedge found above): as each turns, a long soft
@@ -1115,7 +1172,7 @@ const FS = /* glsl */ `
       float bnz = vnoise(q * 0.03 + uTime * 0.05) * 0.6 + vnoise(q * 0.11 - uTime * 0.08 + 3.0) * 0.4;
       float br = 0.1 + 0.9 * smoothstep(0.3, 0.8, bnz) - 0.15 * dabs;
       float hiK = 1.0 - 0.7 * smoothstep(8.0, 60.0, cameraPosition.y - uReflY);
-      col += vec3(1.0, 0.86, 0.6) * uBeam * bk * (0.4 * br * hiK + 1.2 * lampG + 0.3 * foam);
+      col += vec3(1.0, 0.86, 0.6) * uBeam * bk * (0.4 * br * hiK + 1.2 * lampG * smoothstep(0.02, 0.06, bk) + 0.3 * foam);
     }
     col = applyFog(col, vWPos);
     // The far sea melts into the horizon haze: sky and sea meet at a soft light line.

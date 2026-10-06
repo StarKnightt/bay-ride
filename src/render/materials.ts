@@ -192,6 +192,10 @@ float charShadow(vec3 wpos){
 bool gFastShadow = false;
 // Painted wood (the skiff): shade stays a warm violet multiply of the paint, whites included.
 float gWarmShade = 0.0;
+// The pier lamps' light at this fragment, taken before the toon lighting: inside a pool the lamp
+// outshines the moon, so the moon's hard cast shadows (rails, bollards) wash out there instead of
+// printing as orange glyphs where only the lamp is left.
+vec3 gLamp = vec3(0.0);
 float shadowVis(vec3 wpos, vec3 N){
   float ch = smoothstep(0.35, 0.65, charShadow(wpos));
   if (uShadowOn < 0.5) return ch;
@@ -276,6 +280,7 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   float t = dot(N, Ld) + (br - 0.5) * 0.32 * paint * flatK + jitter;
   float sv = shadowVis(wpos, N);
   sv = mix(sv, 1.0, 0.5 * uNight * gHer);
+  sv = mix(sv, 1.0, clamp(dot(gLamp, vec3(0.6, 0.3, 0.1)) * 4.0, 0.0, 0.9));
   // Skin (the only very soft material): cast shadows from hair/cap fall softly, no hard seams.
   // Her hair too: thin overlapping locks shadowing each other read as crumpled patches.
   if (soft > 0.12 || gSoftCast > 0.5 || gHairCast > 0.5) sv = mix(sv, 1.0, 0.45);
@@ -536,7 +541,7 @@ flat in int vMat;
 
 // The pier's lamps after dusk: a soft warm pool of light round each one on the deck, the rails, the
 // bollards and the moored skiff. Wrapped and eased so it reads as painted light rather than a hard
-// spot, and it never blows out right under a lamp head; gone by 8 m.
+// spot, and it never blows out right under a lamp head; gone by 10 m.
 uniform vec4 uPierLamps[3];
 vec3 pierLampLight(vec3 p, vec3 N){
   float L = 0.0;
@@ -544,11 +549,11 @@ vec3 pierLampLight(vec3 p, vec3 N){
     vec4 Lp = uPierLamps[i];
     vec3 d = Lp.xyz - p;
     float d2 = dot(d, d);
-    if (Lp.w < 0.5 || d2 > 64.0) continue;
+    if (Lp.w < 0.5 || d2 > 100.0) continue;
     float ndl = clamp((dot(N, d) * inversesqrt(max(d2, 1e-4)) + 0.35) / 1.35, 0.0, 1.0);
-    L += ndl * (1.0 - smoothstep(9.0, 64.0, d2)) / (1.0 + d2 * 0.12);
+    L += ndl * (1.0 - smoothstep(16.0, 100.0, d2)) / (1.0 + d2 * 0.09);
   }
-  return vec3(1.0, 0.62, 0.3) * L * 0.65 * smoothstep(0.35, 0.7, uNight);
+  return vec3(1.0, 0.62, 0.3) * L * 0.95 * smoothstep(0.35, 0.7, uNight);
 }
 
 vec2 cellular(vec2 p){
@@ -809,6 +814,14 @@ void main(){
   } else if ((HAS(30) && mt == 30)) {    // lamp / vending / sign panel: plain paint by day, lit at night
     paint = 0.3; rim = 0.5;
     gEmit = mix(base, vec3(1.0, 0.93, 0.8), 0.35) * uNight * 1.3;
+#ifndef RIDER
+    // The pier lamps' heads burn well above a sign panel, so the bloom gives them a halo that reads
+    // as a lit lamp from far along the pier.
+    for (int i = 0; i < 3; i++) {
+      vec3 dh = vWPos - uPierLamps[i].xyz;
+      if (uPierLamps[i].w > 0.5 && dot(dh, dh) < 0.16) gEmit *= 2.6;
+    }
+#endif
   } else if ((HAS(19) && mt == 19)) {    // painted distant mountains: authored colour, soft top-lit gradient
     float h = clamp(vObj.y / 160.0, 0.0, 1.0);
     float f0 = gFoot; gFoot *= 0.05;
@@ -822,6 +835,9 @@ void main(){
     gNormal = vec4(0.5, 0.5, uId / 32.0, uMask);
     return;
   }
+#ifndef RIDER
+  if (uNight > 0.35) gLamp = pierLampLight(vWPos, N);
+#endif
 
   // Skin shades warm (peach/rose) instead of the cool environment shadow.
   // Skin shades to a soft pink-lavender instead of the cool environment shadow.
@@ -886,7 +902,7 @@ void main(){
 #ifndef RIDER
   // Lamplight is light, not paint: added after the night's world tint, so it stays warm. Not on her:
   // her painted face has its own shader and would stay cool under a lit body.
-  if (uNight > 0.35) gEmit += base * pierLampLight(vWPos, N);
+  gEmit += base * gLamp;
 #endif
   col = applyFog(col, vWPos);
   writeOut(col, N, mask);

@@ -263,8 +263,10 @@ vec3 wBedSeen(vec3 lit, vec3 alb, vec2 pb, vec2 q, float hd, float px, float roc
   float warmK = smoothstep(0.08, 0.35, uSunColor.r - uSunColor.b);
   float low = smoothstep(0.3, 0.6, uSunColor.r - uSunColor.b) * (1.0 - uNight);
   float hw = hd + 0.12 * (nq9 - 0.5);
-  float f1 = smoothstep(0.12, 0.32, hw + 0.2 * (vnoise(q * 0.04 + 3.0) - 0.5)), f2 = smoothstep(0.55, 0.7, hw), f3 = smoothstep(1.5, 1.8, hw);
-  vec3 st1 = mix(vec3(0.86, 1.0, 0.56), tint * vec3(0.8, 1.0, 0.86), 0.65 * warmK);
+  // The first stage comes in gradually over the ankle-deep water, its edge only lightly wandering:
+  // a wide noisy edge drew big pale ribbons across the shallows.
+  float f1 = smoothstep(0.1, 0.45, hw + 0.08 * (vnoise(q * 0.04 + 3.0) - 0.5)), f2 = smoothstep(0.55, 0.7, hw), f3 = smoothstep(1.5, 1.8, hw);
+  vec3 st1 = mix(vec3(0.9, 1.0, 0.72), tint * vec3(0.84, 1.0, 0.9), 0.65 * warmK);
   vec3 st2 = tint * vec3(0.78, 1.0, 0.8);
   vec3 wt = mix(mix(mix(vec3(0.97, 1.0, 0.95), st1, f1), st2, f2), tint * 0.88, f3);
   vec3 seen = lit * wt;
