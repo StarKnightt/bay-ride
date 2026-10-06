@@ -193,13 +193,13 @@ function plant(b: Builder, s: TreeSpot, y: number): { trunk: number; h: number }
   let trunk = 0, h = 0;
   if (s.kind === "round" || s.kind === "tall" || s.kind === "hero") {
     const tall = s.kind === "tall", hero = s.kind === "hero";
-    h = hero ? range(r, 4.6, 5.4) : tall ? range(r, 4.8, 5.8) : range(r, 2.8, 3.6);
+    h = hero ? range(r, 4.6, 5.4) : tall ? range(r, 3.6, 4.4) : range(r, 2.6, 3.3);
     const cr = hero ? range(r, 4.2, 4.8) : tall ? range(r, 2.4, 2.9) : range(r, 2.5, 3.1);
     const top = V(range(r, -0.3, 0.3), h, range(r, -0.3, 0.3));
     trunk = hero ? 0.46 : 0.3;
     const sway = swayBy(h + cr * (tall ? 1.7 : 1.3), hero ? 0.7 : 0.9);
     t.geo(bark(V(0, -0.3, 0), top, trunk, trunk * 0.6), null, sway);
-    const centre = V(top.x, h + cr * (tall ? 0.85 : 0.55), top.z);
+    const centre = V(top.x, h + cr * (tall ? 0.75 : 0.5), top.z);
     // Lopsided: the clumps crowd toward one side and one tier sits higher.
     const la = r() * Math.PI * 2, lean = V(Math.cos(la), 0, Math.sin(la)).multiplyScalar(cr * 0.28);
     const n = hero ? 13 : 7 + Math.floor(r() * 3);
