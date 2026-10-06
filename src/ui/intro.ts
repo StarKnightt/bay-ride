@@ -257,6 +257,8 @@ export class PaintedIntro {
   private w = 0;
   private h = 0;
   private shown = 0;
+  private lastP = 0;
+  private lastPT = performance.now();
   private raf = 0;
   private readonly t0 = performance.now();
   private done = false;
@@ -328,7 +330,14 @@ export class PaintedIntro {
       g.fillRect(x, y, w * (0.006 + 0.01 * ((i * 0.37) % 1)), Math.max(1, h * 0.002));
     }
     // The wave line: drawn as far as the progress, its tip a soft dab of paint.
-    const target = this.done ? 1 : this.progress;
+    // A long stall (the sea's compile, up to a minute on a first visit) must never look frozen: the
+    // tip keeps creeping on, slower and slower, at most a fifth of the way past the real progress.
+    if (this.progress !== this.lastP) {
+      this.lastP = this.progress;
+      this.lastPT = now;
+    }
+    const creep = (Math.min(0.97, this.progress + 0.2) - this.progress) * (1 - Math.exp(-(now - this.lastPT) / 30000));
+    const target = this.done ? 1 : Math.max(this.shown, this.progress + creep);
     this.shown += (target - this.shown) * 0.08;
     if (target - this.shown < 0.002) this.shown = target;
     const y0 = h * WAVE_Y;
