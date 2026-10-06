@@ -135,13 +135,17 @@ export function paintedCloudMaterial(lobes: THREE.DataTexture): THREE.ShaderMate
         float under = uCloudK.z * lowPart * (0.45 + 0.3 * near + 0.25 * sunSide) * mix(0.45, 1.0, lowSun);
         col = mix(col, uCloudUnder, clamp(under, 0.0, 1.0));
 
-        // Rim on the part of the outline that faces the light as seen on screen.
+        // Rim on the part of the outline that faces the light as seen on screen. Under the moon it is
+        // a soft moonlit edge fading inward, clear only on clouds near the moon (never a bright
+        // outline round every cloud).
         vec2 Lc = vec2(dot(L, vRight), L.y);
         float lcLen = length(Lc);
         vec2 Ls = Lc / max(lcLen, 1e-4);
+        float moonLit = smoothstep(0.9, 0.99, dot(L, uMoonDir)) * step(0.001, dot(uMoonCol, vec3(1.0)));
         float edge = 1.0 - smoothstep(0.0, 0.055, -sd);
+        edge *= mix(1.0, edge, moonLit);
         float facing = smoothstep(0.15, 0.85, dot(n2, Ls)) * smoothstep(0.02, 0.15, lcLen);
-        col = mix(col, uCloudRim, clamp(edge * facing * uCloudK.x, 0.0, 1.0));
+        col = mix(col, uCloudRim, clamp(edge * facing * uCloudK.x * mix(1.0, 0.3 + 0.7 * near, moonLit), 0.0, 1.0));
         // Silver lining: only clouds close to the light.
         col += uCloudRim * edge * near * near * smoothstep(-0.2, 0.5, dot(n2, Ls)) * uCloudK.y * 0.7;
 

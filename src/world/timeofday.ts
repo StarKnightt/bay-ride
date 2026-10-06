@@ -181,8 +181,8 @@ const LOOKS: Record<Preset, Look> = {
     evening: 1.0,
     birds: 0,
   },
-  // Moonlight: cool weak clouds lit only on the moon side, haze and far land darker than the sky,
-  // an indigo sea that still reads as water.
+  // Moonlight: cool weak clouds lit only on the moon side with a soft moonlit edge, haze and far
+  // land darker than the sky, an indigo sea that still reads as water.
   night: {
     az: -84, el: 19, shadeMin: 15, keyHue: 0.55,
     sun: hx("#7d90c8", 0.66), shadow: hx("#26305e"), rim: hx("#a8bce8", 0.8),
@@ -190,7 +190,7 @@ const LOOKS: Record<Preset, Look> = {
     glow: [0.62, 0.72, 0.98], glowA: 0.1, glowB: 0.22,
     haze: [0.2, 0.25, 0.44], hazeA: 0.3,
     hgl: hx("#3a4e86"), hglA: 0.22, hglF: 10,
-    cTop: [0.13, 0.155, 0.27], cMid: [0.07, 0.09, 0.18], cLow: [0.04, 0.05, 0.11], cRim: [0.8, 0.84, 0.95], cRimK: 0.6, cBack: 0.55,
+    cTop: [0.13, 0.155, 0.27], cMid: [0.07, 0.09, 0.18], cLow: [0.04, 0.05, 0.11], cRim: [0.34, 0.38, 0.54], cRimK: 0.45, cBack: 0.35,
     cUnder: [0.2, 0.22, 0.38], cUnderA: 0.05,
     wisp: [0.035, 0.05, 0.11], wispA: 0.3, disk: [0, 0, 0], stars: 1, night: 1,
     world: [0.3, 0.35, 0.58], far: [0.17, 0.21, 0.4], farHaze: 0.22,
