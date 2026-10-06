@@ -8,10 +8,11 @@ import { WALL_IN, meshH } from "./terrain";
 /**
  * Concrete slipways from the promenade down over the sea wall onto the beach. The wall is too steep
  * to walk up, so these are the ways back from the sand (the one by the pier doubles as the
- * harbour's boat ramp). Each runs square to the wall line, from its top edge to where it meets the
- * sand.
+ * harbour's boat ramp): never more than ~45 m apart along the wall (z -255 to 225), so wherever she
+ * steps ashore one is a short walk away, and clear of the promenade's lamps, benches and rails and the beach set at z 55.
+ * Each runs square to the wall line, from its top edge to where it meets the sand.
  */
-const SPOTS = [-205, -70, 125];
+const SPOTS = [-245, -205, -160, -120, -70, -25, 15, 42, 85, 125, 165, 205];
 const HALF = 1.4;
 const SLOPE = 1 / 3.6;
 
