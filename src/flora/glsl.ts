@@ -119,6 +119,19 @@ void main(){
 }
 `;
 
+/**
+ * Noon only (the high sun is the one look with sun height above ~33 deg: golden, sunset, dusk, night
+ * and morning keep k = 0): the hill grass read lime on screen, so pull it from hue ~80 toward ~92
+ * and saturation ~0.64 (less red, a touch more blue in linear), luminance kept so it stays lush.
+ */
+const noonGrass = (mask: string) => /* glsl */ `{
+    float kN = smoothstep(0.55, 0.8, uSunDir.y) * (1.0 - uNight) * (${mask});
+    vec3 gN = col * vec3(0.66, 1.0, 1.35);
+    float lA = dot(col, vec3(0.2126, 0.7152, 0.0722)), lB = dot(gN, vec3(0.2126, 0.7152, 0.0722));
+    col = mix(col, gN * (lA / max(lB, 1e-5)), kN);
+  }`;
+const NOON_GRASS = noonGrass("1.0");
+
 const MEADOW_FS = /* glsl */ `
 ${COMMON}
 ${OUT}
@@ -161,6 +174,7 @@ void main(){
   float back = pow(max(dot(-V, uSunDir), 0.0), 3.0);
   col += base * uSunColor * vec3(0.9, 1.0, 0.5) * back * vTip * uGrassBack * sv;
   col *= 1.0 - 0.2 * uNight;
+  ${NOON_GRASS}
   col = applyFog(col, vWPos);
   writeOut(col, Ns, -1.0);
 }
@@ -261,6 +275,7 @@ void main(){
   vec3 col = mix(cSh, cLit, lit);
   col += g * uSkyMid * 0.1 * (N.y * 0.5 + 0.5);
   col *= 1.0 - 0.15 * uNight;
+  ${noonGrass("1.0 - pathK")}
   col = applyFog(col, vWPos);
   writeOut(col, N, uMask);
 }

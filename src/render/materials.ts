@@ -555,8 +555,8 @@ vec3 pierLampLight(vec3 p, vec3 N){
     float ndl = clamp((dot(N, d) * inversesqrt(max(d2, 1e-4)) + 0.35) / 1.35, 0.0, 1.0);
     L += ndl * (1.0 - smoothstep(16.0, 100.0, d2)) / (1.0 + d2 * 0.07);
   }
-  // From sunset (uNight 0.3, when the lamp heads are already lit) a faint pool, full by dusk.
-  return vec3(1.0, 0.62, 0.3) * L * 1.2 * smoothstep(0.2, 0.6, uNight);
+  // From sunset (uNight 0.3, when the lamp heads are already lit) a soft pool at 0.4 of full, full by dusk.
+  return vec3(1.0, 0.62, 0.3) * L * 1.2 * (0.4 * smoothstep(0.2, 0.3, uNight) + 0.6 * smoothstep(0.3, 0.75, uNight));
 }
 
 vec2 cellular(vec2 p){
