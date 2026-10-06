@@ -16,7 +16,8 @@ const arg = (n, d) => argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length 
 const evals = argv.filter((a) => a.startsWith("--eval=")).map((a) => a.slice(7));
 const URL = await serve(ROOT, arg("serve", "dev"));
 const browser = await launchBrowser(["--hide-scrollbars", "--mute-audio"]);
-const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+const [W, H] = arg("res", "1280x720").split("x").map(Number);
+const ctx = await browser.newContext({ viewport: { width: W, height: H } });
 const page = await ctx.newPage();
 page.on("pageerror", (e) => console.log("[pageerror]", String(e).split(/\n/).slice(0, 3).join(" | ")));
 page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") console.log(`[${m.type()}]`, m.text().slice(0, 300)); });
