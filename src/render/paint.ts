@@ -80,7 +80,10 @@ void main(){
   float dz = linz(texelFetch(tDepth, fp, 0).r);
   float id = floor(texelFetch(tNormal, fp, 0).z * 32.0 + 0.5);
   // Her face stays as painted; her hair, skin and clothes and the skiff take a smaller brush.
-  float rk = id == 19.0 ? 0.0 : (id == 13.0 || id == 14.0 || id == 18.0 || (id >= 20.0 && id <= 24.0)) ? 0.45 : id == 2.0 ? 0.85 : 1.0;
+  // The sea is left alone (its glitter and strokes are painted crisp already); grass, leaves,
+  // flowers and stone take a broader brush.
+  float rk = (id == 19.0 || id == 2.0) ? 0.0 : (id == 13.0 || id == 14.0 || id == 18.0 || (id >= 20.0 && id <= 24.0)) ? 0.45
+           : (id == 3.0 || id == 6.0 || id == 16.0) ? 1.35 : 1.0;
   float R = uRadius * rk;
   vec3 c0 = src(vUv);
   if (R < 0.6) { o = vec4(c0 * c0, dz); return; }
@@ -167,11 +170,11 @@ void main(){
   vec3 col = safe3(texelFetch(tColor, fp, 0).rgb);
   vec4 nrm = texelFetch(tNormal, fp, 0);
   float id = floor(nrm.z * 32.0 + 0.5);
-  // The sea (id 2) and the swash beach (ground id with no ink mask): their foam lace and strokes
-  // are painted already; the filter only settles them a little.
-  bool wet = id == 2.0 || (id == 1.0 && abs(nrm.a) < 0.05);
-  float w = uStrength * (wet ? 0.55 : 1.0);
-  if (id == 19.0 || w <= 0.0) { o = vec4(col, 1.0); return; }
+  // The sea (id 2) stays exactly as drawn: the filter would smear its glitter into a glow and lift
+  // its tone. The swash beach (ground id with no ink mask) only settles a little.
+  bool wet = id == 1.0 && abs(nrm.a) < 0.05;
+  float w = uStrength * (wet ? 0.25 : (id == 3.0 || id == 4.0 || id == 6.0 || id == 16.0) ? 1.15 : 1.0);
+  if (id == 19.0 || id == 2.0 || w <= 0.0) { o = vec4(col, 1.0); return; }
   // Depth-aware upsample: the four nearest half-res texels, weighted by how close their depth is
   // to this pixel's (no background paint bleeding onto a silhouette, or the reverse).
   float dz = linz(texelFetch(tDepth, fp, 0).r);
