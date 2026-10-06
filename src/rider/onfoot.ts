@@ -3,7 +3,8 @@ import { G } from "../render/materials";
 import { WADE, type Bay } from "../world/bay";
 import { roadX, roadYaw } from "../world/bay/road";
 import { gaitCycle, jumpClock, type FootState, type GroundFn, type Rider } from "./rider";
-import { Boarding, type TransitKind } from "./boarding";
+import { Boarding, SHORE_FROM, SHORE_OFF, SHORE_STATIONS, type TransitKind } from "./boarding";
+import { gunwaleAt } from "../boat/model";
 import type { ChaseCam } from "./camera";
 import type { Input } from "../core/input";
 import type { RideAudio, StepSurface } from "../audio";
@@ -11,7 +12,7 @@ import { clamp, damp } from "../core/rng";
 import type { Boat } from "../boat/boat";
 import { BERTH } from "../boat/berth";
 import { SEA_Y } from "../world/bay/road";
-import { PIER, deckH } from "../world/bay/pier";
+import { PIER, PIER_STAGE, PIER_STAIR, deckH } from "../world/bay/pier";
 
 /**
  * On foot and in the skiff. She walks (WASD, Shift to jog) with a mouse orbit camera; F within
@@ -123,8 +124,9 @@ export class Explore {
   private readonly boatGround: GroundFn = (x, z, y) => {
     const b = this.boat;
     if (!b || !this.trans || (this.mode !== "board" && this.mode !== "leave")) return null;
-    if (!this.trans.out.onBoat) {
-      // At the deck edge her toes are over boards the walk rule keeps her body off (its last 12 cm).
+    if (!this.trans.out.onBoat || b.hullDistance(x, z) > 0.02) {
+      // At the deck edge her toes are over boards the walk rule keeps her body off (its last 12 cm);
+      // elsewhere (the stair, the stage, the shore) the world's own ground.
       if (Math.abs(z - PIER.z) > PIER.half || x > PIER.x0 || x < PIER.x1 || y < PIER.deck - 0.7) return null;
       this._bg.h = deckH(x);
       return this._bg;
@@ -223,7 +225,12 @@ export class Explore {
   get nearBoat(): boolean {
     const b = this.boat;
     if (!b || this.mode !== "walk" || b.mode !== "idle" || Math.hypot(b.u, b.v) >= 1) return false;
-    if (Math.hypot(b.x - BERTH.x, b.z - BERTH.z) < 6) return Math.hypot(this.x - BERTH.stand.x, this.z - BERTH.stand.z) < BERTH.reach && Math.abs(this.y - BERTH.stand.y) < 0.6;
+    if (Math.hypot(b.x - BERTH.x, b.z - BERTH.z) < 6) {
+      // On the stair or the stage, or on the deck near the stair head.
+      const S = PIER_STAIR, G = PIER_STAGE;
+      if (this.x < S.x0 + 0.1 && this.x > G.x1 - 0.1 && this.z < PIER.z - PIER.half && this.z > G.z1 - 0.1 && this.y < PIER.deck + 0.3) return true;
+      return Math.hypot(this.x - BERTH.stand.x, this.z - BERTH.stand.z) < BERTH.reach && Math.abs(this.y - BERTH.stand.y) < 0.6;
+    }
     return b.hullDistance(this.x, this.z) < BERTH.reach;
   }
 
@@ -285,7 +292,7 @@ export class Explore {
   }
 
   private transit(): Boarding {
-    return (this.trans ??= new Boarding(this.boat!, (x, z, y) => (this.standable(x, z) ? (this.bay.groundAt(x, z, y)?.h ?? NaN) : NaN)));
+    return (this.trans ??= new Boarding(this.boat!, (x, z, y) => (this.standable(x, z) ? (this.bay.groundAt(x, z, y)?.h ?? NaN) : NaN), this.rider.gait));
   }
 
   /** At the berth (the skiff moored by the pier gap)? */
@@ -348,8 +355,10 @@ export class Explore {
     const o = T.pose(this.tau);
     if (dt > 0) {
       const t0 = this.tau - dt;
-      if (this.mode === "board" && t0 < T.tLand && this.tau >= T.tLand) b.onSlap(0.4);
-      if (this.mode === "leave" && t0 < T.tOff && this.tau >= T.tOff) b.onSlap(0.25);
+      // A hop lands hard; a step in or out is a soft knock.
+      const step = T.kind === "board" || T.kind === "leaveBerth";
+      if (this.mode === "board" && t0 < T.tLand && this.tau >= T.tLand) b.onSlap(step ? 0.25 : 0.4);
+      if (this.mode === "leave" && t0 < T.tOff && this.tau >= T.tOff) b.onSlap(step ? 0.18 : 0.25);
     }
     const w = this.rider.walker;
     w.position.copy(o.pos);
@@ -386,6 +395,10 @@ export class Explore {
     f.reach = o.reach;
     f.reachW = o.reachW;
     f.reachSide = o.reachSide;
+    f.stepP = o.stepP;
+    f.stepW = o.stepW;
+    f.stepYaw = o.stepYaw;
+    f.stepDown = o.stepDown;
     f.busy = true;
     G.uPush.value.set(this.x, this.z, 0.85, o.onBoat || o.air ? 0 : 1);
   }
@@ -399,43 +412,73 @@ export class Explore {
     this.grip.applyMatrix4(_mi.copy(this.seatM).invert());
   }
 
-  /** Aboard: step ashore at the berth, or onto any wadeable ground close beside the hull. */
+  /**
+   * Aboard: step ashore at the berth, or over the side wherever the ground beside the hull is dry
+   * or wadeable (a beach, a rock edge, a slipway's foot, the island). Slow, or aground, she goes;
+   * in deep water she glances over the side and stays put.
+   */
   private tryLeave(): void {
     const b = this.boat;
-    if (!b || Math.hypot(b.u, b.v) > LEAVE_SPEED) return;
-    let found = false;
-    if (Math.hypot(b.x - BERTH.x, b.z - BERTH.z) < 6) {
-      this.shore.set(BERTH.stand.x, BERTH.stand.y, BERTH.stand.z);
-      found = true;
-    } else {
-      for (let r = 1.4; r <= 4.3 && !found; r += 0.7) {
-        let best = 1e9;
-        for (let i = 0; i < 20; i++) {
-          const a = (i / 20) * Math.PI * 2;
-          const x = b.x + Math.cos(a) * r, z = b.z + Math.sin(a) * r;
-          if (b.hullDistance(x, z) < 0.45 || !this.standable(x, z)) continue;
-          // Prefer the shallowest (closest to dry land).
-          const h = -(this.bay.groundAt(x, z)?.h ?? SEA_Y);
-          if (h < best) {
-            best = h;
-            this.shore.set(x, this.bay.groundAt(x, z)?.h ?? SEA_Y, z);
-            found = true;
-          }
-        }
-      }
-    }
-    if (!found) return;
+    if (!b) return;
     const T = this.transit();
     if (this.atBerth) {
-      // The haul up the pier side needs her alongside: a boat stopped further off is laid in its berth.
+      if (Math.hypot(b.u, b.v) > LEAVE_SPEED) return;
+      // The stage is beside her berth: a boat stopped further off is laid in it.
       if (Math.hypot(b.x - BERTH.x, b.z - BERTH.z) > 1 || Math.abs(wrapA(b.yaw - BERTH.yaw)) > 0.3) b.moor();
+      this.shore.set(BERTH.stand.x, BERTH.stand.y, BERTH.stand.z);
       T.planLeaveBerth(this.phase);
+    } else {
+      const out = this.shoreStep();
+      if (!out) {
+        this.refuseT = 0;
+        return;
+      }
+      // Touching the bed counts as stopped (it holds her there while she steps out).
+      if (Math.hypot(b.u, b.v) > LEAVE_SPEED && !b.aground) return;
+      b.halt();
+      T.planLeaveShore(this.phase, out.side, this.shore, out.from);
     }
-    else T.planLeaveShore(this.shore.x, this.shore.y, this.shore.z, this.phase);
     this.startTransit("leave");
     this.orbitFromCam();
     this.chase.forceThirdPerson(this.rider);
   }
+
+  /**
+   * The shallowest place to step out over the side: along both sides at each station, outward from
+   * the planking, the first ground she can stand on there (dry, or water up to about her knees),
+   * clear of rocks and posts. Sets this.shore; null in deep water.
+   */
+  private shoreStep(): { side: number; from: number } | null {
+    const b = this.boat!;
+    b.root.updateMatrixWorld(true);
+    const M = b.root.matrixWorld.elements;
+    let best = Infinity, side = 0, from = 0;
+    for (let k = 0; k < SHORE_STATIONS.length; k++) {
+      const { z, from: fi } = SHORE_STATIONS[k], half = gunwaleAt(z).half, F = SHORE_FROM[fi];
+      for (const s of [-1, 1])
+        for (let off = SHORE_OFF.min; off <= SHORE_OFF.max + 1e-6; off += 0.1) {
+          const lx = s * (half + off);
+          if (Math.hypot(lx - s * F.x, z - F.z) > SHORE_OFF.hop) break;
+          const x = M[0] * lx + M[8] * z + M[12], wz = M[2] * lx + M[10] * z + M[14];
+          if (!this.standable(x, wz)) continue;
+          const h = this.bay.walkH(x, wz, this.y);
+          if (this.circles(x, wz).pen > 0) continue;
+          // Shallowest first; a little against a longer reach out, a station other than the usual and climbing forward.
+          const score = Math.max(0, SEA_Y - h) + 0.1 * (off - SHORE_OFF.min) + 0.03 * k + 0.08 * fi;
+          if (score < best) {
+            best = score;
+            side = s;
+            from = fi;
+            this.shore.set(x, h, wz);
+          }
+          break;
+        }
+    }
+    return side ? { side, from } : null;
+  }
+
+  /** Time since F was refused in deep water (s): she glances down over the side and shakes her head. */
+  private refuseT = 9;
 
   /** Circle obstacles (posts, bollards, lamps, shore rocks); houses are boxes, see standable(). */
   private circles(x: number, z: number): { pen: number; nx: number; nz: number } {
@@ -671,6 +714,14 @@ export class Explore {
       this.speed = 0;
       this.yaw = this.boat.yaw;
       this.idleLook(dt);
+      if (this.refuseT < 1.5) {
+        // Too deep to step out: a look down over the side, a small shake of the head, back ahead.
+        this.refuseT += dt;
+        const r = this.refuseT;
+        const over = smooth01(r / 0.35) * (1 - smooth01((r - 0.75) / 0.5));
+        this.look = 0.8 * over + (r > 0.7 && r < 1.3 ? 0.2 * Math.sin(((r - 0.7) / 0.6) * Math.PI * 4) : 0);
+        this.lookUp = -0.45 * over;
+      }
     } else if (onFoot) {
       this.vertical(dt);
       this.rider.walker.position.set(this.x, this.y, this.z);
@@ -691,6 +742,7 @@ export class Explore {
     f.lookUp = this.lookUp;
     f.time = time;
     f.reachW = 0;
+    f.stepW = undefined;
     f.busy = false;
     // Jump: the crouch before take-off, then a squash on landing that comes in fast and eases out.
     const walking = onFoot && !boating;
@@ -841,6 +893,7 @@ export class Explore {
     f.lookUp = 0;
     f.time = time;
     f.air = f.crouch = f.vy = f.jumpW = f.reachW = 0;
+    f.stepW = undefined;
     f.busy = false;
     G.uPush.value.set(x, z, 0.85, 1);
   }

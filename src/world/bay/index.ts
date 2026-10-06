@@ -102,6 +102,7 @@ export class Bay {
         this.root.add(buildIsland());
         this.root.add(buildRoadRibbon(ROAD_Z0 + 30, ROAD_Z1 - 30, roadMaterial()));
         this.root.add(this.lighthouse());
+        this.colliders.push({ x: LIGHTHOUSE.x, z: LIGHTHOUSE.z, r: 2.9, top: islandH(LIGHTHOUSE.x, LIGHTHOUSE.z) + 20 });
       }],
       ["pier", () => {
         this.root.add(buildPier(this.colliders));
@@ -163,6 +164,7 @@ export class Bay {
     if (p !== undefined) return p;
     const h = this.surfaceH(x, z);
     if (h < SEA_Y - WADE) return null;
+    if (h > meshH(x, z) + 1e-4 && islandH(x, z) >= h - 1e-4) return { h: Math.max(h, SEA_Y - WADE), kind: h < SEA_Y + 0.35 ? "wetsand" : h < SEA_Y + 2.4 ? "stone" : "grass" };
     const u = x - roadX(z);
     const onRoadZ = z < ROAD_Z0 + 30 && z > ROAD_Z1 - 30;
     let kind: StepSurface = "grass";
@@ -183,12 +185,13 @@ export class Bay {
     return h < SEA_Y - WADE ? NaN : h;
   }
 
-  /** The land as drawn, without the pier: the terrain mesh's triangles, the road ribbon, slipways and the town's paving. */
+  /** The land as drawn, without the pier: the terrain mesh's triangles, the island, the road ribbon, slipways and the town's paving. */
   surfaceH(x: number, z: number): number {
     const h = meshH(x, z);
     const u = x - roadX(z);
     const road = Math.abs(u) < RIBBON_HALF && z < ROAD_Z0 + 30 && z > ROAD_Z1 - 30 ? 0.02 : -Infinity;
-    return Math.max(h, road, rampH(x, z), u > 4 && u < 60 ? pavedH(x, z) : -Infinity);
+    const isle = Math.abs(x - ISLAND.x) < 80 && Math.abs(z - ISLAND.z) < 80 ? islandH(x, z) : -Infinity;
+    return Math.max(h, isle, road, rampH(x, z), u > 4 && u < 60 ? pavedH(x, z) : -Infinity);
   }
 
   /** Inside a building footprint grown by `pad` m? Returns its ridge height, or 0. */

@@ -142,6 +142,17 @@ export class Boat {
     return out.copy(this.model.grip).applyMatrix4(this.model.motor.matrixWorld);
   }
 
+  /** Touching the bed: a hull probe within a few centimetres of where the shallows stop her. */
+  get aground(): boolean {
+    for (const [pf, ps] of PROBES) if (this.depthAt(pf, ps) < GROUND + 0.06) return true;
+    return false;
+  }
+
+  /** Stop dead where she is (stepping out of her). */
+  halt(): void {
+    this.u = this.v = this.yawRate = this.throttle = this.steer = 0;
+  }
+
   /** Put her back on the berth, at rest. */
   moor(): void {
     this.x = BERTH.x;

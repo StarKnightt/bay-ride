@@ -9,15 +9,15 @@ import { SEA_Y, roadX } from "../world/bay/road";
 import { terrainH, waterlineU } from "../world/bay/terrain";
 
 /**
- * Character capture views (?cam=portrait | turn&a=<deg> | walk[&run=1] | jump | boatseat | board | leave, ?pose=wade). Each puts
+ * Character capture views (?cam=portrait | turn&a=<deg> | walk[&run=1] | jump | boatseat | board | leave | stairs, ?pose=wade). Each puts
  * her somewhere fixed (or on a fixed path that is a function of t) and the camera relative to her,
  * so the same t always gives the same frame. See .gauntlet/SHOTS.md.
  */
-export type CharCamMode = "portrait" | "turn" | "walk" | "jump" | "boatseat" | "wade" | "board" | "leave";
+export type CharCamMode = "portrait" | "turn" | "walk" | "jump" | "boatseat" | "wade" | "board" | "leave" | "stairs";
 
 export function charMode(params: URLSearchParams): CharCamMode | null {
   const c = params.get("cam");
-  if (c === "portrait" || c === "turn" || c === "walk" || c === "jump" || c === "boatseat" || c === "board" || c === "leave") return c;
+  if (c === "portrait" || c === "turn" || c === "walk" || c === "jump" || c === "boatseat" || c === "board" || c === "leave" || c === "stairs") return c;
   if (params.get("pose") === "wade") return "wade";
   return null;
 }
@@ -26,11 +26,14 @@ const WALK_V = 1.3, RUN_V = 3.4;
 /** Scripted jump (same take-off speed and gravity as on foot): crouch, flight, landing squash. */
 const JUMP = { v: 3.4, g: 13, crouch: 0.13, period: 1.4 };
 const WADE_V = 0.85;
-/** Boarding views: the move starts at this t (board: from the spawn; leave: from the berth seat). */
+/** Boarding views: the move starts at this t (board, stairs: from the spawn; leave: from the berth seat). */
 export const TRANSIT_T0 = 12;
-/** Fixed camera for them, off the berth to the south-east over the water. */
-const TRANSIT_EYE = new THREE.Vector3(-84.0, -1.0, -197.8);
-const TRANSIT_LOOK = new THREE.Vector3(-89.0, -2.2, -195.0);
+/** Fixed camera for board / leave, off the berth to the south-east over the water: the stair, the stage and the skiff. */
+export const TRANSIT_EYE = new THREE.Vector3(-84.9, -0.7, -202.4);
+export const TRANSIT_LOOK = new THREE.Vector3(-91.0, -2.2, -196.0);
+/** Closer, from above the water south of the stair: her feet on the treads, the hand on the rail. */
+export const STAIRS_EYE = new THREE.Vector3(-88.0, -0.15, -199.4);
+export const STAIRS_LOOK = new THREE.Vector3(-89.6, -1.75, -195.1);
 /** Water depth she wades in along the shore (m). */
 const WADE_D = 0.14;
 
@@ -63,7 +66,7 @@ export class CharDirector {
     if (mode === "wade") rider.settleT = 12;
     if (mode === "walk") rider.settleT = 6;
     if (mode === "jump") rider.settleT = 1;
-    if (mode === "board" || mode === "leave") {
+    if (mode === "board" || mode === "leave" || mode === "stairs") {
       // Frozen frames re-run the last seconds along the move itself.
       rider.settleT = 2.5;
       rider.settlePath = (time) => {
@@ -121,7 +124,7 @@ export class CharDirector {
       const x = this.wadeX(z), x2 = this.wadeX(z + 0.5);
       const yaw = Math.atan2(-(x2 - x), -0.5);
       e.drive(x, z, yaw, WADE_V, ((WADE_V * t) / gaitCycle(0, WADE_V)) * Math.PI * 2, t);
-    } else if (this.mode === "board") {
+    } else if (this.mode === "board" || this.mode === "stairs") {
       e.transitAt("board", t - TRANSIT_T0, t, SPAWN.x, SPAWN.z, SPAWN.yaw);
     } else if (this.mode === "leave") {
       e.transitAt("leave", t - TRANSIT_T0, t);
@@ -175,6 +178,13 @@ export class CharDirector {
       case "leave": {
         eye = TRANSIT_EYE.clone();
         look = TRANSIT_LOOK.clone().lerp(this.head, 0.35);
+        fov = 40;
+        r.gazeTarget = null;
+        break;
+      }
+      case "stairs": {
+        eye = STAIRS_EYE.clone();
+        look = STAIRS_LOOK.clone().lerp(this.head, 0.2);
         fov = 40;
         r.gazeTarget = null;
         break;

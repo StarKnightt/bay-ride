@@ -62,6 +62,26 @@ export interface FootState {
   reachSide?: number;
   /** A scripted move is under way: no idle life (weight shifts, hat touch). */
   busy?: boolean;
+  /**
+   * Scripted feet (boarding: the stair, stepping in and out of the skiff), per foot [right, left]:
+   * the world point on the ground under the ankle, blend weight over the clip's foot, heading
+   * (world yaw, as the walker's) and whether it is planted.
+   */
+  stepP?: THREE.Vector3[];
+  stepW?: number[];
+  stepYaw?: number[];
+  stepDown?: boolean[];
+}
+
+/** The clips' stance and stride timing, for scripted foot placement. */
+export interface GaitInfo {
+  /** Idle clip ankle positions in walker space per foot [right, left]: x (her right +), z (ahead −). */
+  stance: { x: number; z: number }[];
+  /** Heel and ball relative to the ankle, walker space, idle, per foot. */
+  heel: { x: number; z: number }[];
+  ball: { x: number; z: number }[];
+  /** Walk clip strike phase per foot (cycle units, 0…1). */
+  strike: number[];
 }
 
 /** Ground under a world point: height and surface. */
@@ -155,6 +175,8 @@ export function jumpArmPose(t: number, side: number, out: number[]): number[] {
 export const RUN_HAND_CAP = 0.16;
 /** Seated: her feet this much further forward on the boards than the sit clip puts them (m). */
 export const SEAT_FEET_FWD = 0.21;
+/** Seated, the left foot drawn in off the turn of the bilge beside the stern bench (m). */
+const SEAT_LEFT_IN = 0.07;
 
 /** Rotate a bone by a world-space rotation about its own head (children follow). */
 function rotateWorld(b: THREE.Object3D, q: THREE.Quaternion): void {
@@ -233,6 +255,8 @@ class Foot {
   restep = -1;
   kind = "wood";
   swingT = 0;
+  /** Scripted: planted last frame. */
+  sDown = false;
 }
 
 /** A spring chain (hair lock, ribbon tail, knot tail): rotated as a whole toward the wind. */
@@ -283,6 +307,16 @@ export class Rider {
   readonly shadowProxies: THREE.SkinnedMesh[] = [];
   /** Per-foot contact this frame (tests). */
   readonly contact = [false, false];
+  /** Idle stance and walk strike timing (scripted feet line up with them). */
+  readonly gait: GaitInfo = {
+    stance: [{ x: 0.1, z: 0 }, { x: -0.1, z: 0 }],
+    heel: [{ x: 0, z: 0.05 }, { x: 0, z: 0.05 }],
+    ball: [{ x: 0, z: -0.15 }, { x: 0, z: -0.15 }],
+    strike: [0.5, 0],
+  };
+  /** Idle foot rotation (walker at yaw 0) and ankle height over its lowest sole point, per foot. */
+  private idleFootQ = [new THREE.Quaternion(), new THREE.Quaternion()];
+  private soleDrop = [0.07, 0.07];
   readonly meshes: Map<string, THREE.SkinnedMesh>;
 
   private h: Heroine;
@@ -409,6 +443,19 @@ export class Rider {
     this.weights(1, 0, 0, 0, 0);
     h.mixer.update(0);
     this.walker.updateMatrixWorld(true);
+    // Idle stance (walker at the origin, yaw 0): where each ankle stands, its rotation, and how high
+    // it sits over the lower of its heel and ball.
+    for (let i = 0; i < 2; i++) {
+      const L = this.legs[i];
+      const a = wpos(L.foot, new THREE.Vector3());
+      const he = L.foot.localToWorld(L.heelL.clone()), ba = L.foot.localToWorld(L.ballL.clone());
+      this.gait.stance[i] = { x: a.x, z: a.z };
+      this.gait.heel[i] = { x: he.x - a.x, z: he.z - a.z };
+      this.gait.ball[i] = { x: ba.x - a.x, z: ba.z - a.z };
+      this.soleDrop[i] = a.y - Math.min(he.y, ba.y);
+      L.foot.getWorldQuaternion(this.idleFootQ[i]);
+      this.gait.strike[i] = this.win.walk[i][0]?.[0] ?? (i === 0 ? 0.5 : 0);
+    }
   }
 
   // ---------------------------------------------------------------- public seams
@@ -737,9 +784,30 @@ export class Rider {
         const low = Math.min(heel.y, ball.y) + (T.y - ank.y);
         if (g && low < g.h) T.y += g.h - low;
       }
+      const q = L.foot.getWorldQuaternion(new THREE.Quaternion()).premultiply(_q.setFromAxisAngle(_Y, ft.psi));
+      const sw = f.stepP && f.stepW ? clamp(f.stepW[i], 0, 1) : 0;
+      if (sw > 1e-3) {
+        // Scripted foot: the ankle over its point with the sole on it, turned to its heading.
+        const sp = f.stepP![i], sy = f.stepYaw?.[i] ?? 0;
+        T.lerp(_v3.set(sp.x, sp.y + this.soleDrop[i], sp.z), sw);
+        q.slerp(_q.setFromAxisAngle(_Y, sy).multiply(this.idleFootQ[i]), sw);
+        if (sw >= 0.5) {
+          const down = !!f.stepDown?.[i];
+          this.contact[i] = down;
+          if (down && !ft.sDown && dt > 0) this.onPlant?.(sp.x, sp.y, sp.z, sy, i === 0 ? 1 : -1, this.groundAt(sp.x, sp.z, sp.y + 0.3)?.kind ?? ft.kind, f.time);
+          ft.sDown = down;
+        }
+        if (sw > 0.999) {
+          // The clip's lock picks up afresh wherever the script leaves the foot.
+          ft.planted = true;
+          ft.s.set(0, 0);
+          ft.s0.set(0, 0);
+          ft.psi = ft.psi0 = 0;
+          ft.restep = -1;
+        }
+      } else ft.sDown = false;
       targets.push(T);
-      const q = L.foot.getWorldQuaternion(new THREE.Quaternion());
-      footQ.push(q.premultiply(_q.setFromAxisAngle(_Y, ft.psi)));
+      footQ.push(q);
     }
 
     // Standing: re-step the foot that has been dragged or twisted furthest from where the clip wants it.
@@ -945,6 +1013,7 @@ export class Rider {
       const L = this.legs[i];
       L.foot.getWorldQuaternion(_fq[i]);
       wpos(L.foot, _ank[i]).addScaledVector(fwd, SEAT_FEET_FWD * seat);
+      if (i === 1) _ank[i].addScaledVector(_oH, SEAT_LEFT_IN * Math.min(1, seat * 2));
       twoBone(L.thigh, L.shin, L.foot, _ank[i], _oH);
       setWorldQuat(L.foot, _fq[i]);
     }
@@ -971,7 +1040,7 @@ export class Rider {
     if (ex > 0 && _o5.lengthSq() > 1e-6) {
       _o5.normalize();
       _o2.set(_o5.z, 0, -_o5.x);
-      const ang = Math.min(0.52, ex / 0.3) * w * 0.5;
+      const ang = Math.min(0.52, ex / 0.2) * w * 0.8;
       rotateWorld(this.bone("spine1"), _oq0.setFromAxisAngle(_o2, ang));
       rotateWorld(this.bone("spine2"), _oq0.setFromAxisAngle(_o2, ang));
     }

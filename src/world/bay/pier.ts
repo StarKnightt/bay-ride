@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { ID, M, beam, box, boxM, cyl, merge, prep, xf } from "../geo";
+import { ID, M, beam, box, boxM, cyl, merge, prep, sphere, xf } from "../geo";
 import { uber } from "../../render/materials";
 import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../../render/lightpasses";
 import { SEA_Y } from "./road";
@@ -40,7 +40,75 @@ export const PIER_GAP = { x0: -93.0, x1: -87.6 };
 /** Posts: a pair per bent (z = PIER.z ± dz), bents every `step` m from x = x0 for n bents. */
 export const PIER_POSTS = { x0: PIER.x1 + 0.3, step: 3.4, n: 30, dz: 1.32, r: 0.15 };
 
-/** Bollard tops on the south edge either side of the berth gap (mooring lines run from these). */
+/**
+ * The landing stage at the berth and the stair down to it. Off the south side of the berth gap a
+ * deck-level head runs out past the edge; the stair runs down from it along the pier's face toward
+ * the end (−x) onto a low stage on piles, 0.4 m over mean sea level, that the skiff lies alongside.
+ * A handrail runs round the head and down the stair's outer side; a mooring pile with a cleat
+ * stands at the stage's seaward edge near the stair's foot.
+ */
+export const PIER_STAGE = { x0: -89.9, x1: -92.4, z0: PIER.z - PIER.half - 0.04, z1: PIER.z - PIER.half - 1.54, y: SEA_Y + 0.4 };
+export const PIER_STAIR = {
+  /** Head (deck level) from x0 to the top nosing x1; across from the pier's face (z0, clear of its fascia) to the outer stringer (z1). */
+  x0: -88.2,
+  x1: -89.0,
+  z0: PIER.z - PIER.half - 0.13,
+  z1: PIER.z - PIER.half - 1.0,
+  /** Risers (the last one down onto the stage) and the going of each tread. */
+  n: 6,
+  going: 0.285,
+  rise: (PIER.deck - PIER_STAGE.y) / 6,
+  /** Handrail line (world z) and its height over the nosings. */
+  railZ: PIER.z - PIER.half - 0.96,
+  railH: 0.92,
+};
+/** The stair's last riser (world x), down onto the stage. */
+export const STAIR_FOOT_X = PIER_STAIR.x1 - (PIER_STAIR.n - 1) * PIER_STAIR.going;
+/** Mooring pile on the stage (its top), and the cleat on its seaward side the stern line runs from. */
+export const STAGE_POST = { x: -90.52, z: PIER_STAGE.z1 + 0.12, r: 0.09, top: PIER_STAGE.y + 0.9 };
+export const STAGE_CLEAT = new THREE.Vector3(STAGE_POST.x, STAGE_POST.top - 0.3, STAGE_POST.z - STAGE_POST.r - 0.03);
+/** Her body's half width: how far in from a handrail or an open edge she walks. */
+const BODY = 0.24;
+
+/** Top of the tread at world x on the stair (the head above it, the stage below). */
+export function stairTreadH(x: number): number {
+  const S = PIER_STAIR;
+  if (x >= S.x1) return PIER.deck;
+  const k = Math.ceil((S.x1 - x) / S.going - 1e-9);
+  return k >= S.n ? PIER_STAGE.y : PIER.deck - k * S.rise;
+}
+
+/** Top of the handrail at world x (level round the head, then down over the nosings). */
+export function stairRailH(x: number): number {
+  const S = PIER_STAIR;
+  return Math.min(PIER.deck, Math.max(PIER_STAGE.y + S.rise, PIER.deck - (S.rise * (S.x1 - x)) / S.going)) + S.railH;
+}
+
+/**
+ * The head, stair and stage as pierWalkH sees them: NaN where they have no say. `steps`: the treads
+ * and the real surfaces out to their edges (feet); else the stair as one even slope through the
+ * nosings (tan 37°, so the walker climbs it) and the band her body keeps to.
+ */
+function stageWalkH(x: number, z: number, y: number, steps: boolean): number {
+  const S = PIER_STAIR, G = PIER_STAGE;
+  if (x > S.x0 + 0.6 || x < G.x1 - 0.6 || z > PIER.z - PIER.half + 0.15 || z < G.z1 - 0.12) return NaN;
+  const m = steps ? 0 : BODY;
+  const railIn = (steps ? S.z1 : S.railZ + m);
+  // Head: joins the deck along its edge.
+  if (x >= S.x1 && x <= S.x0 - m && z >= railIn) return y < PIER.deck - 0.7 ? NaN : PIER.deck;
+  if (z > PIER.z - PIER.half) return NaN;
+  // Stair.
+  if (x < S.x1 && x > STAIR_FOOT_X && z >= railIn && z <= S.z0) {
+    const h = steps ? stairTreadH(x) : Math.max(G.y, PIER.deck - (S.rise * (S.x1 - x)) / S.going);
+    return y < h - 0.7 ? NaN : h;
+  }
+  // Stage (beside the stair, its seaward strip runs on under the stair's last treads).
+  const sx0 = z < S.z1 ? G.x0 : STAIR_FOOT_X;
+  if (x <= sx0 - (z < S.z1 ? m : 0) && x >= G.x1 + m && z >= G.z1 + m && z <= G.z0) return y < G.y - 0.7 ? NaN : G.y;
+  return y < G.y - 0.7 ? NaN : -Infinity;
+}
+
+/** Bollard tops on the south edge either side of the berth gap (the bow line runs from the west one). */
 export const PIER_BOLLARDS: THREE.Vector3[] = [];
 /** Lamp heads (glow after dusk). */
 export const PIER_LAMPS: THREE.Vector3[] = [];
@@ -64,12 +132,17 @@ export function inPier(x: number, z: number, pad = 0): boolean {
  * - undefined where the pier has no say (beside it on land, or under it with headroom).
  */
 export function pierGround(x: number, z: number, y = Infinity): { h: number; kind: "wood" } | null | undefined {
-  const h = pierWalkH(x, z, y);
+  const h = pierWalkH(x, z, y, true);
   return Number.isNaN(h) ? undefined : h === -Infinity ? null : { h, kind: "wood" };
 }
 
-/** pierGround as a number (no allocation): the deck height, −Infinity where it stops her, NaN where it has no say. */
-export function pierWalkH(x: number, z: number, y = Infinity): number {
+/**
+ * pierGround as a number (no allocation): the deck height, −Infinity where it stops her, NaN where
+ * it has no say. `steps`: the stair's treads (feet, her height), else its even slope (stepping).
+ */
+export function pierWalkH(x: number, z: number, y = Infinity, steps = false): number {
+  const st = stageWalkH(x, z, y, steps);
+  if (!Number.isNaN(st)) return st;
   const dz = Math.abs(z - PIER.z);
   if (x > PIER.x0 || x < PIER.x1 - 0.6 || dz > PIER.half + 0.6) return NaN;
   const top = deckH(x);
@@ -87,10 +160,22 @@ export function pierBlocks(x: number, y: number, z: number): boolean {
   return inPier(x, z, 0.1) && y < deckH(x) + PIER.rail + 0.1 && y > Math.max(terrainH(x, z), SEA_Y - 1);
 }
 
-/** Push a circle (x, z, r) out of the pier's footprint (for hulls): penetration and normal. */
+/** Push a circle (x, z, r) out of the pier's footprint, its stair and stage (for hulls): penetration and normal. */
 export function pierContact(x: number, z: number, r: number): { pen: number; nx: number; nz: number } | null {
-  const hx = (PIER.x0 - (PIER.x1 - 0.1)) / 2, cx = (PIER.x0 + PIER.x1 - 0.1) / 2, hz = PIER.half + 0.08;
-  const lx = x - cx, lz = z - PIER.z;
+  const S = PIER_STAIR, G = PIER_STAGE;
+  let best = boxContact(x, z, r, (PIER.x0 + PIER.x1 - 0.1) / 2, PIER.z, (PIER.x0 - (PIER.x1 - 0.1)) / 2, PIER.half + 0.08);
+  if (z > G.z1 - r - 0.5 && x < S.x0 + r && x > G.x1 - r) {
+    const a = boxContact(x, z, r, (S.x0 + STAIR_FOOT_X) / 2, (S.z0 + S.z1) / 2, (S.x0 - STAIR_FOOT_X) / 2, (S.z0 - S.z1) / 2);
+    if (a && (!best || a.pen > best.pen)) best = a;
+    // (The stage's seaward face counts 0.2 m in: the piles stand in from its edge, and the moored hull lies close.)
+    const b = boxContact(x, z, r, (G.x0 + G.x1) / 2, (G.z0 + G.z1 + 0.2) / 2, (G.x0 - G.x1) / 2, (G.z0 - G.z1 - 0.2) / 2);
+    if (b && (!best || b.pen > best.pen)) best = b;
+  }
+  return best;
+}
+
+function boxContact(x: number, z: number, r: number, cx: number, cz: number, hx: number, hz: number): { pen: number; nx: number; nz: number } | null {
+  const lx = x - cx, lz = z - cz;
   const qx = Math.abs(lx) - hx, qz = Math.abs(lz) - hz;
   if (qx > r || qz > r) return null;
   if (qx > 0 && qz > 0) {
@@ -232,6 +317,8 @@ export function buildPier(colliders: Collider[]): THREE.Group {
     }
   }
 
+  buildStage(wood, paint, colliders);
+
   const group = new THREE.Group();
   const deck = new THREE.Mesh(merge(wood), uber(ID.pier, 1));
   const trim = new THREE.Mesh(merge(paint), uber(ID.fence, 1));
@@ -242,9 +329,84 @@ export function buildPier(colliders: Collider[]): THREE.Group {
   return group;
 }
 
+/** The stair, its head and the landing stage (into the pier's two meshes: planks and timber, white rails and iron). */
+function buildStage(wood: Geo[], paint: Geo[], colliders: Collider[]): void {
+  const S = PIER_STAIR, G = PIER_STAGE, D = PIER.deck;
+  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  // Piles from the bed: wet and weedy below the tide line, like the pier's posts.
+  const pile = (x: number, z: number, top: number, r: number) => {
+    const y0 = terrainH(x, z) - 0.4, wetTop = Math.min(SEA_Y + 0.42, top - 0.05);
+    if (wetTop > y0) {
+      wood.push(xf(cyl(r * 1.04, r * 1.08, wetTop - y0, C.wet, M.bark, 8), x, (y0 + wetTop) / 2, z));
+      wood.push(xf(cyl(r * 1.1, r * 1.1, 0.2, C.weed, M.plain, 8), x, SEA_Y + 0.12, z));
+    }
+    const ya = Math.max(y0, wetTop);
+    if (top > ya) wood.push(xf(cyl(r, r * 1.03, top - ya, C.timber, M.bark, 8), x, (ya + top) / 2, z));
+  };
+  // A box between two points in the x-y plane at depth z (stringers, sloped rails).
+  const slab = (x0: number, y0: number, x1: number, y1: number, z: number, h: number, d: number, col: string, mat: number, out: Geo[]) => {
+    const len = Math.hypot(x1 - x0, y1 - y0);
+    out.push(xf(box(len, h, d, col, mat), (x0 + x1) / 2, (y0 + y1) / 2, z, 0, 0, Math.atan2(y1 - y0, x1 - x0)));
+  };
+
+  // Stage: planks on three bearers on six piles, a fascia round its open sides.
+  const gx = G.x0 - G.x1, gz = G.z0 - G.z1, cx = (G.x0 + G.x1) / 2, cz = (G.z0 + G.z1) / 2;
+  wood.push(xf(boxM(gx, 0.08, gz, C.plank, M.deck), cx, G.y - 0.04, cz));
+  for (const x of [G.x0 - 0.16, cx, G.x1 + 0.16]) {
+    wood.push(xf(box(0.14, 0.16, gz + 0.04, C.timber, M.bark), x, G.y - 0.16, cz));
+    for (const z of [G.z0 - 0.16, G.z1 + 0.16]) pile(x, z, G.y - 0.24, 0.11);
+  }
+  wood.push(xf(box(gx + 0.06, 0.15, 0.05, C.timber, M.bark), cx, G.y - 0.115, G.z1 - 0.02));
+  for (const x of [G.x0 + 0.02, G.x1 - 0.02]) wood.push(xf(box(0.05, 0.15, gz, C.timber, M.bark), x, G.y - 0.115, cz));
+  // Mooring pile through the stage, capped, with an iron cleat on its seaward side; and a fender.
+  const P = STAGE_POST;
+  pile(P.x, P.z, P.top, P.r);
+  wood.push(xf(cyl(P.r + 0.012, P.r + 0.012, 0.035, C.timber, M.bark, 8), P.x, P.top + 0.017, P.z));
+  const k = STAGE_CLEAT;
+  paint.push(xf(box(0.05, 0.035, 0.05, C.iron, M.metal), k.x, k.y, k.z + 0.02));
+  paint.push(xf(cyl(0.016, 0.016, 0.24, C.iron, M.metal, 6), k.x, k.y + 0.02, k.z, 0, 0, Math.PI / 2));
+  for (const s of [-1, 1]) paint.push(xf(sphere(0.022, C.iron, M.metal, 6, 4), k.x + s * 0.12, k.y + 0.02, k.z));
+  colliders.push({ x: P.x, z: P.z, r: P.r + 0.03, top: P.top });
+  for (const x of [G.x1 + 0.7, G.x0 - 0.9]) {
+    const g = new THREE.TorusGeometry(0.17, 0.07, 6, 10);
+    paint.push(xf(prep(g, C.wet, M.plain), x, G.y - 0.2, G.z1 - 0.08));
+  }
+
+  // Head: a deck-level landing out past the pier's edge on two piles.
+  const hx = S.x0 - S.x1, hcx = (S.x0 + S.x1) / 2, hz0 = PIER.z - PIER.half;
+  wood.push(xf(boxM(hx, 0.08, hz0 - S.z1, C.plank, M.deck), hcx, D - 0.04, (hz0 + S.z1) / 2));
+  wood.push(xf(box(hx + 0.04, 0.16, 0.12, C.timber, M.bark), hcx, D - 0.16, S.z1 + 0.06));
+  for (const x of [S.x0 - 0.08, S.x1 + 0.08]) pile(x, S.z1 + 0.08, D - 0.24, 0.09);
+
+  // Treads (each a little past its riser) on two stringers that rest on the stage.
+  const sw = S.z0 - S.z1, scz = (S.z0 + S.z1) / 2;
+  for (let i = 1; i < S.n; i++)
+    wood.push(xf(boxM(S.going + 0.03, 0.05, sw - 0.08, C.plank, M.deck), S.x1 - (i - 0.5) * S.going - 0.015, D - i * S.rise - 0.025, scz));
+  const nose = (x: number) => D - (S.rise * (S.x1 - x)) / S.going;
+  const xb = STAIR_FOOT_X - 0.1, xt = S.x1 + 0.04;
+  for (const z of [S.z0 - 0.025, S.z1 + 0.025]) slab(xb, Math.max(G.y + 0.06, nose(xb) - 0.14), xt, nose(xt) - 0.14, z, 0.2, 0.05, C.timber, M.bark, wood);
+
+  // Handrail: round the head's open end and down the stair's outer side, posts and a mid rail.
+  const rz = S.railZ, posts = [S.x0, S.x1, S.x1 - 2.5 * S.going, STAIR_FOOT_X - 0.05];
+  for (const x of posts) {
+    const y0 = x >= S.x1 ? D : x < STAIR_FOOT_X ? G.y : stairTreadH(x) - 0.06;
+    const y1 = stairRailH(x) + 0.03;
+    paint.push(xf(box(0.07, y1 - y0, 0.07, C.rail, M.plain), x, (y0 + y1) / 2, rz));
+  }
+  paint.push(xf(box(0.07, S.railH + 0.03, 0.07, C.rail, M.plain), S.x0, D + (S.railH + 0.03) / 2, S.z0 + 0.05));
+  for (const f of [1, 0.5]) {
+    const r = f === 1 ? 0.03 : 0.022, dy = (f - 1) * S.railH;
+    paint.push(beam(v(S.x0, D + S.railH + dy, S.z0 + 0.05), v(S.x0, D + S.railH + dy, rz), r, C.rail, M.plain, 5));
+    for (let i = 0; i < posts.length - 1; i++) {
+      const a = posts[i], b = posts[i + 1];
+      paint.push(beam(v(a, stairRailH(a) + dy, rz), v(b, stairRailH(b) + dy, rz), r, C.rail, M.plain, 5));
+    }
+  }
+}
+
 /**
- * Two mooring lines from the bollards to the skiff's bow and stern, each sagging in two spans; they
- * follow the hull as it rides at its berth and hide once she is under way.
+ * Two mooring lines, bow to the west bollard and stern to the stage's cleat, each sagging in two
+ * spans; they follow the hull as it rides at its berth and hide once she is under way.
  */
 export class MooringLines {
   readonly group = new THREE.Group();
@@ -273,7 +435,7 @@ export class MooringLines {
     if (!this.group.visible) return;
     const ends = [bow, stern];
     for (let k = 0; k < 2; k++) {
-      this.a.copy(PIER_BOLLARDS[k]);
+      this.a.copy(k === 0 ? PIER_BOLLARDS[0] : STAGE_CLEAT);
       this.b.copy(ends[k]);
       this.m.lerpVectors(this.a, this.b, 0.5);
       this.m.y -= 0.06 + 0.05 * this.a.distanceTo(this.b);
