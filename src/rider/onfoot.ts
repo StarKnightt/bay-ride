@@ -12,7 +12,7 @@ import { clamp, damp } from "../core/rng";
 import type { Boat } from "../boat/boat";
 import { BERTH } from "../boat/berth";
 import { SEA_Y } from "../world/bay/road";
-import { PIER, PIER_STAGE, PIER_STAIR, STAIR_FOOT_X, deckH } from "../world/bay/pier";
+import { PIER, PIER_STAGE, PIER_STAIR, STAIR_FOOT_X, deckH, stairInnerZ } from "../world/bay/pier";
 
 /**
  * On foot and in the skiff. She walks (WASD, Shift to jog) with a mouse orbit camera; F within
@@ -40,7 +40,7 @@ const STAIR_WALK = 0.52, STAIR_RUN = 0.8;
  */
 function stairBodyH(x: number, z: number): number {
   const S = PIER_STAIR;
-  if (z > S.z0 + 0.1 || z < S.z1 - 0.05 || x > S.x1 || x < STAIR_FOOT_X) return NaN;
+  if (x > S.x1 || x < STAIR_FOOT_X || z > stairInnerZ(x) + 0.1 || z < S.z1 - 0.05) return NaN;
   return clamp(PIER.deck - S.rise * ((S.x1 - x) / S.going + 0.5), PIER_STAGE.y, PIER.deck);
 }
 const BODY_R = 0.24;
@@ -251,10 +251,12 @@ export class Explore {
     return b.hullDistance(this.x, this.z) < BERTH.reach;
   }
 
-  /** Aboard away from the berth, slow (or aground) beside standable shore: F would step ashore. */
+  /** Aboard and F would step her ashore: slow at the berth, or slow (or aground) beside standable shore. */
   get canStepAshore(): boolean {
     const b = this.boat;
-    if (!b || this.mode !== "boat" || this.atBerth) return false;
+    if (!b || this.mode !== "boat") return false;
+    // At her berth F steps her out onto the stage once she is slow.
+    if (this.atBerth) return Math.hypot(b.u, b.v) <= LEAVE_SPEED;
     if (Math.hypot(b.u, b.v) > LEAVE_SPEED && !b.aground) return false;
     return this.shoreStep() !== null;
   }
@@ -578,6 +580,8 @@ export class Explore {
     // does a steep face rising ahead (no hopping up the sea wall a jump at a time).
     if (this.air) return h <= this.y + 0.05 && (h <= this.takeoffY + 0.05 || (this.steepness(x, z, h) <= SLOPE_UP && !this.bay.seaWall(x, z)));
     const rise = h - this.gy;
+    // On the stair her body rides the line through the tread middles: the treads are the steps.
+    if (!Number.isNaN(stairBodyH(x, z)) && !Number.isNaN(stairBodyH(this.x, this.z))) return rise <= STEP_UP;
     if (rise > STEP_UP || (rise > 0 && (this.steepness(x, z, h) > SLOPE_UP || this.bay.seaWall(x, z)))) return false;
     const dx = x - this.x, dz = z - this.z, d = Math.hypot(dx, dz) || 1;
     const ax = x + (dx / d) * LOOK_AHEAD, az = z + (dz / d) * LOOK_AHEAD;

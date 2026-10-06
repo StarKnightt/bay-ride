@@ -78,6 +78,16 @@ export function stairTreadH(x: number): number {
   return k >= S.n ? PIER_STAGE.y : PIER.deck - k * S.rise;
 }
 
+/**
+ * The stair's walkable inner edge (world z) at x: the pier's face, widening up to the deck's edge
+ * over the top treads, so walking off the head (or the deck by the gap) down it eases her onto the
+ * stair's line instead of catching on a corner.
+ */
+export function stairInnerZ(x: number): number {
+  const S = PIER_STAIR;
+  return S.z0 + Math.max(0, 1 - (S.x1 - x) / 0.8) * (PIER.z - PIER.half + 0.12 - S.z0);
+}
+
 /** Top of the handrail at world x (level round the head, then down over the nosings). */
 export function stairRailH(x: number): number {
   const S = PIER_STAIR;
@@ -96,12 +106,12 @@ function stageWalkH(x: number, z: number, y: number, steps: boolean): number {
   const railIn = (steps ? S.z1 : S.railZ + m);
   // Head: joins the deck along its edge.
   if (x >= S.x1 && x <= S.x0 - m && z >= railIn) return y < PIER.deck - 0.7 ? NaN : PIER.deck;
-  if (z > PIER.z - PIER.half) return NaN;
   // Stair.
-  if (x < S.x1 && x > STAIR_FOOT_X && z >= railIn && z <= S.z0) {
+  if (x < S.x1 && x > STAIR_FOOT_X && z >= railIn && z <= stairInnerZ(x)) {
     const h = steps ? stairTreadH(x) : Math.max(G.y, PIER.deck - (S.rise * (S.x1 - x)) / S.going);
     return y < h - 0.7 ? NaN : h;
   }
+  if (z > PIER.z - PIER.half) return NaN;
   // Stage (beside the stair, its seaward strip runs on under the stair's last treads).
   const sx0 = z < S.z1 ? G.x0 : STAIR_FOOT_X;
   if (x <= sx0 - (z < S.z1 ? m : 0) && x >= G.x1 + m && z >= G.z1 + m && z <= G.z0) return y < G.y - 0.7 ? NaN : G.y;
@@ -143,6 +153,8 @@ export function pierGround(x: number, z: number, y = Infinity): { h: number; kin
 export function pierWalkH(x: number, z: number, y = Infinity, steps = false): number {
   const st = stageWalkH(x, z, y, steps);
   if (!Number.isNaN(st)) return st;
+  const bs = beachStairWalkH(x, z, y, steps);
+  if (!Number.isNaN(bs)) return bs;
   const dz = Math.abs(z - PIER.z);
   if (x > PIER.x0 || x < PIER.x1 - 0.6 || dz > PIER.half + 0.6) return NaN;
   const top = deckH(x);
@@ -152,7 +164,63 @@ export function pierWalkH(x: number, z: number, y = Infinity, steps = false): nu
   const gap = z < PIER.z && x > PIER_GAP.x0 && x < PIER_GAP.x1;
   if (dz <= (gap ? PIER.half - 0.12 : PIER.half - 0.24)) return top;
   // Off the side: open onto the promenade at the landward end, railings (or the drop) elsewhere.
-  return x > PIER.railFrom && ground > top - 0.35 ? NaN : -Infinity;
+  // Past the railings' end she steps down off the open edge onto land up to STEP_DOWN below: the
+  // deck carries her to its edge, then the ground takes over.
+  if (x > PIER.railFrom && ground > top - STEP_DOWN && ground > SEA_Y + 0.2) return dz <= PIER.half + 0.05 ? top : NaN;
+  return -Infinity;
+}
+
+/** Deepest open-edge drop she steps down off the deck onto land (m). */
+const STEP_DOWN = 0.7;
+
+/**
+ * A short stair off the deck's beach side near the pier's root, past the railings' end, down to the
+ * sand: the obvious way from the pier onto the beach. It runs straight out from the deck's edge
+ * (world z away from the pier) at x0..x1, `n` treads of `going`, down to the sand.
+ */
+export const BEACH_STAIR = { x0: 4.75, x1: 5.95, going: 0.28 };
+interface BeachFlight { s: number; top: number; n: number; rise: number }
+let flights: BeachFlight[] | null = null;
+function beachFlights(): BeachFlight[] {
+  if (flights) return flights;
+  const B = BEACH_STAIR, xc = (B.x0 + B.x1) / 2, top = deckH(B.x1);
+  flights = [];
+  const sand = (s: number, d: number) => {
+    const z = PIER.z + s * (PIER.half + d);
+    // The lowest sand across its width (where the sand rises toward the sea wall it buries the treads' ends).
+    return Math.min(terrainH(B.x0, z), terrainH(B.x1, z), terrainH(xc, z));
+  };
+  // The beach side (north, toward the town beach). To the south the sand climbs to the sea wall's
+  // foot right by the deck, so she steps down off the open edge there instead.
+  for (const s of [1]) {
+    // Run a ~37° line down from the deck's edge to where it meets the sand; that many treads.
+    for (let d = 0.1; d < 4; d += 0.05) {
+      if (top - 0.75 * d > sand(s, d)) continue;
+      const n = Math.max(2, Math.round(d / B.going));
+      const g = sand(s, n * B.going);
+      if (top - g > STEP_DOWN) flights.push({ s, top, n, rise: (top - g) / n });
+      break;
+    }
+  }
+  return flights;
+}
+
+/** The beach stairs as pierWalkH sees them (NaN where they have no say): treads for feet, an even slope for her body. */
+function beachStairWalkH(x: number, z: number, y: number, steps: boolean): number {
+  const B = BEACH_STAIR;
+  if (x < B.x0 - 0.3 || x > B.x1 + 0.3) return NaN;
+  for (const f of beachFlights()) {
+    const d = f.s * (z - PIER.z) - PIER.half;
+    if (d < -0.3 || d > f.n * B.going + 0.05) continue;
+    const m = steps ? 0 : BODY;
+    // The deck's edge band in front of the stair head: deck, out to the edge.
+    if (d < 0) return x >= B.x0 + m && x <= B.x1 - m && y >= f.top - 0.7 ? deckH(x) : NaN;
+    // Its sides: open stringers; she keeps her body on the treads.
+    if (x < B.x0 + m || x > B.x1 - m) return y < f.top - f.n * f.rise - 0.7 ? NaN : -Infinity;
+    const h = steps ? f.top - Math.min(f.n, Math.ceil(d / B.going - 1e-9)) * f.rise : f.top - (f.rise * d) / B.going;
+    return y < h - 0.7 ? NaN : Math.max(h, terrainH(x, z));
+  }
+  return NaN;
 }
 
 /** Is (x, y, z) inside the pier's solid (deck, railings, posts and the space between them)? */
@@ -318,6 +386,7 @@ export function buildPier(colliders: Collider[]): THREE.Group {
   }
 
   buildStage(wood, paint, colliders);
+  buildBeachStairs(wood, paint);
 
   const group = new THREE.Group();
   const deck = new THREE.Mesh(merge(wood), uber(ID.pier, 1));
@@ -327,6 +396,29 @@ export function buildPier(colliders: Collider[]): THREE.Group {
     group.add(m);
   }
   return group;
+}
+
+/** The beach stairs: plank treads on two timber stringers, a newel post each side at the top and foot, a white handrail on each side. */
+function buildBeachStairs(wood: Geo[], paint: Geo[]): void {
+  const B = BEACH_STAIR, w = B.x1 - B.x0, xc = (B.x0 + B.x1) / 2;
+  const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  for (const f of beachFlights()) {
+    const zAt = (d: number) => PIER.z + f.s * (PIER.half + d);
+    for (let i = 1; i <= f.n; i++) {
+      const d = (i - 0.5) * B.going;
+      wood.push(xf(boxM(w - 0.08, 0.05, B.going + 0.03, C.plank, M.deck), xc, f.top - i * f.rise - 0.025, zAt(d)));
+    }
+    const L = f.n * B.going, drop = f.n * f.rise;
+    const len = Math.hypot(L, drop), ang = Math.atan2(drop, L) * f.s;
+    for (const x of [B.x0 + 0.03, B.x1 - 0.03]) {
+      wood.push(xf(box(0.06, 0.22, len + 0.1, C.timber, M.bark), x, f.top - drop / 2 - 0.16, zAt(L / 2), ang));
+      // Newel posts at the head and the foot; the rail runs between them over the nosings.
+      const yTop = f.top + 0.9, yFoot = f.top - drop + 0.9;
+      wood.push(xf(box(0.08, 1.2, 0.08, C.timber, M.bark), x, f.top + 0.9 - 0.6, zAt(0.04)));
+      wood.push(xf(box(0.08, 0.9 + 0.3, 0.08, C.timber, M.bark), x, f.top - drop + 0.9 - 0.6, zAt(L - 0.04)));
+      paint.push(beam(v(x, yTop, zAt(0.04)), v(x, yFoot, zAt(L - 0.04)), 0.028, C.rail, M.plain, 5));
+    }
+  }
 }
 
 /** The stair, its head and the landing stage (into the pier's two meshes: planks and timber, white rails and iron). */

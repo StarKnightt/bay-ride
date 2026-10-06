@@ -1,8 +1,8 @@
 /**
  * Gentle first-time guidance in the painted style, never persistent: a small controls card that eases
- * in at the lower left after the start click and leaves once she has walked a little, and one-line
- * hints low at the bottom centre the first time each is useful (each at most once per session,
- * gone as soon as it is used). Pure DOM, pointer-events none, fixed position (no layout shift).
+ * in at the lower left after the start click and leaves once she has walked a little; one line low at
+ * the bottom centre: "press F" to board or step ashore whenever she is in range (every time), and the
+ * helm keys once, the first time she is under way. Pure DOM, pointer-events none, fixed position (no layout shift).
  * Never shown under a capture: the caller only constructs it for a real, interactive start.
  */
 
@@ -58,6 +58,26 @@ class Note {
   }
 }
 
+/** A one-line prompt that fades in whenever its action is available and out when it isn't, every time. */
+class Prompt {
+  readonly el: HTMLElement;
+  private on = false;
+  constructor(html: string) {
+    this.el = document.createElement("div");
+    this.el.className = "bh-hint";
+    this.el.innerHTML = html;
+    document.body.append(this.el);
+  }
+  set(on: boolean): void {
+    if (on === this.on) return;
+    this.on = on;
+    this.el.classList.toggle("on", on);
+  }
+  get shown(): boolean {
+    return this.on;
+  }
+}
+
 /** What the game reports each frame. */
 export interface HintState {
   /** On her feet and moving (s of this frame count toward "has walked"). */
@@ -73,9 +93,9 @@ export interface HintState {
 
 export class Hints {
   private card: Note;
-  private board: Note;
+  private board: Prompt;
   private helm: Note;
-  private ashore: Note;
+  private ashore: Prompt;
   private t = 0;
   private walked = 0;
   private drove = 0;
@@ -91,9 +111,9 @@ export class Hints {
         `</div><div><div>${k("T")}time of day</div><div>${k("M")}music</div><div>${k("H")}help</div></div></div>`,
       14,
     );
-    this.board = new Note("bh-hint", `${k("F")} board the boat`, 12);
-    this.helm = new Note("bh-hint", `${k("W")}/${k("S")} throttle &middot; ${k("A")}/${k("D")} steer &middot; ${k("Shift")} boost &middot; ${k("F")} step ashore in the shallows`, 8);
-    this.ashore = new Note("bh-hint", `${k("F")} step ashore`, 10);
+    this.board = new Prompt(`press ${k("F")} to board the boat`);
+    this.helm = new Note("bh-hint", `${k("W")}/${k("S")} throttle &middot; ${k("A")}/${k("D")} steer &middot; ${k("Shift")} boost`, 8);
+    this.ashore = new Prompt(`press ${k("F")} to step ashore`);
     // The full help card opens in the same corner.
     addEventListener("keydown", (e) => {
       if (e.code === "KeyH" || e.code === "F1") this.card.hide();
@@ -107,19 +127,15 @@ export class Hints {
     // Walked about 3 s: leave about 1.5 s later (14 s at most).
     if (this.walked > 3) this.card.max = Math.min(this.card.max, this.card.t + 1.5);
     this.card.tick(dt);
-    // One hint at a time, so they never stack.
-    const busy = () => this.board.shown || this.helm.shown || this.ashore.shown;
-    if (s.nearBoat && !busy()) this.board.show();
-    if (this.board.shown && (s.aboard || !s.nearBoat)) this.board.hide();
-    if (s.aboard && !busy()) this.helm.show();
+    // One line at a time, so they never stack: the F prompts (every time she is in range) over the
+    // first-time helm hint, which only shows once she is under way from the berth.
+    this.board.set(s.nearBoat && !s.aboard);
+    this.ashore.set(s.aboard && s.canAshore);
+    if (s.aboard && s.driving && !this.ashore.shown) this.helm.show();
     if (this.helm.shown) {
-      if (s.driving) this.drove += dt;
-      if (this.drove > 3 || !s.aboard) this.helm.hide();
+      this.drove += dt;
+      if (this.drove > 5 || !s.aboard || this.ashore.shown) this.helm.hide();
     }
-    if (s.canAshore && this.helm.done && !busy()) this.ashore.show();
-    if (this.ashore.shown && !s.aboard) this.ashore.hide();
-    this.board.tick(dt);
     this.helm.tick(dt);
-    this.ashore.tick(dt);
   }
 }
