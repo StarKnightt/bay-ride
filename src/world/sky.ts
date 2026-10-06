@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { blob, prep, M, ID } from "./geo";
 import { SEA_Y } from "./bay/road";
-import { uber } from "../render/materials";
+import { G, uber } from "../render/materials";
 import { skyDomeMaterial } from "./skyDome";
 import { CLOUD_LOBES, paintedCloudMaterial } from "../render/cloudPaint";
 import { LAYER_REFLECT, onLayers } from "../render/lightpasses";
@@ -16,13 +16,17 @@ const smooth01 = (x: number) => {
 /**
  * Sky and distance. The dome (gradient, sun disk, painted moon, stars, cirrus) follows the camera;
  * the painted cumulus cards and the distant ridges are fixed around the bay, ridges only on the
- * land side so the sea horizon stays open.
+ * land side so the sea horizon stays open. Dusk and night have their own cloud field: a few big,
+ * soft banks in place of the day's many heaps and strips.
  */
 export class Sky {
   /** Follows the camera. */
   readonly group = new THREE.Group();
   /** Fixed around the bay: clouds and ridges. */
   readonly far = new THREE.Group();
+  private readonly dayClouds: CloudCards;
+  private readonly nightClouds: CloudCards;
+  private nightK = -1;
 
   constructor() {
     const dome = new THREE.Mesh(new THREE.SphereGeometry(4100, 48, 24), skyDomeMaterial());
@@ -30,7 +34,10 @@ export class Sky {
     dome.renderOrder = -10;
     this.group.add(dome);
 
-    this.far.add(cloudField(mulberry32(77)));
+    this.dayClouds = cloudCards(cloudField(mulberry32(77)));
+    this.nightClouds = cloudCards(cloudField(mulberry32(79), true));
+    this.far.add(this.dayClouds.mesh, this.nightClouds.mesh);
+    this.swapClouds(0);
 
     // Distant layers behind the hill: forested ridges, then painted blue mountains fading lighter
     // (aerial perspective). Arcs centred on the land side (+X); the far bands reach further round.
@@ -74,12 +81,41 @@ export class Sky {
 
   follow(cam: THREE.Vector3): void {
     this.group.position.set(cam.x, 0, cam.z);
+    this.swapClouds(smooth01((G.uNight.value - 0.6) / 0.3));
   }
+
+  /** 0 = the day's clouds … 1 = the night's: one set shrinks away as the other grows in. */
+  private swapClouds(k: number): void {
+    if (k === this.nightK) return;
+    this.nightK = k;
+    this.dayClouds.scale(1 - k);
+    this.nightClouds.scale(k);
+  }
+}
+
+interface CloudCards {
+  mesh: THREE.Mesh;
+  /** Every card's size times `s` about its base (0 hides the field). */
+  scale(s: number): void;
+}
+
+function cloudCards(mesh: THREE.Mesh): CloudCards {
+  const attr = mesh.geometry.getAttribute("aSize") as THREE.BufferAttribute;
+  const size = attr.array as Float32Array;
+  const hw = size.slice();
+  return {
+    mesh,
+    scale(s: number) {
+      for (let i = 0; i < size.length; i += 2) size[i] = hw[i] * s;
+      attr.needsUpdate = true;
+      mesh.visible = s > 0;
+    },
+  };
 }
 
 /** x, y, radius, depth (toward the camera; the front-most lobe sphere at a pixel shades it). */
 type Lobe = [number, number, number, number];
-type CloudKind = "cumulus" | "heap" | "strata";
+type CloudKind = "cumulus" | "heap" | "strata" | "bank";
 
 const clampX = (x: number, rad: number) => Math.max(-0.97 + rad, Math.min(0.97 - rad, x));
 
@@ -87,8 +123,11 @@ const clampX = (x: number, rad: number) => Math.max(-0.97 + rad, Math.min(0.97 -
  * Lobe layout of one cloud in cloud units (half width = 1, base at y = 0). Towering cumulus: a
  * broad base under a tall body heaped off-centre, its crown broken into small cauliflower bumps.
  * Heaps: one to three lopsided masses with a few bumps. Strata: a long, thin, wavy strip of
- * small lobes that swells and breaks along its length. Higher masses sit further back, so the
- * lower ones overlap their bases; bumps sit on the surface of the lobe they grow from.
+ * small lobes that swells and breaks along its length. Banks (night): a low base of big lobes
+ * tapering to both ends, one or two masses heaped up on it and a few broad bumps, so the outline
+ * stays soft. Higher
+ * masses sit further back, so the lower ones overlap their bases; bumps sit on the surface of the
+ * lobe they grow from.
  */
 function cloudLobes(r: () => number, kind: CloudKind): { lobes: Lobe[]; top: number } {
   const lobes: Lobe[] = [];
@@ -137,6 +176,15 @@ function cloudLobes(r: () => number, kind: CloudKind): { lobes: Lobe[]; top: num
       if (r() < 0.6) add(cx + range(r, -0.35, 0.35), y - range(r, 0.05, 0.15), rad * range(r, 0.65, 0.85));
     }
     bumps(Math.min(max - lobes.length, 12 + Math.floor(r() * 7)), 0.08, 0.16);
+  } else if (kind === "bank") {
+    const nb = 4 + Math.floor(r() * 2);
+    for (let i = 0; i < nb; i++) {
+      const t = i / (nb - 1);
+      const rad = (0.12 + 0.26 * Math.sin(Math.PI * (0.1 + 0.8 * t))) * range(r, 0.85, 1.15);
+      add((t * 2 - 1) * (0.86 - rad) + range(r, -0.04, 0.04), rad * range(r, 0.3, 0.5), rad);
+    }
+    for (let i = 0, nh = 1 + Math.floor(r() * 2); i < nh; i++) add(range(r, -0.35, 0.35), range(r, 0.22, 0.34), range(r, 0.24, 0.34));
+    bumps(3 + Math.floor(r() * 3), 0.1, 0.18);
   } else {
     // Lopsided heap: one to three big masses, maybe a raised shoulder, a few bumps.
     const nb = 1 + Math.floor(r() * 3);
@@ -159,9 +207,10 @@ function cloudLobes(r: () => number, kind: CloudKind): { lobes: Lobe[]; top: num
  * The painted cloud field around the bay: a few big towering cumulus, medium heaps of every
  * size in depth, a nearer high layer, and long flat strata low on the horizon. Clouds at similar
  * depths never overlap on the sky (so their cards can't cut through each other), and the sky
- * stays clear around the low golden and setting sun.
+ * stays clear around the low golden and setting sun. The night field is about seven big, low
+ * banks, hazed toward the sky behind them, clear of the moon.
  */
-function cloudField(r: () => number): THREE.Mesh {
+function cloudField(r: () => number, night = false): THREE.Mesh {
   const DEG = Math.PI / 180;
   // The low suns and the moon at morning, dusk and night: a blended cloud card over the moon lets
   // its disc and halo show through the cloud's soft edge.
@@ -173,15 +222,14 @@ function cloudField(r: () => number): THREE.Mesh {
     [-84, 19],
   ].map(([az, el]) => [az * DEG, el * DEG]);
   const angDiff = (a: number, b: number) => Math.abs(((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-  interface C { x: number; y: number; z: number; hw: number; sy: number; haze: number; lobes: Lobe[]; top: number; d: number; az: number; halfA: number; elLo: number; elHi: number }
-  const clouds: C[] = [];
+  const clouds: PlacedCloud[] = [];
   const tryAdd = (kind: CloudKind, az: number, d: number, y: number, hw: number, sy: number, haze: number): boolean => {
     const { lobes, top } = cloudLobes(r, kind);
     const halfA = Math.atan((hw * 1.05) / d);
     const elLo = Math.atan(y / d), elHi = Math.atan((y + top * hw * sy) / d);
     // The low play cameras' frame top sits ~15-25 deg up: no cloud may cross it (a flat-bottomed
     // cloud sliced by the frame edge reads as a cut card). Towering cumulus get a little more.
-    if (elHi > (kind === "cumulus" ? 0.3 : kind === "heap" ? 0.25 : 0.4)) return false;
+    if (elHi > (kind === "cumulus" ? 0.3 : kind === "strata" ? 0.4 : 0.25)) return false;
     if (suns.some(([sa, se]) => angDiff(az, sa) < halfA + 0.12 && se > elLo - 0.06 && se < elHi + 0.08)) return false;
     for (const c of clouds) {
       if (angDiff(az, c.az) > halfA + c.halfA + 0.015) continue;
@@ -192,6 +240,17 @@ function cloudField(r: () => number): THREE.Mesh {
     return true;
   };
 
+  if (night) {
+    // Near banks out over the open sea, up the coast, over the hill and toward the harbour; then a
+    // few wider ones far off, wherever they fit.
+    for (const az0 of [-140, -40, 80, 165])
+      for (let k = 0; k < 40; k++)
+        if (tryAdd("bank", (az0 + range(r, -12, 12)) * DEG, range(r, 950, 1400), range(r, 70, 110), range(r, 300, 420), range(r, 0.55, 0.7), 0.38)) break;
+    for (let i = 0; i < 3; i++)
+      for (let k = 0; k < 40; k++)
+        if (tryAdd("bank", r() * Math.PI * 2, range(r, 1600, 2500), range(r, 100, 160), range(r, 400, 540), range(r, 0.4, 0.55), 0.5)) break;
+    return cloudMesh(clouds, r);
+  }
   // Big towering cumulus: toward the harbour, either side of the island view, over the hill.
   for (const az0 of [-160, -66, 74, 158]) {
     for (let k = 0; k < 30; k++) {
@@ -213,6 +272,13 @@ function cloudField(r: () => number): THREE.Mesh {
       }
     }
   }
+  return cloudMesh(clouds, r);
+}
+
+interface PlacedCloud { x: number; y: number; z: number; hw: number; sy: number; haze: number; lobes: Lobe[]; top: number; d: number; az: number; halfA: number; elLo: number; elHi: number }
+
+/** One mesh of cards for the placed clouds, with their lobe table. */
+function cloudMesh(clouds: PlacedCloud[], r: () => number): THREE.Mesh {
   // Far first: the cards are blended in this order.
   clouds.sort((a, b) => b.d - a.d);
 
