@@ -765,9 +765,11 @@ void main(){
       float tone = mix(1.0, 0.88 + 0.2 * hash12(floor(pq)), footKeep(0.8));
       float mot = 0.84 + 0.2 * vnoise(vWPos.xz * 0.55) + 0.1 * vnoise(vWPos.xz * 1.9 + 7.0);
       base *= mix(1.0, tone * mot * (1.0 - 0.3 * joint), up);
-      // Pale paving takes the evening light like the sand, a little less.
-      base *= mix(1.0, 0.75 - 0.15 * uStars, uNight * up);
     }
+    // Pale paving takes the evening light like the sand, a little less; so does the ground's pale
+    // masonry at any slope (the sea wall's face, slipway sides), or it outshines the beach at night.
+    float wallK = (1.0 - step(0.5, abs(uId - 1.0))) * smoothstep(0.3, 0.38, dot(vCol, vec3(0.2126, 0.7152, 0.0722)));
+    base *= mix(1.0, 0.75 - 0.15 * uStars, uNight * max(up, wallK));
     paint = 1.4;
   } else if ((HAS(23) && mt == 23) || (HAS(24) && mt == 24)) { // painted signage from the atlas; 24 = lit (vending, phone)
     vec4 sg = texture(uSignTex, vUv);
