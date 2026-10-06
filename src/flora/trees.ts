@@ -139,8 +139,9 @@ function crown(b: Builder, r: Rng, cl: Cluster[], centre: V3, colors: readonly s
     // Every clump has a solid leafy mass (painted with atlas leaves in the shader), its normals
     // bent toward the whole crown's so the canopy shades as one soft volume and holds together at
     // any distance; outer clumps' masses sit deeper inside so their cards still scallop the edge.
-    const inner = k.c.distanceTo(centre) < coreReach;
-    const mass = prep(blob(k.r * (inner ? 0.82 : 0.68), 1, 0.18, r() * 50), _c.set(colors[Math.floor(r() * colors.length)]).multiplyScalar(inner ? 0.78 : 0.88), M.foliage, 0);
+    // Near trees (full card count) keep the mass well inside the cards, else it shows as a bare ball.
+    const inner = k.c.distanceTo(centre) < coreReach, mk = CARD_N < 1 ? 1 : 0.74;
+    const mass = prep(blob(k.r * (inner ? 0.82 : 0.68) * mk, 1, 0.18, r() * 50), _c.set(colors[Math.floor(r() * colors.length)]).multiplyScalar(inner ? 0.78 : 0.88), M.foliage, 0);
     mass.scale(1, squash, 1);
     mass.translate(k.c.x, k.c.y, k.c.z);
     spherize(mass, centre, 0.55, squash < 1 ? 1 / 0.6 : 1);
@@ -244,14 +245,15 @@ function plant(b: Builder, s: TreeSpot, y: number): { trunk: number; h: number }
     const top = V(range(r, -0.15, 0.15), h, range(r, -0.15, 0.15));
     t.geo(bark(V(0, -0.3, 0), top, trunk, trunk * 0.5), null, sway);
     const cl: Cluster[] = [];
-    const tiers = pop ? 6 : 6 + Math.floor(r() * 2);
+    // Poplar tiers overlap into one column (six spaced clumps read as a stack of beads).
+    const tiers = pop ? 10 : 6 + Math.floor(r() * 2);
     for (let i = 0; i < tiers; i++) {
       const f = i / (tiers - 1), y = h * (pop ? 0.3 + f * 0.78 : 0.22 + f * 0.86);
       const rad = pop ? 1.15 * (1 - 0.55 * Math.abs(f - 0.4) ** 1.5) : 2.1 * (1 - f * 0.82);
       const a = r() * Math.PI * 2, d = rad * 0.18;
       cl.push({ c: V(top.x * f + Math.cos(a) * d, y, top.z * f + Math.sin(a) * d), r: rad * range(r, 0.9, 1.1) });
     }
-    crown(t, r, cl, V(top.x, h * 0.62, top.z), pop ? BROAD : PINE, pop ? 13 : 14, pop ? 40 : 28, pop ? [0.5, 0.72] : [0.55, 0.78], pop ? LEAF_CELL.ovate : LEAF_CELL.lance, sway, pop ? 1 : 0.55, 0.3);
+    crown(t, r, cl, V(top.x, h * 0.62, top.z), pop ? BROAD : PINE, pop ? 8 : 14, pop ? 44 : 28, pop ? [0.5, 0.72] : [0.55, 0.78], pop ? LEAF_CELL.ovate : LEAF_CELL.lance, sway, pop ? 1 : 0.55, 0.3);
   } else {
     // Shrub (or a clipped hedge clump): low clusters of broad leaves, no trunk to speak of.
     const hedge = s.kind === "hedge";
