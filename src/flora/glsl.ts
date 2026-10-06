@@ -388,8 +388,19 @@ void main(){
   // Painted volume: dark teal-green pockets, a mid green, lime on the sunlit shell.
   vec3 cDeep = vec3(base.r * uLeafDeep.x, base.g * uLeafDeep.y, base.g * uLeafDeep.z + base.b * 0.25);
   vec3 cMid = base * vec3(0.8, 0.92, 0.96);
-  float sunL = dot(uSunColor, vec3(0.2126, 0.7152, 0.0722));
-  vec3 cLit = base * uLeafLit * mix(vec3(sunL), uSunColor, 0.42);
+  // The painted shade tones are noon's: they follow the scene's shade level and hue from there
+  // (noon's shadow tint has luma 0.28 and that hue), as the ground's shade does, so crowns dim and
+  // cool with the evening instead of glowing cyan over dark fields.
+  vec3 lumW = vec3(0.2126, 0.7152, 0.0722);
+  float shL = dot(uShadowTint, lumW);
+  vec3 amb = pow(shL / 0.283, 0.9) * mix(vec3(1.0), uShadowTint / max(shL, 1e-3) / vec3(0.788, 0.986, 1.777), 0.6);
+  float sunL = dot(uSunColor, lumW);
+  // A low key light colours the shade too (gold, rose, moon blue): the teal pockets stay green.
+  amb *= mix(vec3(1.0), uSunColor / max(sunL, 1e-3), 0.6 * uKeyHue);
+  cDeep.b = mix(cDeep.b, base.g * uLeafDeep.x + base.b * 0.25, uKeyHue);
+  cDeep *= amb;
+  cMid *= amb;
+  vec3 cLit = base * uLeafLit * mix(vec3(sunL), uSunColor, mix(0.42, 0.9, uKeyHue));
   vec3 col = mix(cDeep, cMid, mid);
   col = mix(col, cLit, lit);
   // Each leaf's sunlit edge: a crisp bright touch on the light side of the crown. Far off a leaf
