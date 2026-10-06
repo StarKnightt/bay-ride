@@ -149,10 +149,13 @@ void main(){
   float sunL = dot(uSunColor, vec3(0.2126, 0.7152, 0.0722));
   vec3 cLit = base * mix(vec3(sunL), uSunColor, 0.38 + 0.55 * vTip * vTip);
   vec3 cSh = base * uShadowTint * vec3(0.92, 1.0, 1.05);
+  // Shade keeps the grass's own green (a low sun behind a slope otherwise leaves grey tufts).
+  float lS = dot(cSh, vec3(0.2126, 0.7152, 0.0722));
+  cSh = max(mix(vec3(lS), cSh, 1.35), 0.0);
   vec3 col = mix(cSh, cLit, lit);
   // Darker down among the roots, bright tips.
-  col *= mix(0.5, 1.0, smoothstep(0.0, 0.6, vTip));
-  col += base * uSkyMid * 0.08;
+  col *= mix(0.6, 1.0, smoothstep(0.0, 0.6, vTip));
+  col += base * uSkyMid * 0.16;
   // Sunlight through the blades when looking toward the sun (tips glow yellow-green).
   vec3 V = normalize(cameraPosition - vWPos);
   float back = pow(max(dot(-V, uSunDir), 0.0), 3.0);
@@ -220,7 +223,8 @@ void main(){
   g = mix(g, g * vec3(0.62, 0.74, 0.82), smoothstep(0.3, 0.2, fl) * k1 * 0.5);
   // Up the hill: a patchwork of fields in warped, rotated cells, divided by hedgerows.
   // Hedge lines never thin below ~1.5 px so they still read from the bay.
-  float hill = smoothstep(4.0, 12.0, vWPos.y) * (1.0 - pathK);
+  // Not on the island (centre -200, -20, radius 38): heath there, no fields.
+  float hill = smoothstep(4.0, 12.0, vWPos.y) * (1.0 - pathK) * smoothstep(48.0, 62.0, length(vWPos.xz - vec2(-200.0, -20.0)));
   vec2 w = vec2(dot(vWPos.xz, vec2(0.94, 0.34)), dot(vWPos.xz, vec2(-0.34, 0.94)));
   w += vec2(7.0 * sin(w.y * 0.043 + 1.0), 6.0 * sin(w.x * 0.061 + 2.0));
   // Per-axis screen footprint, taken outside the branch: at grazing angles a line keeps ~1.6 px
@@ -476,7 +480,11 @@ export function meadowMaterial(): THREE.ShaderMaterial {
 export function fieldMaterial(): THREE.ShaderMaterial {
   const m = new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...uniforms(), uId: { value: ID.ground }, uMask: { value: 0.6 } },
+    // A faint ink mask: with 4x MSAA a blade or leaf card's edge pixels resolve to a mix of its -1
+    // and the field's mask, and at 0.6 that mix came out positive, inking every tuft and crown
+    // over the grass (black tufts at distance). At 0.08 any mix stays negative; neighbours with
+    // their own mask (houses, rocks, posts) still draw full lines against the field.
+    uniforms: { ...uniforms(), uId: { value: ID.ground }, uMask: { value: 0.08 } },
     vertexShader: GROUND_VS,
     fragmentShader: GROUND_FS,
     vertexColors: true,

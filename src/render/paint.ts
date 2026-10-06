@@ -82,10 +82,10 @@ void main(){
   ivec2 fp = ivec2(gl_FragCoord.xy * 2.0);
   float dz = linz(texelFetch(tDepth, fp, 0).r);
   float id = floor(texelFetch(tNormal, fp, 0).z * 32.0 + 0.5);
-  // Her face stays as painted; her hair, skin and clothes and the skiff take a smaller brush.
   // The sea is left alone (its glitter and strokes are painted crisp already); grass, leaves,
-  // flowers and stone take a broader brush.
-  float rk = (id == 19.0 || id == 2.0) ? 0.0 : (id == 13.0 || id == 14.0 || id == 18.0 || (id >= 20.0 && id <= 24.0)) ? 0.45
+  // flowers and stone take a broader brush. Her whole figure (shirt 13, hair 14, skin 18, face 19, clothes and hat 22-24) and the skiff
+  // (20, 21) take no brush at all: at play distance the sectors turned her into blotches.
+  float rk = (id == 2.0 || id == 13.0 || id == 14.0 || (id >= 18.0 && id <= 24.0)) ? 0.0
            : (id == 3.0 || id == 6.0 || id == 16.0) ? 1.35 : 1.0;
   float R = uRadius * rk;
   vec2 uv0 = vUv * uS;
@@ -179,7 +179,7 @@ void main(){
   // its tone. The swash beach (ground id with no ink mask) only settles a little.
   bool wet = id == 1.0 && abs(nrm.a) < 0.05;
   float w = uStrength * (wet ? 0.25 : (id == 3.0 || id == 4.0 || id == 6.0 || id == 16.0) ? 1.15 : 1.0);
-  if (id == 19.0 || id == 2.0 || w <= 0.0) { o = vec4(col, 1.0); return; }
+  if (id == 2.0 || id == 13.0 || id == 14.0 || (id >= 18.0 && id <= 24.0) || w <= 0.0) { o = vec4(col, 1.0); return; }
   // Depth-aware upsample: the four nearest half-res texels, weighted by how close their depth is
   // to this pixel's (no background paint bleeding onto a silhouette, or the reverse).
   float dz = linz(texelFetch(tDepth, fp, 0).r);
@@ -194,8 +194,6 @@ void main(){
     acc += vec4(safe3(p.rgb) * ww, ww);
   }
   vec3 paint = acc.rgb / acc.w;
-  // Her hair, skin and clothes and the skiff: a softer touch on top of the smaller brush.
-  if (id == 13.0 || id == 14.0 || id == 18.0 || (id >= 20.0 && id <= 24.0)) w *= 0.6;
   // Thin things a sector filter would erase: wires (they carry no ink line of their own), birds,
   // butterflies and fish (a few pixels), poles, rails and signs (inked, but keep their paint).
   if (id == 9.0) w = 0.0;

@@ -172,13 +172,14 @@ export class Meadow {
         for (let x = x0; x < 150; x += STEP) try2(x + range(r, -0.95, 0.95) * STEP, z + range(r, -0.95, 0.95) * STEP);
 
     // The island: short grass round the lighthouse, off the rocky shore.
-    for (let z = ISLAND.z - 34; z < ISLAND.z + 34; z += STEP * 1.1)
-      for (let x = ISLAND.x - 34; x < ISLAND.x + 34; x += STEP * 1.1) {
+    // Too short and only the dark root shows: the tufts read as black stubs from the shore.
+    for (let z = ISLAND.z - 34; z < ISLAND.z + 34; z += STEP * 0.9)
+      for (let x = ISLAND.x - 34; x < ISLAND.x + 34; x += STEP * 0.9) {
         const xx = x + range(r, -0.5, 0.5) * STEP, zz = z + range(r, -0.5, 0.5) * STEP;
-        if (r() > 0.8 || Math.hypot(xx - LIGHTHOUSE.x, zz - LIGHTHOUSE.z) < 4) continue;
+        if (Math.hypot(xx - LIGHTHOUSE.x, zz - LIGHTHOUSE.z) < 4) continue;
         const y = groundY(xx, zz);
-        if (y < SEA_Y + 2.6 || slopeAt(xx, zz) > 0.34) continue;
-        put(xx, y, zz, range(r, 0.3, 0.6), range(r, 0.9, 1.3), range(r, 0.4, 0.95));
+        if (y < SEA_Y + 3.4 || slopeAt(xx, zz) > 0.3) continue;
+        put(xx, y, zz, range(r, 0.6, 0.95), range(r, 0.9, 1.3), range(r, 0.4, 0.95));
       }
     await pause();
 

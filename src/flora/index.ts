@@ -119,9 +119,13 @@ function wildTrees(layout: Layout): TreeRegion[] {
       hill(tz).push({ x: tx, z: tz, kind: "poplar", scale: range(r, 0.85, 1.15), seed: seed() });
     }
   }
-  for (const z of [-128, -76, -12, 26, 64, 98, 136]) {
-    const u = range(r, 10.5, 13), x = roadX(z) + u;
-    if (ok(x, z, 2.5, 0.4)) hill(z).push({ x, z, kind: "round", scale: range(r, 0.8, 1.0), seed: seed() });
+  // Big leafy trees along the road's landward side, framing the coast road and the promenade.
+  for (const z0 of [-140, -128, -104, -76, -52, -30, -12, 8, 26, 44, 64, 82, 98, 118, 136, 154]) {
+    const z = z0 + range(r, -4, 4), u = range(r, 10.5, 14), x = roadX(z) + u;
+    if (ok(x, z, 2.5, 0.4) && roomy(x, z, 7)) {
+      placed.push({ x, z });
+      hill(z).push({ x, z, kind: r() < 0.2 ? "tall" : "round", scale: range(r, 1.2, 1.55), seed: seed() });
+    }
   }
   // The big tree on the north path, with its bench.
   hill(78).push({ x: roadX(80) + 73.5, z: 80, kind: "hero", scale: 1, seed: 4242 });
@@ -162,8 +166,8 @@ function wildTrees(layout: Layout): TreeRegion[] {
     island.push({ x, z, kind: r() < 0.75 ? "pine" : "bush", scale: range(r, 0.7, 0.95), seed: seed() });
   }
   // Low scrub in clumps over the island's slopes, above the rock band (never as tall as the tower).
-  for (let k = 0, tries = 0; k < 14 && tries < 400; tries++) {
-    const a = r() * Math.PI * 2, d = range(r, 14, 46);
+  for (let k = 0, tries = 0; k < 30 && tries < 600; tries++) {
+    const a = r() * Math.PI * 2, d = range(r, 12, 44);
     const x = LIGHTHOUSE.x + Math.cos(a) * d, z = LIGHTHOUSE.z + Math.sin(a) * d;
     if (groundY(x, z) < SEA_Y + 4.5 || slopeAt(x, z) > 0.5) continue;
     k++;
@@ -206,7 +210,7 @@ export class Flora {
     const town: TreeSpot[] = [...townShrubs];
     for (const [u, z, kind, s] of TOWN_TREES) {
       const x = roadX(z) + u;
-      if (layout.free(x, z, 1.6)) town.push({ x, z, kind, scale: s, seed: Math.floor(r() * 1e9) });
+      if (layout.free(x, z, 1.6)) town.push({ x, z, kind, scale: s * 1.2, seed: Math.floor(r() * 1e9) });
     }
     // Shrubs that would stand on a lane, path or wall are dropped.
     const regions = [{ name: "town", spots: town.filter((s) => s.y !== undefined || layout.free(s.x, s.z, 0.5)) }, ...wildTrees(layout)];

@@ -184,6 +184,8 @@ const C = {
   grass: new THREE.Color("#5e9049"),
   grassDark: new THREE.Color("#3d6e45"),
   rock: new THREE.Color("#8c8273"),
+  ochre: new THREE.Color("#a68b62"),
+  earth: new THREE.Color("#8a7350"),
   rockDark: new THREE.Color("#6a6258"),
   path: new THREE.Color("#b5a07a"),
 };
@@ -207,9 +209,23 @@ function surface(u: number, z: number, x: number, y: number, slope: number, out:
     return M.plain;
   }
   // The island (u = -1000): a broken rock band round the waterline and outcrops on its steeper flanks.
-  if (u < -500 && y > SEA_Y - 1 && (y < SEA_Y + 2.6 + 2.2 * n || slope > 0.22 + 0.25 * n)) {
-    out.copy(C.rock).lerp(C.rockDark, n);
+  // Rock is layered in painted strata (warm ochre, grey and dark bands that wobble along the
+  // contour); between the crags the flanks are heath: grass with patches of bare earth.
+  // The island's gentle shore: a strip of sand at the waterline where a boat can be beached.
+  if (u < -500 && y > SEA_Y - 1 && y < SEA_Y + 0.7 + 0.5 * n && slope < 0.2) {
+    out.copy(C.sandDry).lerp(C.sandWet, 1 - smooth(SEA_Y + 0.1, SEA_Y + 0.6, y));
+    return M.plain;
+  }
+  if (u < -500 && y > SEA_Y - 1 && (y < SEA_Y + 1.6 + 1.2 * n || slope > 0.36 + 0.15 * n)) {
+    const band = Math.sin(y * 2.6 + n * 2.4 + pnoise(x * 0.3, z * 0.3, 7) * 3) * 0.5 + 0.5;
+    out.copy(C.rock).lerp(C.ochre, smooth(0.55, 0.9, band) * 0.8).lerp(C.rockDark, smooth(0.35, 0.05, band) * 0.85);
     return M.stone;
+  }
+  if (u < -500 && y > SEA_Y - 1) {
+    out.copy(C.grass).lerp(C.grassDark, smooth(0.3, 0.8, n));
+    const bare = smooth(0.2, 0.34, slope) * smooth(0.45, 0.7, pnoise(x * 1.7, z * 1.7, 9));
+    out.lerp(C.earth, bare * 0.7);
+    return M.ground;
   }
   // Steep or wave-washed land: rock.
   if (slope > 0.42 || (y < SEA_Y + 2.2 && y > SEA_Y - 1 && slope > 0.18 && u < -60)) {
@@ -240,8 +256,9 @@ function surface(u: number, z: number, x: number, y: number, slope: number, out:
  */
 export function buildTerrain(beachMat: THREE.Material): { terrain: THREE.Mesh; beach: THREE.Mesh } {
   const us = [
-    ...steps(-700, -260, 20),
-    ...steps(-260, -120, 4),
+    ...steps(-700, -330, 20),
+    // The island (u -285 to -200) on the fine 4 m grid, so its rock, heath and sand meet in curves.
+    ...steps(-330, -120, 4),
     ...steps(-120, -42, 2),
     ...steps(-42, WALL_OUT - 0.5, 0.5),
     WALL_OUT - 0.5, WALL_OUT - 0.25, WALL_OUT, WALL_OUT + 0.08,

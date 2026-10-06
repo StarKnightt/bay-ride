@@ -425,6 +425,18 @@ export class Flowers {
         }
       }
     }
+    // The coast road's landward verge: drifts the whole length of the road, thick at the kerb.
+    const ROADSIDE: FlowerKind[][] = [["daisy", "yellow"], ["pink", "daisy"], ["lavender"], ["yellow", "weed"], ["daisy", "fern"], ["lavender", "pink"]];
+    let rk = pick(r, ROADSIDE), rLeft = 0;
+    for (let z = -226; z < 166; z += 0.55) {
+      if (--rLeft < 0) { rk = pick(r, ROADSIDE); rLeft = 8 + Math.floor(r() * 20); }
+      const dn = pnoise(z * 3.1, 7.7, 11);
+      if (dn < 0.32) continue;
+      for (let j = 0, m = 1 + Math.floor(dn * 4); j < m; j++) {
+        const u = 4.3 + Math.pow(r(), 1.8) * 5.5, zz = z + range(r, -0.3, 0.3), x = roadX(zz) + u;
+        if (layout.free(x, zz, 0.1) && slopeAt(x, zz) < 0.45) put(pick(r, rk), x, groundY(x, zz) - 0.03, zz, range(r, 0.95, 1.2));
+      }
+    }
     poolsDone();
     // Headlands: thrift on the cliff tops, yellow among the short grass.
     for (let i = 0; i < 70; i++) {
