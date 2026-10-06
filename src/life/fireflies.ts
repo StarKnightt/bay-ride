@@ -105,13 +105,16 @@ export class Fireflies {
     return this.layout.free(x, z, 0);
   }
 
-  /** Clump k on grass near (x, z), ahead of the view `(fx, fz)` when `ahead`, apart from the others. */
+  /**
+   * Clump k on grass near (x, z), apart from the others: ahead of the view `(fx, fz)` when `ahead`,
+   * else anywhere round her, the first clump close by.
+   */
   private placeClump(k: number, x: number, z: number, fx: number, fz: number, ahead: boolean): boolean {
     const r = this.r, c = this.clumps;
     for (let n = 0; n < 12; n++) {
       const fwd = ahead && n < 8;
       const ang = fwd ? Math.atan2(fz, fx) + range(r, -0.9, 0.9) : r() * Math.PI * 2;
-      const d = fwd ? range(r, 18, 38) : range(r, 3, 38);
+      const d = fwd ? range(r, 18, 38) : range(r, 3, !ahead && k === 0 ? 14 : 38);
       const cx = x + Math.cos(ang) * d, cz = z + Math.sin(ang) * d;
       if (!this.grassy(cx, cz)) continue;
       // Mostly by an edge (hedgerows along the walls, gardens, path verges), out on open grass less often.
