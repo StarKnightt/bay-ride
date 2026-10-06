@@ -51,6 +51,8 @@ export const G = {
   uPush: { value: new THREE.Vector4(0, 0, 0.8, 0) },
   /** Apparent wind on her cloth (rider materials only): world dir x, z, strength (m/s), gust. */
   uRiderWind: { value: new THREE.Vector4(0, 0, 0, 0) },
+  /** The pier's lamp heads (world xyz; w = 1 once the pier is built), lit after dusk (water/sea.ts sets them). */
+  uPierLamps: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
   ...TOD,
 };
 
@@ -507,6 +509,23 @@ in vec2 vUv;
 in vec3 vObj;
 flat in int vMat;
 
+// The pier's lamps after dusk: a soft warm pool of light round each one on the deck, the rails, the
+// bollards and the moored skiff. Wrapped and eased so it reads as painted light rather than a hard
+// spot, and it never blows out right under a lamp head; gone by 8 m.
+uniform vec4 uPierLamps[3];
+vec3 pierLampLight(vec3 p, vec3 N){
+  float L = 0.0;
+  for (int i = 0; i < 3; i++) {
+    vec4 Lp = uPierLamps[i];
+    vec3 d = Lp.xyz - p;
+    float d2 = dot(d, d);
+    if (Lp.w < 0.5 || d2 > 64.0) continue;
+    float ndl = clamp((dot(N, d) * inversesqrt(max(d2, 1e-4)) + 0.35) / 1.35, 0.0, 1.0);
+    L += ndl * (1.0 - smoothstep(9.0, 64.0, d2)) / (1.0 + d2 * 0.12);
+  }
+  return vec3(1.0, 0.62, 0.3) * L * 0.65 * smoothstep(0.35, 0.7, uNight);
+}
+
 vec2 cellular(vec2 p){
   vec2 i = floor(p), f = fract(p); float d = 8.0; vec2 best = vec2(0.0);
   for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
@@ -827,6 +846,11 @@ void main(){
     }
     col = c;
   }
+#ifndef RIDER
+  // Lamplight is light, not paint: added after the night's world tint, so it stays warm. Not on her:
+  // her painted face has its own shader and would stay cool under a lit body.
+  if (uNight > 0.35) gEmit += base * pierLampLight(vWPos, N);
+#endif
   col = applyFog(col, vWPos);
   writeOut(col, N, mask);
 }

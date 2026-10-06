@@ -42,8 +42,8 @@ const ISLAND_R0 = (() => {
 /** Open-sea grid: follows the camera in steps of this many metres. */
 const GRID_SNAP = 8;
 const GRID_UNIFORM = { value: new THREE.Vector2() };
-/** The pier's lamp heads for their light on the water (w = 1 once the pier is built). */
-const PIER_LAMP_U = { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] };
+/** The pier's lamp heads for their light on the water and on the deck (shared with the toon materials). */
+const PIER_LAMP_U = G.uPierLamps;
 let pierLampsSet = false;
 
 const VS = /* glsl */ `
@@ -1159,7 +1159,7 @@ const SKIRTS = { value: rockSkirts() };
 function material(band: boolean): THREE.ShaderMaterial {
   const m = new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...G, ...DEPTH, ...REFL, ...WAKE_U, ...WATER_TOD, uRocks: SKIRTS, uBuoys: BUOY_U, uPierLamps: PIER_LAMP_U, uGridO: GRID_UNIFORM, uBand: { value: band ? 1 : 0 }, uId: { value: ID.water }, uMask: { value: 0 } },
+    uniforms: { ...G, ...DEPTH, ...REFL, ...WAKE_U, ...WATER_TOD, uRocks: SKIRTS, uBuoys: BUOY_U, uGridO: GRID_UNIFORM, uBand: { value: band ? 1 : 0 }, uId: { value: ID.water }, uMask: { value: 0 } },
     vertexShader: VS,
     fragmentShader: FS,
   });
