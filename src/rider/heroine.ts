@@ -109,7 +109,7 @@ export async function loadHeroine(url: string): Promise<Heroine> {
     g.setAttribute("aMat", new THREE.BufferAttribute(new Float32Array(n).fill(role ? role.mt : M.skin), 1));
     const key = name === "face" ? "face" : role?.group ?? "skin";
     if (!mats.has(key))
-      mats.set(key, name === "face" ? face : uber(role?.id ?? ID.skin, 1, role?.side ?? THREE.FrontSide, 0, true));
+      mats.set(key, name === "face" ? face : herUber(key, role?.id ?? ID.skin, role?.side ?? THREE.FrontSide));
     mesh.material = mats.get(key)!;
     mesh.userData.role = name;
     mesh.userData.group = key;
@@ -183,4 +183,29 @@ export function poseAt(h: Heroine, clip: string | null, t: number): void {
     });
   }
   h.root.updateMatrixWorld(true);
+}
+
+const SHADOW_LOOKUP = "float sv = shadowVis(wpos, N);";
+/**
+ * Her shorts: thin double-sided linen folds self-shadow in blotches at play distance, so their
+ * shadow lookups sit 2.5 cm off the cloth along its normal on the sunward side. That is well
+ * inside the arm, hand and shirt shadows that fall on them, which still read. Not handed to
+ * specializeUber (it would rebuild the stock shader), and it shares the global uniforms.
+ */
+function herUber(group: string, id: number, side: THREE.Side): THREE.ShaderMaterial {
+  const base = uber(id, 1, side, 0, true);
+  if (group !== "shorts" || !base.fragmentShader.includes(SHADOW_LOOKUP)) return base;
+  return new THREE.ShaderMaterial({
+    glslVersion: base.glslVersion,
+    uniforms: base.uniforms,
+    vertexShader: base.vertexShader,
+    fragmentShader: base.fragmentShader.replace(
+      SHADOW_LOOKUP,
+      "float sv = shadowVis(wpos + N * (0.025 * step(0.0, dot(N, uCharShadowDir))), N);",
+    ),
+    defines: { ...base.defines },
+    vertexColors: true,
+    side,
+    alphaToCoverage: true,
+  });
 }
