@@ -35,9 +35,12 @@ export interface Collider {
   kind?: "rock" | "house" | "plant";
 }
 
-/** Past the edge of the drawn land (the terrain grid runs u to 700 and z -660 to 620), less a margin. */
+/**
+ * Past the walkable land: the town hill up to its crest (u ~200, where the fine terrain grid ends), and just
+ * past the headlands' ends. Further out the terrain is only a coarse backdrop for the views.
+ */
 function offMap(x: number, z: number): boolean {
-  return z < -640 || z > 600 || x < -600 || x - roadX(z) > 680;
+  return z < -360 || z > 335 || x < -600 || x - roadX(z) > 200;
 }
 
 /** A building's footprint (world AABB) and its ridge height: she can't walk in, the camera stays out. */
