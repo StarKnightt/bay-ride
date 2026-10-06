@@ -163,9 +163,14 @@ function cloudLobes(r: () => number, kind: CloudKind): { lobes: Lobe[]; top: num
  */
 function cloudField(r: () => number): THREE.Mesh {
   const DEG = Math.PI / 180;
+  // The low suns and the moon at morning, dusk and night: a blended cloud card over the moon lets
+  // its disc and halo show through the cloud's soft edge.
   const suns = [
     [-112, 4.5],
     [-100, 12],
+    [-78, 24],
+    [-62, 11],
+    [-84, 19],
   ].map(([az, el]) => [az * DEG, el * DEG]);
   const angDiff = (a: number, b: number) => Math.abs(((a - b + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
   interface C { x: number; y: number; z: number; hw: number; sy: number; haze: number; lobes: Lobe[]; top: number; d: number; az: number; halfA: number; elLo: number; elHi: number }

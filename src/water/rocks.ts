@@ -107,24 +107,44 @@ export function rockSkirts(): THREE.Vector4[] {
   return out;
 }
 
-const ROCK = new THREE.Color("#8a8070");
+const ROCK = new THREE.Color("#93897a");
+const ROCK_TOP = new THREE.Color("#b2a78f");
+const ROCK_WARM = new THREE.Color("#9a8670");
 const ROCK_WET = new THREE.Color("#4e5148");
+const SALT = new THREE.Color("#c9c3b0");
+const WEED = new THREE.Color("#5d6136");
 
-/** All shore rocks as one mesh: lumpy, dark and weedy below the tide line. */
+/**
+ * All shore rocks as one mesh, shaded like the boulders on land: lumpy and rounded, a lit warm
+ * top, a pale salt line just above the tide, an olive weed band at the waterline and dark wet
+ * stone below. The underside reaches down into the seabed (a bare ellipsoid floated over it).
+ */
 export function buildRocks(): THREE.Mesh {
   const parts: THREE.BufferGeometry[] = [];
   const c = new THREE.Color();
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
   for (const r of ROCKS) {
     if (r.top < SEA_Y - 1.6) continue;
     let g = blob(1, 2, 0.22, r.seed * 1.37);
+    const lp = g.attributes.position;
+    for (let i = 0; i < lp.count; i++) {
+      const vx = lp.getX(i), vy = lp.getY(i), vz = lp.getZ(i);
+      const k = 1 + 0.16 * Math.sin(vx * 2.3 + r.seed) * Math.sin(vy * 2.9 + r.seed * 1.3) * Math.sin(vz * 2.1 + r.seed * 0.7);
+      lp.setXYZ(i, vx * k, (vy < 0 ? vy * 3.2 : vy) * k, vz * k);
+    }
     g = prep(g, null, M.stone);
     xf(g, r.x, r.top - r.r * r.sy, r.z, 0, r.seed * 0.9, 0, r.r, r.r * r.sy, r.r * (0.8 + 0.2 * Math.sin(r.seed)));
-    const p = g.attributes.position;
+    g.computeVertexNormals();
+    const p = g.attributes.position, nr = g.attributes.normal;
     const col = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) {
-      const y = p.getY(i);
-      const wet = 1 - Math.min(1, Math.max(0, (y - SEA_Y - 0.1) / 0.5));
-      c.copy(ROCK).lerp(ROCK_WET, wet * 0.85);
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i), up = nr.getY(i);
+      const h = y - SEA_Y + 0.08 * Math.sin(x * 1.7 + z * 1.3 + r.seed);
+      const mot = 0.5 + 0.5 * Math.sin(x * 3.1 + r.seed) * Math.sin(z * 2.7 - r.seed);
+      c.copy(ROCK).lerp(ROCK_WARM, 0.3 + 0.3 * mot).lerp(ROCK_TOP, clamp((up - 0.25) * 1.5) * 0.7);
+      c.lerp(SALT, clamp(1 - Math.abs(h - 0.42) / 0.14) * 0.55);
+      c.lerp(WEED, clamp(1 - Math.abs(h - 0.08) / 0.2) * 0.7);
+      c.lerp(ROCK_WET, clamp((0.25 - h) / 0.3) * 0.75);
       col[i * 3] = c.r;
       col[i * 3 + 1] = c.g;
       col[i * 3 + 2] = c.b;
