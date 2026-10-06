@@ -223,7 +223,12 @@ void main(){
   // a soft cel step across it just past the middle, the lit side catching cool moonlight and the
   // shaded side keeping the skin's warmth (lit about 1.7x the shade).
   float ks = dot(vRight, uSunDir) > 0.0 ? 1.0 : -1.0;
-  float kg = smoothstep(-0.006, 0.010, fp.x * ks - 0.004);
+  // The step runs down the nose, then sweeps out under the shaded eye socket and round its
+  // cheekbone (the light wraps under the eye), easing back in toward the jaw.
+  float under = 1.0 - smoothstep(${f(L.blush.y)} + 0.002, LY - 0.004, fp.y);
+  float ease = 1.0 - 0.55 * (1.0 - smoothstep(${f(L.mouth.y)}, ${f(L.blush.y)} - 0.006, fp.y));
+  float bx = 0.004 - 0.6 * ${f(L.blush.x)} * under * ease * (1.0 - 0.3 * smoothstep(0.0, 0.03, -fp.x * ks));
+  float kg = smoothstep(-0.006, 0.010, fp.x * ks - bx);
   col *= mix(vec3(1.0), mix(vec3(0.6, 0.54, 0.5), vec3(1.08, 1.16, 1.28), kg), uNight);
   vec3 shade = toonT(base, -normalize(uSunDir), vWPos, 0.34, 0.0, 0.0, 0.065, shT);
   // Hat brim: a soft painted shade over the upper face, lower when the sun is high.
@@ -238,10 +243,11 @@ void main(){
   float drop = 0.008 + 0.022 * clamp(uSunDir.y, 0.0, 1.0) + 0.003 * sin(fp.x * 140.0);
   float neckSh = smoothstep(jaw - drop - 0.004, jaw - drop + 0.003, fp.y) * (1.0 - smoothstep(jaw - 0.0005, jaw + 0.0035, fp.y));
   neckSh *= smoothstep(-0.04, 0.0, fp.z) * (1.0 - smoothstep(0.06, 0.085, ax));
-  col = mix(col, mix(shade, col * vec3(0.8, 0.77, 0.76), 0.4), neckSh * 0.9 * (1.0 - 0.6 * uNight));
-  // By day the far cheek turns into one soft side-plane shade.
+  // In the face's own hue (not pink): ~15% darker.
+  col = mix(col, col * vec3(0.86, 0.85, 0.83), neckSh * (1.0 - 0.6 * uNight));
+  // By day the far cheek turns into one soft side-plane shade (~10%), in the skin's hue.
   float farC = smoothstep(0.03, 0.058, -fp.x * ks) * (1.0 - neckSh);
-  col = mix(col, col * vec3(0.9, 0.86, 0.86), farC * 0.8 * (1.0 - uNight));
+  col = mix(col, col * vec3(0.9, 0.895, 0.88), farC * (1.0 - uNight));
   float pw = length(fwidth(fp.xy)) * 0.7 + 1e-6;
   if (fp.z > 0.035) {
     vec2 p = fp.xy;

@@ -334,9 +334,11 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   float moonRim = smoothstep(0.66, 0.86, fr) * smoothstep(-0.25, 0.35, dot(N, Ld)) * uNight * gHer;
   col += uRimColor * (base * 0.5 + 0.06) * moonRim * 0.75 * (1.0 - 0.7 * gHairLock);
   // Her night value sits above the moonlit deck around her so she reads at play distance, and a
-  // soft cool rim round her silhouette (whatever side the moon is on) separates her from it.
-  col *= 1.0 + 0.7 * uNight * gHer;
-  col += uRimColor * (base * 0.35 + 0.035) * smoothstep(0.6, 0.86, fr) * uNight * gHer * (1.0 - 0.6 * gHairLock);
+  // soft cool rim round her silhouette (whatever side the moon is on) separates her from it: a
+  // wide fresnel band (~2-3 px past the ink at 8-10 m), cool against the warm lamp-lit boards.
+  col *= 1.0 + 1.1 * uNight * gHer;
+  float herRim = smoothstep(0.4, 0.8, fr);
+  col += vec3(0.62, 0.76, 1.0) * (base * 0.42 + 0.045) * herRim * herRim * uNight * gHer * (1.0 - 0.6 * gHairLock);
   col *= 1.0 + (br - 0.5) * 0.14 * paint;
   // Under the moon whites stay a dim cool grey: the moonlight is far weaker than the sun, and
   // unchecked they read as lit from within against the dark water.
