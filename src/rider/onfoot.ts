@@ -28,6 +28,8 @@ export type FootMode = "walk" | "board" | "boat" | "leave";
 const ROCK_T = 3.5;
 /** Aboard and slower than this, F steps ashore. */
 const LEAVE_SPEED = 1.3;
+/** How far round the pier's footprint (its piles, the deck's overhang) she never steps down into the water. */
+const PILE_PAD = 0.5;
 
 const WALK = 1.3;
 /** Shift: an easy run (stride lengthens with speed, see gaitA). */
@@ -492,6 +494,9 @@ export class Explore {
           const x = M[0] * lx + M[8] * z + M[12], wz = M[2] * lx + M[10] * z + M[14];
           if (!this.standable(x, wz)) continue;
           const h = this.bay.walkH(x, wz, this.y);
+          // Never down among the piles under the deck: the bed there can be wadeable, but she would
+          // land in the water under the pier, not on it.
+          if (h < SEA_Y + 0.2 && this.bay.overWater(x, wz, PILE_PAD)) continue;
           if (this.circles(x, wz).pen > 0) continue;
           // Shallowest first; a little against a longer reach out, a station other than the usual and climbing forward.
           const score = Math.max(0, SEA_Y - h) + 0.1 * (off - SHORE_OFF.min) + 0.03 * k + 0.08 * fi;

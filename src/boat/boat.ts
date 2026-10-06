@@ -245,7 +245,7 @@ export class Boat {
     this.x += wx * dt;
     this.z += wz * dt;
     this.odo += Math.abs(this.u) * dt;
-    this.collide(px, pz);
+    this.collide(px, pz, dt);
     this.x = clamp(this.x, -560, 560);
     this.z = clamp(this.z, -480, 480);
   }
@@ -256,12 +256,19 @@ export class Boat {
     return SEA_Y - terrainH(x + this.fx * pf + cx * ps, z + this.fz * pf - sx * ps);
   }
 
-  /** Land, rocks and buoys: stop, push clear and bounce off softly. */
-  private collide(px: number, pz: number): void {
-    let nx = 0, nz = 0, hit = 0;
+  /**
+   * Land, rocks, the pier and buoys. Running up the bed stops her and pushes her back toward deeper
+   * water. Against a solid (the pier and its stage, a rock, a buoy) she slides: pushed out by the
+   * penetration, only the speed into it is taken off (a soft bump), the speed along it kept, and
+   * the hit off her centre line swings her away from it.
+   */
+  private collide(px: number, pz: number, dt: number): void {
+    let nx = 0, nz = 0, ground = false;
+    let ox = 0, oz = 0, tq = 0, solid = false;
     const cx = Math.cos(this.yaw), sx = Math.sin(this.yaw);
     for (const [pf, ps] of PROBES) {
-      const qx = this.x + this.fx * pf + cx * ps, qz = this.z + this.fz * pf - sx * ps;
+      const rx = this.fx * pf + cx * ps, rz = this.fz * pf - sx * ps;
+      const qx = this.x + rx, qz = this.z + rz;
       if (SEA_Y - terrainH(qx, qz) < GROUND) {
         // Toward deeper water.
         const e = 0.6;
@@ -269,24 +276,60 @@ export class Boat {
         const l = Math.hypot(gx, gz) || 1;
         nx -= gx / l;
         nz -= gz / l;
-        hit = Math.max(hit, 1);
+        ground = true;
       }
       const c = this.bay.contact(qx, qz, 0.45);
-      if (c.pen > 0) {
-        nx += c.nx;
-        nz += c.nz;
-        hit = Math.max(hit, 1);
-      }
+      let pen = c.pen, cnx = c.nx, cnz = c.nz;
       for (const [bx, bz] of BUOY_XZ) {
         const dx = qx - bx, dz = qz - bz, d = Math.hypot(dx, dz);
-        if (d < 1.15 && d > 1e-3) {
-          nx += dx / d;
-          nz += dz / d;
-          hit = Math.max(hit, 0.5);
+        if (d < 1.15 && d > 1e-3 && 1.15 - d > pen) {
+          pen = 1.15 - d;
+          cnx = dx / d;
+          cnz = dz / d;
         }
       }
+      if (pen > 0) {
+        ox += cnx * pen;
+        oz += cnz * pen;
+        // Yaw that moves this probe out along the normal (+ yaw turns her left).
+        tq += rz * cnx - rx * cnz;
+        solid = true;
+      }
     }
-    if (!hit) return;
+    if (ground) this.runAground(px, pz, nx, nz, cx, sx);
+    else if (solid) this.slide(ox, oz, tq, cx, sx, dt);
+  }
+
+  private slide(ox: number, oz: number, tq: number, cx: number, sx: number, dt: number): void {
+    const l = Math.hypot(ox, oz);
+    if (l < 1e-6) return;
+    const nx = ox / l, nz = oz / l;
+    // Out of it, fully: several probes on one face would each count the same overlap.
+    const push = Math.min(l, 0.25);
+    this.x += nx * push;
+    this.z += nz * push;
+    const wx = this.fx * this.u + cx * this.v, wz = this.fz * this.u - sx * this.v;
+    const vn = wx * nx + wz * nz;
+    let vx = wx, vz = wz;
+    if (vn < 0) {
+      vx -= 1.25 * vn * nx;
+      vz -= 1.25 * vn * nz;
+      if (-vn > 0.8) {
+        this.bumped = clamp(-vn / 5, 0.2, 1);
+        this.onSlap(this.bumped * 0.7);
+      }
+      // A little yaw away, more for a harder hit, from the off-centre contact.
+      this.yawRate += clamp(Math.sign(tq) * Math.min(1, Math.abs(tq)) * -vn * 0.35, -0.6, 0.6);
+    }
+    // Rubbing along it: light friction, never a stop.
+    const f = Math.exp(-0.8 * dt);
+    vx *= f;
+    vz *= f;
+    this.u = vx * this.fx + vz * this.fz;
+    this.v = vx * cx - vz * sx;
+  }
+
+  private runAground(px: number, pz: number, nx: number, nz: number, cx: number, sx: number): void {
     const l = Math.hypot(nx, nz) || 1;
     nx /= l;
     nz /= l;
