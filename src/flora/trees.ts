@@ -115,7 +115,7 @@ function randDir(r: Rng, up = 0.12): V3 {
   return V(s * Math.cos(a), u * 0.85 + up, s * Math.sin(a)).normalize();
 }
 
-const BROAD = ["#3f7d3a", "#468a3c", "#3a7444", "#4f8a3a", "#437f40"];
+const BROAD = ["#3f7d3a", "#468a3c", "#3a7444", "#4f8a3a", "#437f40", "#2f6e4c", "#5b9a3e"];
 const PINE = ["#2f5a45", "#365f48", "#2c5440"];
 const SHRUB = ["#3d7a3f", "#4a8040", "#3a7048", "#527f3c"];
 
@@ -129,20 +129,24 @@ interface Cluster {
  * (blended a little toward the cluster's own bulge), fringe cards where a cluster is the outer
  * silhouette. `cell` picks the painted leaf shape, `squash` flattens pads (pines).
  */
-function crown(b: Builder, r: Rng, cl: Cluster[], centre: V3, colors: readonly string[], perCluster: number, fringe: number, size: [number, number], cell: number, wind: (y: number) => number, squash = 1): void {
+function crown(b: Builder, r: Rng, cl: Cluster[], centre: V3, colors: readonly string[], perCluster: number, fringe: number, size: [number, number], cell: number, wind: (y: number) => number, squash = 1, lobe = 0.35, coreReach = Infinity): void {
   for (const k of cl) {
-    // The core reads as the shadowed inside of the crown through any gap between cards.
-    const core = prep(blob(k.r * 0.8, 1, 0.18, r() * 50), _c.set(colors[0]).multiplyScalar(0.7), M.foliage, 0);
-    core.scale(1, squash, 1);
-    core.translate(k.c.x, k.c.y, k.c.z);
-    b.geo(core, null, wind);
+    // The core reads as the shadowed inside of the crown through any gap between cards. Outer
+    // clumps have none, so the sky shows between their leaves.
+    if (k.c.distanceTo(centre) < coreReach) {
+      const core = prep(blob(k.r * 0.8, 1, 0.18, r() * 50), _c.set(colors[0]).multiplyScalar(0.7), M.foliage, 0);
+      core.scale(1, squash, 1);
+      core.translate(k.c.x, k.c.y, k.c.z);
+      b.geo(core, null, wind);
+    }
     for (let i = 0; i < perCluster; i++) {
       const dir = randDir(r, squash < 1 ? 0.3 : 0.12);
       const rad = k.r * range(r, 0.72, 1.0);
       const p = V(k.c.x + dir.x * rad, k.c.y + dir.y * rad * squash, k.c.z + dir.z * rad);
       const nrm = p.clone().sub(centre);
       nrm.y /= squash < 1 ? 0.6 : 1;
-      nrm.normalize().lerp(dir, 0.35).normalize();
+      // `lobe`: how far each clump shades as its own bulge (lit top, shaded underside).
+      nrm.normalize().lerp(dir, lobe).normalize();
       const face = nrm.clone().add(V(range(r, -0.5, 0.5), range(r, -0.25, 0.5), range(r, -0.5, 0.5))).normalize();
       _c.set(colors[Math.floor(r() * colors.length)]).multiplyScalar(range(r, 0.85, 1.15));
       // Each card sways as one piece, by the height of its centre.
@@ -158,7 +162,7 @@ function crown(b: Builder, r: Rng, cl: Cluster[], centre: V3, colors: readonly s
     let inside = false;
     for (const o of cl) if (o !== k && p.distanceTo(o.c) < o.r * 0.92) inside = true;
     if (inside) continue;
-    const nrm = p.clone().sub(centre).normalize().lerp(dir, 0.3).normalize();
+    const nrm = p.clone().sub(centre).normalize().lerp(dir, Math.max(0.3, lobe)).normalize();
     const face = dir.clone().add(V(range(r, -0.6, 0.6), range(r, -0.5, 0.3), range(r, -0.6, 0.6))).normalize();
     _c.set(colors[Math.floor(r() * colors.length)]).multiplyScalar(range(r, 0.9, 1.2));
     b.card(p, face, range(r, size[0], size[1]) * k.r * 1.1, _c, nrm, r() * 6.283, M.fringeCard, cell, wind(p.y));
@@ -184,20 +188,25 @@ function plant(b: Builder, s: TreeSpot, y: number): { trunk: number; h: number }
     h = hero ? range(r, 4.6, 5.4) : tall ? range(r, 4.8, 5.8) : range(r, 2.8, 3.6);
     const cr = hero ? range(r, 4.2, 4.8) : tall ? range(r, 2.4, 2.9) : range(r, 2.5, 3.1);
     const top = V(range(r, -0.3, 0.3), h, range(r, -0.3, 0.3));
-    trunk = hero ? 0.42 : 0.24;
+    trunk = hero ? 0.46 : 0.3;
     const sway = swayBy(h + cr * (tall ? 1.7 : 1.3), hero ? 0.7 : 0.9);
-    t.geo(bark(V(0, -0.3, 0), top, trunk, trunk * 0.55), null, sway);
+    t.geo(bark(V(0, -0.3, 0), top, trunk, trunk * 0.6), null, sway);
     const centre = V(top.x, h + cr * (tall ? 0.85 : 0.55), top.z);
-    const n = hero ? 7 : 4 + Math.floor(r() * 2);
-    const cl: Cluster[] = [{ c: centre.clone(), r: cr * 0.78 }];
+    // Lopsided: the clumps crowd toward one side and one tier sits higher.
+    const la = r() * Math.PI * 2, lean = V(Math.cos(la), 0, Math.sin(la)).multiplyScalar(cr * 0.28);
+    const n = hero ? 13 : 7 + Math.floor(r() * 3);
+    const cl: Cluster[] = [{ c: centre.clone(), r: cr * 0.6 }];
     for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + range(r, -0.4, 0.4);
-      const d = cr * range(r, 0.42, 0.72);
-      const c = V(centre.x + Math.cos(a) * d, centre.y + range(r, -0.45, 0.4) * cr * (tall ? 1.3 : 0.8), centre.z + Math.sin(a) * d);
-      cl.push({ c, r: cr * range(r, 0.48, 0.66) });
-      t.geo(bark(V(top.x * 0.6, h * 0.72, top.z * 0.6), V(c.x * 0.7, c.y - cr * 0.35, c.z * 0.7), 0.1 * (hero ? 1.8 : 1), 0.05), null, sway);
+      const a = (i / n) * Math.PI * 2 + range(r, -0.5, 0.5);
+      const d = cr * range(r, 0.45, 0.85);
+      const tier = (i % 3 === 0 ? 0.45 : i % 3 === 1 ? -0.25 : 0.1) + range(r, -0.2, 0.2);
+      const c = V(centre.x + Math.cos(a) * d, centre.y + tier * cr * (tall ? 1.3 : 0.85), centre.z + Math.sin(a) * d);
+      c.addScaledVector(lean, Math.max(0, Math.cos(a - la)) * 0.8 + 0.2);
+      cl.push({ c, r: cr * range(r, 0.38, 0.54) });
+      // Limbs reach well into the crown, so they show through its gaps.
+      t.geo(bark(V(top.x * 0.6, h * 0.7, top.z * 0.6), V(c.x * 0.85, c.y - cr * 0.18, c.z * 0.85), 0.13 * (hero ? 1.7 : 1), 0.055), null, sway);
     }
-    crown(t, r, cl, centre, BROAD, hero ? 46 : 38, hero ? 110 : 60, [0.42, 0.62], LEAF_CELL.ovate, sway);
+    crown(t, r, cl, centre, BROAD, hero ? 36 : 28, hero ? 260 : 130, [0.64, 0.94], LEAF_CELL.ovate, sway, 1, 0.55, cr * 0.72);
   } else if (s.kind === "pine") {
     // Seaside pine: a leaning, kinked trunk and flat needle pads at the branch ends.
     h = range(r, 6, 8.5);
@@ -229,7 +238,7 @@ function plant(b: Builder, s: TreeSpot, y: number): { trunk: number; h: number }
       const a = r() * Math.PI * 2;
       cl.push({ c: V(Math.cos(a) * cr * 0.6, cr * range(r, 0.6, 1.1), Math.sin(a) * cr * 0.6), r: cr * range(r, 0.55, 0.8) });
     }
-    crown(t, r, cl, centre, SHRUB, hedge ? 24 : 20, 16, [0.5, 0.75], r() < 0.6 ? LEAF_CELL.broad : LEAF_CELL.ovate, (y) => Math.min(1, Math.max(0, y / (cr * 2))) * 0.55);
+    crown(t, r, cl, centre, SHRUB, hedge ? 26 : 24, hedge ? 34 : 40, [0.5, 0.75], r() < 0.6 ? LEAF_CELL.broad : LEAF_CELL.ovate, (y) => Math.min(1, Math.max(0, y / (cr * 2))) * 0.55, 1, 0.5);
   }
   // Into place, keeping the sway weights authored in tree space.
   b.geo(t.build(), m, null);
@@ -270,7 +279,9 @@ export async function buildTrees(regions: TreeRegion[], layout: Layout, collider
     const mesh = new THREE.Mesh(b.build(), mat);
     mesh.name = `trees: ${reg.name}`;
     mesh.matrixAutoUpdate = false;
-    onLayers(mesh, LAYER_SHADOW, LAYER_REFLECT);
+    // The hill woods stand well back from the water: the mirror shows the slope without them.
+    if (reg.name.startsWith("hill")) onLayers(mesh, LAYER_SHADOW);
+    else onLayers(mesh, LAYER_SHADOW, LAYER_REFLECT);
     group.add(mesh);
   }
   return { group, trees, cards: Math.round(cards / 4) };

@@ -32,7 +32,7 @@ function clumpGeo(blades: number, segs: number, widthK: number, seed: number): G
   const pos: number[] = [], nrm: number[] = [], col: number[] = [], edge: number[] = [], idx: number[] = [];
   for (let b = 0; b < blades; b++) {
     const a = r() * Math.PI * 2;
-    const rad = 0.13 * Math.sqrt(r());
+    const rad = 0.21 * Math.sqrt(r());
     const ox = Math.cos(a) * rad, oz = Math.sin(a) * rad;
     const da = a + range(r, -0.6, 0.6);
     const dx = Math.cos(da), dz = Math.sin(da);
@@ -149,14 +149,14 @@ export class Meadow {
     };
     let rows = 0;
     for (let z = -300; z < 268; z += STEP) {
-      for (let x = roadX(z) + 7.5; x < roadX(z) + 168; x += STEP) try1(x + range(r, -0.45, 0.45) * STEP, z + range(r, -0.45, 0.45) * STEP);
+      for (let x = roadX(z) + 7.5; x < roadX(z) + 168; x += STEP) try1(x + range(r, -0.95, 0.95) * STEP, z + range(r, -0.95, 0.95) * STEP);
       if (++rows % 48 === 0) await pause();
     }
     await pause();
 
     // Headlands: shorter, wind-swept golden grass on the gentler slopes.
     const try2 = (x: number, z: number) => {
-      if (r() > 0.75) return;
+      if (r() > 0.85) return;
       const u = uOf(x, z);
       if (headlandsH(x, z) < coastH(u, z) + 0.5) return;
       const y = groundY(x, z);
@@ -168,8 +168,8 @@ export class Meadow {
       put(x, y, z, h, range(r, 0.9, 1.3), range(r, 0.55, 1));
     };
     for (const [zc, x0] of [[262, -175], [-298, -150]] as const)
-      for (let z = zc - 75; z < zc + 75; z += STEP * 1.15)
-        for (let x = x0; x < 150; x += STEP * 1.15) try2(x + range(r, -0.5, 0.5) * STEP, z + range(r, -0.5, 0.5) * STEP);
+      for (let z = zc - 75; z < zc + 75; z += STEP)
+        for (let x = x0; x < 150; x += STEP) try2(x + range(r, -0.95, 0.95) * STEP, z + range(r, -0.95, 0.95) * STEP);
 
     // The island: short grass round the lighthouse, off the rocky shore.
     for (let z = ISLAND.z - 34; z < ISLAND.z + 34; z += STEP * 1.1)

@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { mulberry32, pick, range, type Rng } from "../core/rng";
 import { LEAF_CELL, cellUv } from "../render/leafAtlas";
 import { pnoise, roadX, smooth } from "../world/bay/road";
-import { ISLAND, LIGHTHOUSE, coastH, headlandsH } from "../world/bay/terrain";
+import { ISLAND, LIGHTHOUSE, coastH, headlandsH, poolsDone, tintUnder } from "../world/bay/terrain";
 import { FLORA, flowerMaterial } from "./glsl";
 import { groundY, slopeAt, uOf, type FlowerKind, type Layout } from "./place";
 
@@ -16,7 +16,7 @@ import { groundY, slopeAt, uOf, type FlowerKind, type Layout } from "./place";
 
 type V3 = THREE.Vector3;
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
-const _c = new THREE.Color();
+const _c = new THREE.Color(), _w = new THREE.Color();
 
 /** Petal parts as the flower shader cuts them (aPart). */
 const P = { stem: 0, daisy: 1, cup: 2, floret: 3, pom: 4, star: 5, leaf: 6 } as const;
@@ -379,6 +379,29 @@ export class Flowers {
       const kinds = pick(r, DRIFT);
       scatter(x, z, range(r, 2.5, 6.5), Math.round(range(r, 12, 34) * (0.7 + 0.6 * pnoise(x * 0.1, z * 0.1, 2))), kinds, NaN);
     }
+    // Great swathes of one species over the open meadow, drawn out along the wind, that read from
+    // 10-60 m; past the flowers' reach the field carries a wash of their colour.
+    const WASH: Partial<Record<FlowerKind, string>> = { lavender: "#8a7ab4", daisy: "#c8c8a8", yellow: "#c8b440", pink: "#b07890" };
+    const SWATHE: FlowerKind[] = ["lavender", "poppy", "daisy", "yellow", "pink", "lavender", "daisy", "poppy"];
+    for (let k = 0, tries = 0; tries < 600 && k < 30; tries++) {
+      const z = range(r, -275, 245), u = range(r, 14, 150), x = roadX(z) + u;
+      if (headlandsH(x, z) > coastH(u, z) + 0.5 || !layout.free(x, z, 3) || slopeAt(x, z) > 0.3) continue;
+      k++;
+      const kind = SWATHE[k % SWATHE.length];
+      const ang = range(r, -0.6, 0.6) + (r() < 0.5 ? 0 : Math.PI / 2), L = range(r, 8, 18), W = L * range(r, 0.3, 0.5);
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const n = Math.round(L * W * range(r, 0.6, 0.95));
+      this.drifts.push([x, groundY(x, z), z, Math.min(L, 9)]);
+      for (let i = 0; i < n; i++) {
+        const s = range(r, -1, 1), w = (r() + r() + r() - 1.5) * 0.8 * (1 - 0.5 * Math.abs(s));
+        const fx = x + ca * s * L - sa * w * W, fz = z + sa * s * L + ca * w * W;
+        if (!layout.free(fx, fz, 0.1)) continue;
+        put(r() < 0.12 ? (kind === "daisy" ? "yellow" : "daisy") : kind, fx, groundY(fx, fz) - 0.03, fz);
+      }
+      const wash = WASH[kind];
+      if (wash) tintUnder(x, z, ang, L * 0.9, W * 0.8, 0.32, _w.set(wash));
+    }
+    poolsDone();
     // Headlands: thrift on the cliff tops, yellow among the short grass.
     for (let i = 0; i < 70; i++) {
       const north = i % 2 === 0;
