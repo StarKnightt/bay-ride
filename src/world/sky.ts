@@ -195,15 +195,15 @@ function cloudField(r: () => number): THREE.Mesh {
   }
   // [count, dist min, max, base height min, max, half width min, max, kind, squash min, max, haze]
   const bands: [number, number, number, number, number, number, number, CloudKind, number, number, number][] = [
-    [8, 450, 800, 55, 110, 40, 100, "heap", 0.75, 1.0, 0.0],
-    [20, 800, 1750, 90, 200, 55, 190, "heap", 0.7, 1.0, 0.06],
-    [16, 1800, 2700, 115, 190, 140, 380, "strata", 0.45, 0.7, 0.14],
+    [3, 500, 800, 55, 100, 70, 120, "heap", 0.8, 1.0, 0.0],
+    [9, 850, 1750, 90, 180, 110, 240, "heap", 0.75, 1.0, 0.06],
+    [10, 1800, 2700, 115, 190, 160, 380, "strata", 0.45, 0.7, 0.14],
   ];
   for (const [count, d0, d1, y0, y1, w0, w1, kind, s0, s1, haze] of bands) {
     for (let i = 0; i < count; i++) {
       for (let k = 0; k < 30; k++) {
-        // Skewed toward the small end: many medium and small clouds, a few large ones.
-        const hw = w0 + (w1 - w0) * Math.pow(r(), 1.6);
+        // A few big heaps, not a sky of identical small ones.
+        const hw = w0 + (w1 - w0) * Math.pow(r(), 0.8);
         if (tryAdd(kind, r() * Math.PI * 2, range(r, d0, d1), range(r, y0, y1), hw, range(r, s0, s1), haze)) break;
       }
     }

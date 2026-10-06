@@ -217,21 +217,22 @@ function plant(b: Builder, s: TreeSpot, y: number): { trunk: number; h: number }
     crown(t, r, cl, centre, BROAD, hero ? 36 : 28, hero ? 260 : 130, [0.64, 0.94], LEAF_CELL.ovate, sway, 1, 0.55, cr * 0.72);
   } else if (s.kind === "pine") {
     // Seaside pine: a leaning, kinked trunk and flat needle pads at the branch ends.
-    h = range(r, 6, 8.5);
+    // Pads from about 0.4 of the height: no more than a third of a pine reads as bare trunk.
+    h = range(r, 5.6, 7.6);
     const lean = V(range(r, -1, 1), 0, range(r, -1, 1)).normalize().multiplyScalar(h * 0.22);
     const mid = V(lean.x * 0.4, h * 0.5, lean.z * 0.4), top = V(lean.x, h, lean.z);
     trunk = 0.26;
     const sway = swayBy(h + 1.2, 0.6);
     t.geo(bark(V(0, -0.3, 0), mid, 0.26, 0.2), null, sway);
     t.geo(bark(mid, top, 0.2, 0.1), null, sway);
-    const pads: Cluster[] = [{ c: V(top.x, h + 0.5, top.z), r: range(r, 1.5, 1.9) }];
-    const n = 4 + Math.floor(r() * 3);
+    const pads: Cluster[] = [{ c: V(top.x, h + 0.5, top.z), r: range(r, 1.9, 2.4) }];
+    const n = 5 + Math.floor(r() * 3);
     for (let i = 0; i < n; i++) {
-      const a = r() * Math.PI * 2, yy = h * range(r, 0.55, 0.95), len = range(r, 1.4, 2.6);
+      const a = r() * Math.PI * 2, yy = h * range(r, 0.4, 0.92), len = range(r, 1.5, 2.8);
       const base = V(lean.x * yy / h, yy, lean.z * yy / h);
       const end = base.clone().add(V(Math.cos(a) * len, range(r, 0.2, 0.7), Math.sin(a) * len));
       t.geo(bark(base, end, 0.08, 0.04), null, sway);
-      pads.push({ c: end.clone().add(V(0, 0.35, 0)), r: range(r, 1.0, 1.5) });
+      pads.push({ c: end.clone().add(V(0, 0.35, 0)), r: range(r, 1.3, 1.9) });
     }
     crown(t, r, pads, V(top.x, h * 0.8, top.z), PINE, 26, 34, [0.55, 0.8], LEAF_CELL.lance, sway, 0.42);
   } else if (s.kind === "poplar" || s.kind === "conifer") {
