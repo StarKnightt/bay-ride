@@ -177,6 +177,8 @@ class Foot {
   has = false;
   /** Ground offset under the foot (m, relative to the walker), lift while re-stepping. */
   gOff = 0;
+  /** Lift that puts a planted sole on the ground (m). */
+  cY = 0;
   restep = -1;
   kind = "wood";
   swingT = 0;
@@ -639,10 +641,14 @@ export class Rider {
         if (g) gTarget = clamp(g.h - wy, -0.35, 0.35);
       }
       ft.gOff = dt > 0 && this.simInit ? damp(ft.gOff, gTarget, contact ? 40 : 18, dt) : gTarget;
+      // A planted sole's lower contact point sits on the ground: blends between clips (start, stop,
+      // walk to run) otherwise leave the blended foot hovering a few centimetres up.
+      const cT = contact && !free && !airborne ? clamp(wy - Math.min(heel.y, ball.y), -0.08, 0.08) : 0;
+      ft.cY = dt > 0 && this.simInit ? damp(ft.cY, cT, contact ? 30 : 10, dt) : cT;
       const T = ank.clone();
       T.x += ft.s.x;
       T.z += ft.s.y;
-      T.y += ft.gOff + lift;
+      T.y += ft.gOff + lift + ft.cY;
       targets.push(T);
       const q = L.foot.getWorldQuaternion(new THREE.Quaternion());
       footQ.push(q.premultiply(_q.setFromAxisAngle(_Y, ft.psi)));

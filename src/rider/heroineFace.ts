@@ -213,11 +213,17 @@ void main(){
   gSoftCast = 1.0;
   gHer = 1.0;
   vec3 shT = herShade(vec3(0.9, 0.75, 0.7));
-  vec3 col = toonT(base, N, vWPos, 0.34, 0.0, 0.5, 0.065, shT);
+  // By day the face is lit nearly all round; under the moon it keeps a lit and a shaded cheek.
+  vec3 col = toonT(base, N, vWPos, 0.34 - 0.28 * uNight, 0.0, 0.5, 0.065 + 0.1 * uNight, shT);
   vec3 Lgt = col / max(base, vec3(0.02));
   float Lm = max(Lgt.r, max(Lgt.g, Lgt.b));
   vec3 Le = mix(Lgt, vec3(Lm), 0.35) * 0.95 + 0.05 * uSunColor;
   vec3 fp = vF;
+  // Under the moon the face is painted with a lit and a shaded side (its normals are near flat):
+  // a soft gradient across it, the far cheek about a third darker than the near one.
+  float ks = dot(vRight, uSunDir) > 0.0 ? 1.0 : -1.0;
+  float kg = smoothstep(-0.035, 0.045, fp.x * ks);
+  col *= mix(1.0, mix(0.68, 1.06, kg), uNight);
   vec3 shade = toonT(base, -normalize(uSunDir), vWPos, 0.34, 0.0, 0.0, 0.065, shT);
   // Hat brim: a soft painted shade over the upper face, lower when the sun is high.
   float line = 0.058 - 0.07 * clamp(uSunDir.y, 0.0, 1.0) + 0.003 * sin(fp.x * 180.0);
