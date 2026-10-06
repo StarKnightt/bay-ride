@@ -4,6 +4,7 @@ import { LAYER_CHAR_HAT } from "../render/lightpasses";
 import { loadHeroine, mergeHeroine, type ClipMeta, type Heroine } from "./heroine";
 import { FACE_U } from "./heroineFace";
 import { bindLegs } from "./prints";
+import { PIER_STAIR, STAIR_FOOT_X } from "../world/bay/pier";
 
 /**
  * The player character: the heroine built in Blender (tools/character → public/models/heroine.glb),
@@ -257,7 +258,50 @@ class Foot {
   swingT = 0;
   /** Scripted: planted last frame. */
   sDown = false;
+  /** On the stair: slid along it (world x) so heel and ball land on one tread; at lift-off; a re-step's goal; standing's need. */
+  fx = 0;
+  fx0 = 0;
+  fxT = 0;
+  fxI = 0;
+  /** Heel and ball at its last strike, walker frame: where the clip puts them at the next. */
+  readonly hL = new THREE.Vector3();
+  readonly bL = new THREE.Vector3();
+  hasL = false;
+  /** Ground under it on the stair (world y), NaN off it. */
+  gS = NaN;
+  /** Since it planted (s). */
+  plantT = 0;
 }
+
+/** Over the pier's stair (or just off either end of it)? */
+function overStair(x: number, z: number): boolean {
+  const S = PIER_STAIR;
+  return z <= S.z0 + 0.1 && z >= S.z1 - 0.05 && x < S.x1 + 0.45 && x > STAIR_FOOT_X - 0.45;
+}
+
+/**
+ * The slide along the stair (world x) that puts a sole from heel x to ball x on one tread, clear of
+ * its edge and of the nosing over its back, the least of the nearest treads (the head and the stage
+ * count as treads open at one end); 0 if it already fits.
+ */
+function treadFit(xa: number, xb: number): number {
+  const S = PIER_STAIR;
+  const lo = Math.min(xa, xb), hi = Math.max(xa, xb);
+  const k0 = clamp(Math.ceil((S.x1 - (lo + hi) / 2) / S.going), 0, S.n);
+  let best = 0, bestA = Infinity;
+  for (let k = Math.max(0, k0 - 1); k <= Math.min(S.n, k0 + 1); k++) {
+    const a = k === S.n ? -Infinity : S.x1 - k * S.going + 0.03;
+    const b = k === 0 ? Infinity : S.x1 - (k - 1) * S.going - 0.04;
+    if (hi - lo > b - a) continue;
+    const d = lo < a ? a - lo : hi > b ? b - hi : 0;
+    if (Math.abs(d) < bestA) {
+      bestA = Math.abs(d);
+      best = d;
+    }
+  }
+  return best;
+}
+const _ch = new THREE.Vector3(), _cb = new THREE.Vector3();
 
 /** A spring chain (hair lock, ribbon tail, knot tail): rotated as a whole toward the wind. */
 interface Spring {
@@ -348,6 +392,11 @@ export class Rider {
   private lookYaw = 0;
   private lookPitch = 0;
   private drop = 0;
+  /** Pelvis lowered toward the lower foot on the stair (m). */
+  private sDrop = 0;
+  private phLast = NaN;
+  /** Gait cycles per second, measured. */
+  private phRate = 0;
 
   static async load(url = "./models/heroine.glb"): Promise<Rider> {
     return new Rider(await loadHeroine(url));
@@ -677,6 +726,13 @@ export class Rider {
     const airborne = (f.air ?? 0) > 0.5;
     const idle = gait < 0.12 && jw < 0.5;
     const wy = w.position.y;
+    if (dt > 0) {
+      if (Number.isFinite(this.phLast)) {
+        const r = frac(ph - this.phLast) / dt;
+        if (r < 4) this.phRate = r;
+      }
+      this.phLast = ph;
+    }
     const right = _v.set(1, 0, 0).applyQuaternion(w.quaternion).clone();
     const targets: THREE.Vector3[] = [];
     const footQ: THREE.Quaternion[] = [];
@@ -707,11 +763,14 @@ export class Rider {
       if (contact) {
         if (!ft.planted) {
           ft.planted = true;
-          const gp = this.groundAt(ball.x + ft.s.x, ball.z + ft.s.y, wy);
+          w.worldToLocal(ft.hL.copy(heel));
+          w.worldToLocal(ft.bL.copy(ball));
+          ft.hasL = !idle;
+          const gp = this.groundAt(ball.x + ft.s.x + ft.fx, ball.z + ft.s.y, wy);
           ft.kind = gp?.kind ?? ft.kind;
           if (dt > 0) {
             const a = wpos(L.foot, _a);
-            this.onPlant?.(a.x + ft.s.x, gp?.h ?? wy, a.z + ft.s.y, yaw + ft.psi, i === 0 ? 1 : -1, ft.kind, f.time);
+            this.onPlant?.(a.x + ft.s.x + ft.fx, gp?.h ?? wy, a.z + ft.s.y, yaw + ft.psi, i === 0 ? 1 : -1, ft.kind, f.time);
           }
         } else if (ft.has) {
           // The lock is one rigid correction of the clip's foot: a twist psi about the clip ankle A,
@@ -729,11 +788,16 @@ export class Rider {
         ft.s0.copy(ft.s);
         ft.psi0 = ft.psi;
         ft.swingT = 0;
+        // On the stair, landing a little off a tread: the sole settles onto it as it takes the weight.
+        if (ft.plantT < 0.15 && !idle && ft.restep < 0 && dt > 0) ft.fx = damp(ft.fx, ft.fxI, 30, dt);
+        ft.plantT += dt;
       } else {
+        ft.plantT = 0;
         if (ft.planted) {
           ft.planted = false;
           ft.s0.copy(ft.s);
           ft.psi0 = ft.psi;
+          ft.fx0 = ft.fx;
           ft.swingT = 0;
         }
         ft.swingT += dt;
@@ -742,6 +806,17 @@ export class Rider {
         if (ft.restep < 0) {
           ft.s.copy(ft.s0).multiplyScalar(1 - k);
           ft.psi = ft.psi0 * (1 - k);
+          // On the stair: slide over the swing to where this sole will land whole on a tread (the
+          // clip's last strike carried on by her velocity to the next one).
+          let fxT = 0;
+          if (!free && !airborne && jw < 0.5 && ft.hasL && !idle) {
+            const W = run > 0.5 ? this.win.run[i] : this.win.walk[i];
+            const tl = this.phRate > 0.05 ? Math.min(frac(W[0][0] - ph) / this.phRate, 1) : 0;
+            _ch.copy(ft.hL).applyMatrix4(w.matrixWorld).addScaledVector(this.vel, tl);
+            _cb.copy(ft.bL).applyMatrix4(w.matrixWorld).addScaledVector(this.vel, tl);
+            if (overStair((_ch.x + _cb.x) / 2, (_ch.z + _cb.z) / 2)) fxT = treadFit(_ch.x, _cb.x);
+          }
+          ft.fx = ft.fx0 + (fxT - ft.fx0) * k;
         }
       }
       ft.heel.copy(heel);
@@ -757,25 +832,49 @@ export class Rider {
         const k = smooth(0, 0.3, ft.restep);
         ft.s.copy(ft.s0).multiplyScalar(1 - k);
         ft.psi = ft.psi0 * (1 - k);
+        ft.fx = ft.fx0 + (ft.fxT - ft.fx0) * k;
         lift = 0.045 * Math.sin(Math.PI * clamp(ft.restep / 0.3, 0, 1));
         if (ft.restep >= 0.3) {
           ft.restep = -1;
           ft.planted = false;
         }
       }
+      // The sole as corrected (twist about the ankle, slide), for the stair.
+      _ch.subVectors(heel, ank).applyAxisAngle(_Y, ft.psi).add(ank);
+      _cb.subVectors(ball, ank).applyAxisAngle(_Y, ft.psi).add(ank);
+      _ch.x += ft.s.x + ft.fx;
+      _ch.z += ft.s.y;
+      _cb.x += ft.s.x + ft.fx;
+      _cb.z += ft.s.y;
+      const onStair = !free && !airborne && !f.busy && overStair((_ch.x + _cb.x) / 2, (_ch.z + _cb.z) / 2);
+      ft.fxI = onStair ? ft.fx + treadFit(_ch.x, _cb.x) : 0;
+      ft.gS = NaN;
       let gTarget = 0;
-      if (!free && !airborne) {
+      if (onStair) {
+        // Planted: the tread under the whole sole; swinging: the highest under heel or ball, so the
+        // toe clears the nosing going up and the heel clears it going down.
+        const gh = this.groundAt(_ch.x, _ch.z, wy), gb = this.groundAt(_cb.x, _cb.z, wy);
+        const gm = this.groundAt((_ch.x + _cb.x) / 2, (_ch.z + _cb.z) / 2, wy);
+        // (and ahead of the toe, so it is up before it reaches the riser)
+        const gt = this.groundAt(_cb.x + (_cb.x - _ch.x) * 0.9, _cb.z + (_cb.z - _ch.z) * 0.9, wy);
+        const hb = Math.max(gh?.h ?? -Infinity, gb?.h ?? -Infinity);
+        const h = contact || u > 0.7 ? gm?.h : Math.max(hb, gt?.h ?? -Infinity);
+        if (h !== undefined && Number.isFinite(h)) {
+          gTarget = clamp(h - wy, -0.35, 0.35);
+          ft.gS = h;
+        }
+      } else if (!free && !airborne) {
         const a = wpos(L.foot, _a);
-        const g = this.groundAt(a.x + ft.s.x, a.z + ft.s.y, wy);
+        const g = this.groundAt(a.x + ft.s.x + ft.fx, a.z + ft.s.y, wy);
         if (g) gTarget = clamp(g.h - wy, -0.35, 0.35);
       }
-      ft.gOff = dt > 0 && this.simInit ? damp(ft.gOff, gTarget, contact ? 40 : 18, dt) : gTarget;
+      ft.gOff = dt > 0 && this.simInit ? damp(ft.gOff, gTarget, contact || (onStair && gTarget > ft.gOff) ? 40 : 18, dt) : gTarget;
       // A planted sole's lower contact point sits on the ground: blends between clips (start, stop,
       // walk to run) otherwise leave the blended foot hovering a few centimetres up.
       const cT = contact && !free && !airborne ? clamp(wy - Math.min(heel.y, ball.y), -0.08, 0.08) : 0;
       ft.cY = contact || dt <= 0 || !this.simInit ? cT : damp(ft.cY, cT, 10, dt);
       const T = ank.clone();
-      T.x += ft.s.x;
+      T.x += ft.s.x + ft.fx;
       T.z += ft.s.y;
       T.y += ft.gOff + lift + ft.cY;
       if (free && f.busy && !airborne) {
@@ -803,6 +902,7 @@ export class Rider {
           ft.s.set(0, 0);
           ft.s0.set(0, 0);
           ft.psi = ft.psi0 = 0;
+          ft.fx = ft.fx0 = 0;
           ft.restep = -1;
         }
       } else ft.sDown = false;
@@ -812,7 +912,7 @@ export class Rider {
 
     // Standing: re-step the foot that has been dragged or twisted furthest from where the clip wants it.
     if (idle && !free && !airborne && this.feet[0].restep < 0 && this.feet[1].restep < 0) {
-      const err = (ft: Foot) => Math.max(ft.s.length() / 0.1, Math.abs(ft.psi) / 0.35);
+      const err = (ft: Foot) => Math.max(ft.s.length() / 0.1, Math.abs(ft.psi) / 0.35, Math.abs(ft.fxI - ft.fx) / 0.015);
       const e0 = err(this.feet[0]), e1 = err(this.feet[1]);
       const i = e0 >= e1 ? 0 : 1;
       if (Math.max(e0, e1) > 1 && dt > 0) {
@@ -820,6 +920,8 @@ export class Rider {
         ft.restep = 0;
         ft.s0.copy(ft.s);
         ft.psi0 = ft.psi;
+        ft.fx0 = ft.fx;
+        ft.fxT = ft.fxI;
       }
     }
 
@@ -830,7 +932,12 @@ export class Rider {
       const d = hip.distanceTo(targets[i]) - this.legLen * 0.985;
       if (d > 0) need = Math.max(need, Math.min(d * 1.1, 0.3));
     }
-    this.drop = need > this.drop || dt === 0 ? need : damp(this.drop, need, 10, dt);
+    // On the stair the pelvis follows the lower foot (the walker rides the line of the nosings).
+    let sd = 0;
+    for (const ft of this.feet) if (Number.isFinite(ft.gS)) sd = Math.max(sd, clamp(wy - ft.gS, 0, 0.25) * 0.8);
+    this.sDrop = dt > 0 && this.simInit ? damp(this.sDrop, sd, 8, dt) : sd;
+    const dT = Math.max(need, this.sDrop);
+    this.drop = dT > this.drop || dt === 0 ? dT : damp(this.drop, dT, 10, dt);
     if (this.drop > 1e-4) {
       const hips = this.bone("hips");
       const hp = wpos(hips, _b);

@@ -12,7 +12,7 @@ import { clamp, damp } from "../core/rng";
 import type { Boat } from "../boat/boat";
 import { BERTH } from "../boat/berth";
 import { SEA_Y } from "../world/bay/road";
-import { PIER, PIER_STAGE, PIER_STAIR, deckH } from "../world/bay/pier";
+import { PIER, PIER_STAGE, PIER_STAIR, STAIR_FOOT_X, deckH } from "../world/bay/pier";
 
 /**
  * On foot and in the skiff. She walks (WASD, Shift to jog) with a mouse orbit camera; F within
@@ -32,6 +32,17 @@ const LEAVE_SPEED = 1.3;
 const WALK = 1.3;
 /** Shift: an easy run (stride lengthens with speed, see gaitA). */
 const RUN = 3.4;
+/** On the stair: about one tread a step at the walk's cadence, two with Shift. */
+const STAIR_WALK = 0.52, STAIR_RUN = 1.05;
+/**
+ * Her body's height over the stair: the line through the middle of each tread (her feet find the
+ * treads themselves); NaN off it.
+ */
+function stairBodyH(x: number, z: number): number {
+  const S = PIER_STAIR;
+  if (z > S.z0 + 0.1 || z < S.z1 - 0.05 || x > S.x1 || x < STAIR_FOOT_X) return NaN;
+  return clamp(PIER.deck - S.rise * ((S.x1 - x) / S.going + 0.5), PIER_STAGE.y, PIER.deck);
+}
 const BODY_R = 0.24;
 /** Jump: gravity (a little over g, a lighter hop), take-off speed (~0.45 m up, ~0.5 s aloft),
  * the anticipation crouch and the landing squash (s), and the drop under her that makes a fall. */
@@ -612,7 +623,8 @@ export class Explore {
     }
     const g = this.bay.groundAt(this.x, this.z, this.y);
     if (g) {
-      this.gy = g.h;
+      const sb = stairBodyH(this.x, this.z);
+      this.gy = Number.isNaN(sb) || Math.abs(sb - g.h) > 0.3 ? g.h : sb;
       this.surface = g.kind;
     }
     if (this.air) {
@@ -630,7 +642,8 @@ export class Explore {
     }
     if (!g) return;
     this.landT += dt;
-    if (g.h < this.y - DROP_FALL) {
+    const h = this.gy;
+    if (h < this.y - DROP_FALL) {
       // Off an edge (the side of a slipway, a rock): she drops.
       this.air = true;
       this.vy = 0;
@@ -638,7 +651,7 @@ export class Explore {
       this.takeoffY = this.y;
       return;
     }
-    this.y = Math.max(g.h - 0.04, damp(this.y, g.h, 14, dt));
+    this.y = Math.max(h - 0.04, damp(this.y, h, 14, dt));
   }
 
   /** Space: a short anticipation crouch, then the take-off (on foot, ready, not aloft). */
@@ -805,6 +818,10 @@ export class Explore {
       const depth = Math.max(0, SEA_Y - this.gy);
       want = Math.min(want, WALK + (RUN - WALK) * (1 - smooth01((depth - 0.1) / 0.2)));
       want *= 1 - 0.45 * smooth01((depth - 0.08) / (WADE - 0.08));
+      // The stair (and the step or two before it, so she has slowed by its edge).
+      const ax = this.x - Math.sin(this.yaw) * 0.45, az = this.z - Math.cos(this.yaw) * 0.45;
+      const onStair = (x: number, z: number) => x < PIER_STAIR.x1 + 0.05 && x > STAIR_FOOT_X - 0.05 && z <= PIER_STAIR.z0 + 0.1 && z >= PIER_STAIR.z1 - 0.05;
+      if (onStair(this.x, this.z) || onStair(ax, az)) want = Math.min(want, runKey ? STAIR_RUN : STAIR_WALK);
       const err = this.steerToward(Math.atan2(-wx, -wz), dt, want > WALK ? 7 : 9);
       // Turn on the spot for big direction changes, then set off.
       want *= clamp(Math.cos(err) * 1.2, 0.1, 1);
