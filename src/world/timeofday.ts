@@ -242,6 +242,13 @@ export function parsePreset(s: string | null | undefined): Preset | null {
   return (PRESETS as readonly string[]).includes(k) ? (k as Preset) : null;
 }
 
+/** The look the game opens in, read from the URL by the same rules as main.ts (the loader paints it). */
+export function bootPreset(search: string = location.search): Preset {
+  const q = new URLSearchParams(search);
+  if (q.get("timelapse") === "1") return "morning";
+  return parsePreset(q.get("tod") ?? q.get("time")) ?? "golden";
+}
+
 export class TimeOfDay {
   private readonly looks: Look[] = PRESETS.map((p) => LOOKS[p]);
   private from: Look;

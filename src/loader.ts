@@ -1,7 +1,8 @@
 import { PaintedIntro } from "./ui/intro";
+import { bootPreset } from "./world/timeofday";
 
 /**
- * Start veil: a painted seaside view (ui/intro.ts) while the bay builds and the shaders compile, its
+ * Start veil: a painted seaside view (ui/intro.ts), in the time of day the game opens in, while the bay builds and the shaders compile, its
  * wave line drawing itself as the only progress mark. Once ready the painting dissolves into the
  * live opening view behind it, a softly breathing dash remains, and a click or key anywhere starts
  * (the gesture that unlocks audio).
@@ -16,7 +17,7 @@ export class Loader {
     this.el = document.getElementById("loader")!;
     this.bar = this.el.querySelector(".bar i") as HTMLElement;
     if (skip) this.el.classList.add("quiet");
-    else this.intro = new PaintedIntro(this.el);
+    else this.intro = new PaintedIntro(this.el, bootPreset());
   }
 
   advance(w: number, _label?: string): void {
