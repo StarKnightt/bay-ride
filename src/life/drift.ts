@@ -36,6 +36,9 @@ void main(){
   vec3 c = lo + mod(p - lo, BOX);
   float d = distance(c, cameraPosition);
   float k = aK.y * (1.0 - uNight) * smoothstep(0.7, 1.6, d) * (1.0 - smoothstep(16.0, 22.0, d));
+  // Seen well above the eye they stand against the open sky, where a pale dot reads as a star in
+  // daylight: they show only low in the view, against the land and the water.
+  k *= 1.0 - smoothstep(0.1, 0.24, (c.y - cameraPosition.y) / max(d, 1e-3));
   vec3 right = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
   vec3 up = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
   vec3 off;

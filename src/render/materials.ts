@@ -1064,7 +1064,8 @@ export function skyMaterial(): THREE.ShaderMaterial {
           float tw = 0.65 + 0.35 * sin(uTime * (0.8 + hs * 2.5) + hs * 40.0);
           float star = step(0.94, hs) * (1.0 - smoothstep(0.03, 0.11 + 0.08 * fract(hs * 17.0), d)) * tw;
           float minY = mix(0.6, 0.06, uStars);
-          float dark = 1.0 - smoothstep(0.05, 0.16, skyLum);
+          // Late dusk to night only: none while any daylight is left, gone again by morning.
+          float dark = (1.0 - smoothstep(0.05, 0.16, skyLum)) * smoothstep(0.6, 1.0, uNight);
           col += vec3(0.95, 0.95, 1.0) * star * smoothstep(minY, minY + 0.15, dir.y) * dark * (1.0 - wisp * 0.8);
         }
         float ok;

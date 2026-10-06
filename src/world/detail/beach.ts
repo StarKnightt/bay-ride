@@ -5,7 +5,6 @@ import { uber } from "../../render/materials";
 import { LAYER_SHADOW, onLayers } from "../../render/lightpasses";
 import { SEA_Y, roadX } from "../bay/road";
 import { WALL_OUT, waterlineU } from "../bay/terrain";
-import { ROCKS, rockTop } from "../../water/rocks";
 import type { Collider } from "../bay";
 import { groundY, type Layout } from "../../flora/place";
 
@@ -15,8 +14,7 @@ const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 /**
  * The beach dressed: a wrack line at the high-water mark (a broken band of seaweed with dried
  * tufts, shells and small driftwood caught in it), pebble drifts at the wall foot and along the
- * wrack, shells scattered down to the swash, bleached driftwood, tide pools on the exposed shore
- * rocks, and one beach set on the upper sand (an open striped parasol, a striped towel and a basket).
+ * wrack, shells scattered down to the swash, bleached driftwood, and one beach set on the upper sand (an open striped parasol, a striped towel and a basket).
  * All of it is landward of the pier end, so nothing stands between her and the sea in the opening.
  * Small debris is unoutlined (the ground's ink group) and casts no shadow, in a few chunks along
  * the beach; the props are one outlined, shadow-casting mesh.
@@ -31,10 +29,12 @@ function wrackU(z: number): number {
   return uw + 0.42 * (WALL_OUT - uw) + 0.7 * Math.sin(z * 0.11 + 1.3) + 0.4 * Math.sin(z * 0.37);
 }
 
-const WEED = ["#4d4a26", "#5c5428", "#3e4a2a", "#55502c", "#6b5f36"];
-const WEED_DRY = ["#7a6a45", "#8a7a52", "#6f6444"];
+// Dried wrack is only a little darker than the sand it lies in: dark strands on pale sand read as
+// cracks or scribbles from the pier.
+const WEED = ["#8f8558", "#857d52", "#9a8f62", "#8a7f55", "#a09264"];
+const WEED_DRY = ["#b7a77e", "#c0b08a", "#ad9f78"];
 const SHELL = ["#f2ebdc", "#efd9c4", "#e8c2b0", "#f4e2c8", "#d9a68a", "#e6e0d4"];
-const PEBBLE = ["#9a9488", "#8a8378", "#b0a898", "#7c766e", "#a39a8a", "#6f6b66"];
+const PEBBLE = ["#a39d90", "#958e82", "#b0a898", "#8a847a", "#a39a8a", "#c0b8a8"];
 const DRIFT = ["#b9ae9c", "#a89c88", "#c8bfae", "#9e9282"];
 
 /** Lay a flat piece on the sand at (x, z): lifted a little and tilted to the local slope. */
@@ -46,7 +46,7 @@ function onSand(g: Geo, x: number, z: number, lift: number, yaw: number): Geo {
 }
 
 function weed(r: Rng, x: number, z: number, dry: boolean): Geo {
-  const len = range(r, 0.25, 0.7), w = range(r, 0.04, 0.09);
+  const len = range(r, 0.16, 0.42), w = range(r, 0.035, 0.07);
   const g = new THREE.PlaneGeometry(len, w, 3, 1);
   const p = g.attributes.position;
   const bend = range(r, -0.5, 0.5);
@@ -61,8 +61,8 @@ function weed(r: Rng, x: number, z: number, dry: boolean): Geo {
 
 /** A tangled clump of wrack: a low flattened lump. */
 function clump(r: Rng, x: number, z: number): Geo {
-  const s = range(r, 0.12, 0.26);
-  const g = new THREE.IcosahedronGeometry(1, 0);
+  const s = range(r, 0.08, 0.18);
+  const g = new THREE.IcosahedronGeometry(1, 1);
   g.scale(s * range(r, 1.2, 2), s * 0.28, s);
   prep(g, pick(r, WEED), M.plain);
   return onSand(g, x, z, s * 0.05, r() * Math.PI);
@@ -213,20 +213,6 @@ function basket(out: Geo[], colliders: Collider[], x: number, z: number): void {
   colliders.push({ x, z, r: 0.25, top: g + 0.4 });
 }
 
-/** Tide pool in a hollow on a shore rock's top: a dark wet rim round still water with a sky sheen. */
-function tidePool(r: Rng, out: Geo[], x: number, z: number, rad: number): void {
-  const y = rockTop(x, z);
-  const rim = new THREE.CircleGeometry(rad * 1.25, 12);
-  rim.rotateX(-Math.PI / 2);
-  out.push(xf(prep(rim, "#5a5248", M.stone), x, y + 0.012, z));
-  const water = new THREE.CircleGeometry(rad, 12);
-  water.rotateX(-Math.PI / 2);
-  out.push(xf(prep(water, pick(r, ["#4f8796", "#457f8c"]), M.metal), x, y + 0.02, z));
-  const sheen = new THREE.CircleGeometry(rad * 0.45, 8, 0, Math.PI);
-  sheen.rotateX(-Math.PI / 2);
-  out.push(xf(prep(sheen, "#a8cfd0", M.metal), x + rad * 0.2, y + 0.024, z - rad * 0.15, 0, r() * 6.28, 0));
-}
-
 export function buildBeach(layout: Layout, colliders: Collider[]): THREE.Group {
   const r = mulberry32(9393);
   const chunks = new Map<number, Geo[]>();
@@ -240,11 +226,12 @@ export function buildBeach(layout: Layout, colliders: Collider[]): THREE.Group {
   const at = (u: number, z: number) => roadX(z) + u;
   const ok = (x: number, z: number, pad = 0) => layout.free(x, z, pad);
 
-  // The wrack line: a broken band (gaps where the noise drops) of weed, dried tufts, clumps and shells.
+  // The wrack line: a sparse, broken band (gaps where the noise drops) of weed bits, dried tufts,
+  // small clumps and shells.
   for (let z = Z0; z < Z1; z += 0.22) {
     const band = Math.sin(z * 0.043 + 0.4) * 0.5 + Math.sin(z * 0.131 + 2.1) * 0.35 + Math.sin(z * 0.37) * 0.15;
     if (band < -0.35) continue;
-    const dens = 0.55 + 0.45 * Math.min(1, (band + 0.35) * 1.4);
+    const dens = 0.25 + 0.25 * Math.min(1, (band + 0.35) * 1.4);
     for (let k = 0; k < 2; k++) {
       if (r() > dens) continue;
       const zz = z + range(r, -0.11, 0.11);
@@ -286,7 +273,14 @@ export function buildBeach(layout: Layout, colliders: Collider[]): THREE.Group {
     if (!ok(x, z, big ? 1.2 : 0.4)) continue;
     n++;
     const len = big ? range(r, 1.4, 3.2) : range(r, 0.4, 1.1), rad = big ? range(r, 0.07, 0.13) : range(r, 0.025, 0.05);
-    driftwood(r, props, x, z, len, rad);
+    if (big) driftwood(r, props, x, z, len, rad);
+    else {
+      // Twigs in the wrack go with the small debris, uninked: an ink line round a 5 cm stick is
+      // all line, a black stroke on the sand.
+      const bits: Geo[] = [];
+      driftwood(r, bits, x, z, len, rad);
+      for (const b of bits) add(z, b);
+    }
     if (big) {
       colliders.push({ x, z, r: len * 0.45, top: groundY(x, z) + rad * 1.6 });
       layout.rect(x - len / 2, x + len / 2, z - len / 2, z + len / 2);
@@ -341,15 +335,6 @@ export function buildBeach(layout: Layout, colliders: Collider[]): THREE.Group {
     cooler(props, colliders, x + 1.1, z + 1.9, 0.3);
     footprints(props, at(WALL_OUT - 0.4, z + 3.2), z + 3.2, x + 1.3, z - 0.6);
     layout.rect(x - 0.8, x + 2.1, z - 1.0, z + 2.4);
-  }
-  // Tide pools on the shore rocks that stand clear of the water.
-  for (const rk of ROCKS) {
-    if (rk.top < SEA_Y + 0.25 || rk.r < 0.7) continue;
-    const n = rk.r > 1.4 ? 2 : 1;
-    for (let k = 0; k < n; k++) {
-      const a = r() * Math.PI * 2, d = rk.r * range(r, 0.05, 0.3);
-      tidePool(r, props, rk.x + Math.cos(a) * d, rk.z + Math.sin(a) * d, rk.r * range(r, 0.16, 0.26));
-    }
   }
   // Dune flowers and grass tufts in drifts along the wall foot, thicker near the beach set.
   for (let z = Z0 + 8; z < Z1 - 8; z += range(r, 9, 16)) {

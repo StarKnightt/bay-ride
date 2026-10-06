@@ -3,7 +3,7 @@ import { ID, M, blob, merge, prep, xf } from "../world/geo";
 import { uber } from "../render/materials";
 import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../render/lightpasses";
 import { SEA_Y, roadX } from "../world/bay/road";
-import { waterlineU } from "../world/bay/terrain";
+import { terrainH, waterlineU } from "../world/bay/terrain";
 import { mulberry32 } from "../core/rng";
 
 /** A shore rock: footprint centre, horizontal radius, top height (world y), vertical squash. */
@@ -107,52 +107,109 @@ export function rockSkirts(): THREE.Vector4[] {
   return out;
 }
 
-const ROCK = new THREE.Color("#93897a");
-const ROCK_TOP = new THREE.Color("#b2a78f");
+const ROCK = new THREE.Color("#8e877c");
+const ROCK_TOP = new THREE.Color("#a99f89");
 const ROCK_WARM = new THREE.Color("#9a8670");
-const ROCK_WET = new THREE.Color("#4e5148");
-const SALT = new THREE.Color("#c9c3b0");
-const WEED = new THREE.Color("#5d6136");
+const ROCK_COOL = new THREE.Color("#6c7282");
+const ROCK_DARK = new THREE.Color("#6b665f");
+const ROCK_WET = new THREE.Color("#3d3f39");
+const SALT = new THREE.Color("#e2dccb");
+const WEED = new THREE.Color("#5a5c2c");
+const WEED_DEEP = new THREE.Color("#3f4a2c");
+const LICHEN = new THREE.Color("#c4b45e");
+
+/** One stone of a tide rock: footprint centre, horizontal radius, top (world y), squash, seed. */
+interface Stone { x: number; z: number; rad: number; top: number; sy: number; seed: number }
 
 /**
- * All shore rocks as one mesh, shaded like the boulders on land: lumpy and rounded, a lit warm
- * top, a pale salt line just above the tide, an olive weed band at the waterline and dark wet
- * stone below. The underside reaches down into the seabed (a bare ellipsoid floated over it).
+ * The stones a rock is drawn as: its main boulder (top where the rock's top is, so walking on it
+ * and the water's cover still match) and two or three smaller ones leaning on it, lower, some awash,
+ * all inside the footprint the colliders and the surf use.
+ */
+function stonesOf(r: Rock): Stone[] {
+  const rnd = mulberry32(r.seed * 7919 + 13);
+  const main = r.r * 0.78;
+  const out: Stone[] = [{ x: r.x, z: r.z, rad: main, top: r.top, sy: r.sy, seed: r.seed * 1.37 }];
+  const n = r.r > 1.3 ? 3 : 2;
+  let a = rnd() * Math.PI * 2;
+  for (let k = 0; k < n; k++) {
+    a += 1.4 + rnd() * 1.8;
+    const rad = r.r * (0.3 + rnd() * 0.16), d = main * 0.78 + rad * 0.55;
+    out.push({ x: r.x + Math.cos(a) * d, z: r.z + Math.sin(a) * d, rad, top: r.top - r.r * r.sy * (0.35 + rnd() * 0.45), sy: 0.55 + rnd() * 0.2, seed: r.seed * 3.1 + k * 11.7 });
+  }
+  return out;
+}
+
+/**
+ * All shore rocks as one mesh, shaded like the boulders on land: each rock a cluster of rounded,
+ * worn boulders (two scales of lumps and a couple of flattened faces, never a smooth dome),
+ * mottled stone with a lit warm top and a cool underside, sparse lichen on the dry tops, a broken
+ * pale salt line above the tide, an olive weed band at the waterline and dark wet stone below. The
+ * undersides reach down past the seabed, so the swell never shows a gap under them.
  */
 export function buildRocks(): THREE.Mesh {
   const parts: THREE.BufferGeometry[] = [];
   const c = new THREE.Color();
-  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  const cl = (v: number) => Math.min(1, Math.max(0, v));
+  const nrm = new THREE.Vector3();
   for (const r of ROCKS) {
     if (r.top < SEA_Y - 1.6) continue;
-    let g = blob(1, 2, 0.22, r.seed * 1.37);
-    const lp = g.attributes.position;
-    for (let i = 0; i < lp.count; i++) {
-      const vx = lp.getX(i), vy = lp.getY(i), vz = lp.getZ(i);
-      const k = 1 + 0.16 * Math.sin(vx * 2.3 + r.seed) * Math.sin(vy * 2.9 + r.seed * 1.3) * Math.sin(vz * 2.1 + r.seed * 0.7);
-      lp.setXYZ(i, vx * k, (vy < 0 ? vy * 3.2 : vy) * k, vz * k);
+    for (const s of stonesOf(r)) {
+      if (s.top < SEA_Y - 1.2) continue;
+      const rnd = mulberry32(Math.floor(s.seed * 1000) + 7);
+      const sd = s.seed;
+      let g = blob(1, s.rad > 0.9 ? 3 : 2, 0.1, sd);
+      const cy = s.top - s.rad * s.sy;
+      const bed = Math.min(terrainH(s.x, s.z), terrainH(s.x + s.rad, s.z), terrainH(s.x - s.rad, s.z), terrainH(s.x, s.z + s.rad), terrainH(s.x, s.z - s.rad));
+      const down = Math.max(1.2, (cy - (bed - 0.35)) / (s.rad * s.sy));
+      // Two worn faces: planes the lumps are pressed back toward.
+      const cuts: [THREE.Vector3, number][] = [0, 1].map(() => {
+        const t = rnd() * Math.PI * 2, e = 0.2 + rnd() * 0.7;
+        return [new THREE.Vector3(Math.cos(t) * Math.cos(e), Math.sin(e), Math.sin(t) * Math.cos(e)), 0.62 + rnd() * 0.18];
+      });
+      const lp = g.attributes.position;
+      for (let i = 0; i < lp.count; i++) {
+        nrm.set(lp.getX(i), lp.getY(i), lp.getZ(i));
+        const lump = Math.sin(nrm.x * 2.2 + sd) * Math.sin(nrm.y * 2.8 + sd * 1.3) * Math.sin(nrm.z * 2.4 + sd * 0.7);
+        const fine = Math.sin(nrm.x * 5.3 - sd) * Math.sin(nrm.y * 4.6 + sd * 0.4) * Math.sin(nrm.z * 5.9 + sd * 1.9);
+        nrm.multiplyScalar(1 + 0.22 * lump + 0.06 * fine);
+        for (const [n, d] of cuts) {
+          const o = nrm.dot(n) - d;
+          if (o > 0) nrm.addScaledVector(n, -o * 0.75);
+        }
+        // A worn, flattish crown rather than a dome.
+        const yy = nrm.y > 0.6 ? 0.6 + (nrm.y - 0.6) * 0.5 : nrm.y;
+        lp.setXYZ(i, nrm.x, yy < 0 ? yy * down : yy, nrm.z);
+      }
+      g = prep(g, null, M.stone);
+      xf(g, s.x, cy, s.z, (rnd() - 0.5) * 0.3, rnd() * 6.28, (rnd() - 0.5) * 0.3, s.rad * (0.88 + rnd() * 0.17), s.rad * s.sy, s.rad * (0.75 + rnd() * 0.2));
+      g.computeVertexNormals();
+      const p = g.attributes.position, nr = g.attributes.normal;
+      const col = new Float32Array(p.count * 3);
+      for (let i = 0; i < p.count; i++) {
+        const x = p.getX(i), y = p.getY(i), z = p.getZ(i), up = nr.getY(i);
+        const wob = 0.07 * Math.sin(x * 1.7 + z * 1.3 + sd) + 0.04 * Math.sin(x * 4.3 - z * 3.1);
+        const h = y - SEA_Y + wob;
+        const mot = 0.5 + 0.5 * Math.sin(x * 3.1 + sd) * Math.sin(z * 2.7 - sd) * Math.sin(y * 3.7 + 1.3);
+        const mot2 = 0.5 + 0.5 * Math.sin(x * 7.3 - sd) * Math.sin(z * 6.1 + sd * 0.5);
+        c.copy(ROCK).lerp(ROCK_WARM, 0.25 + 0.4 * mot);
+        c.lerp(ROCK_TOP, cl((up - 0.45) * 1.8) * 0.6);
+        c.lerp(ROCK_COOL, cl(-up * 1.4) * 0.6);
+        c.lerp(ROCK_DARK, 0.2 + 0.4 * (1 - mot2) * (up < 0.3 ? 1 : 0.5));
+        if (h > 0.45 && up > 0.2) c.lerp(LICHEN, cl((mot2 - 0.72) * 4) * 0.45);
+        const brk = 0.5 + 0.5 * Math.sin(x * 2.3 + z * 1.9 + sd * 2.0);
+        c.lerp(SALT, cl(1 - Math.abs(h - 0.34) / 0.07) * (0.45 + 0.45 * brk));
+        c.lerp(ROCK_WET, cl((0.28 - h) / 0.12) * 0.85);
+        c.lerp(mot > 0.5 ? WEED : WEED_DEEP, cl(1 - Math.abs(h - 0.06) / 0.12) * (0.55 + 0.4 * mot2));
+        col[i * 3] = c.r;
+        col[i * 3 + 1] = c.g;
+        col[i * 3 + 2] = c.b;
+      }
+      g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      parts.push(g);
     }
-    g = prep(g, null, M.stone);
-    xf(g, r.x, r.top - r.r * r.sy, r.z, 0, r.seed * 0.9, 0, r.r, r.r * r.sy, r.r * (0.8 + 0.2 * Math.sin(r.seed)));
-    g.computeVertexNormals();
-    const p = g.attributes.position, nr = g.attributes.normal;
-    const col = new Float32Array(p.count * 3);
-    for (let i = 0; i < p.count; i++) {
-      const x = p.getX(i), y = p.getY(i), z = p.getZ(i), up = nr.getY(i);
-      const h = y - SEA_Y + 0.08 * Math.sin(x * 1.7 + z * 1.3 + r.seed);
-      const mot = 0.5 + 0.5 * Math.sin(x * 3.1 + r.seed) * Math.sin(z * 2.7 - r.seed);
-      c.copy(ROCK).lerp(ROCK_WARM, 0.3 + 0.3 * mot).lerp(ROCK_TOP, clamp((up - 0.25) * 1.5) * 0.7);
-      c.lerp(SALT, clamp(1 - Math.abs(h - 0.42) / 0.14) * 0.55);
-      c.lerp(WEED, clamp(1 - Math.abs(h - 0.08) / 0.2) * 0.7);
-      c.lerp(ROCK_WET, clamp((0.25 - h) / 0.3) * 0.75);
-      col[i * 3] = c.r;
-      col[i * 3 + 1] = c.g;
-      col[i * 3 + 2] = c.b;
-    }
-    g.setAttribute("color", new THREE.BufferAttribute(col, 3));
-    parts.push(g);
   }
-  const m = new THREE.Mesh(merge(parts), uber(ID.ground, 0.6));
+  const m = new THREE.Mesh(merge(parts), uber(ID.berm, 0.8));
   onLayers(m, LAYER_SHADOW, LAYER_REFLECT);
   return m;
 }
