@@ -9,6 +9,7 @@ import { WAVES_GLSL } from "./waves";
 import { SKIRT_MAX, rockSkirts } from "./rocks";
 import { BUOY_MAX, BUOY_U } from "./buoys";
 import { WAKE_FS_GLSL, WAKE_GLSL, WAKE_U } from "./wake";
+import { WATER_TOD } from "./look";
 
 const OUT = /* glsl */ `
 layout(location = 0) out vec4 gColor;
@@ -99,6 +100,8 @@ const FS = /* glsl */ `
   uniform vec4 uPierLamps[3];
   // 1 on the surf band along the beach, 0 on the open-sea grid round the camera (one program for both).
   uniform float uBand;
+  // 1 at dusk (water/look.ts).
+  uniform float uDusk;
   in vec3 vWPos;
   in vec2 vFoc;
 
@@ -495,6 +498,8 @@ const FS = /* glsl */ `
     // the glitter, never one milky field.
     float lowSun = smoothstep(0.3, 0.6, uSunColor.r - uSunColor.b) * (1.0 - uNight);
     vec3 sunHue = uSunColor / max(max(uSunColor.r, max(uSunColor.g, uSunColor.b)), 0.05);
+    // The night's darker mirror, eased at dusk: the twilight sky still lights the water.
+    float nDim = uNight * (1.0 - 0.7 * uDusk);
     bodyCol = mix(bodyCol, bodyCol * mix(vec3(1.0), sunHue * 1.1, 0.35 * (1.0 - 0.75 * lowSun)), warmSky);
     // Ankle-deep water is wholly clear: the bed reads through the last decimetres as it does through
     // the beach's strip under the water.
@@ -515,10 +520,12 @@ const FS = /* glsl */ `
     // Painted swell lines offshore: lighter crests, darker troughs (they show the swell bending),
     // fading well before the far haze.
     float offs = smoothstep(1.5, 5.0, s.h);
-    float swk = offs * (1.0 - 0.6 * uNight) * (1.0 - 0.8 * smoothstep(500.0, 1800.0, dist)) * smoothstep(0.008, 0.04, -V.y);
+    float swk = offs * (1.0 - 0.6 * uNight * (1.0 - 0.5 * uDusk)) * (1.0 - 0.8 * smoothstep(500.0, 1800.0, dist)) * smoothstep(0.008, 0.04, -V.y);
     col *= 1.0 + s.swell * 0.4 * swk;
-    // Under a low sun the crests catch its warm light.
-    col = mix(col, mix(cW, cW * 0.5 + sunHue * 0.45, lowSun) * 1.15 + 0.05, smoothstep(0.35, 0.85, s.swell) * 0.45 * swk);
+    // Under a low sun the crests catch its warm light; at dusk the afterglow's last warmth (rose).
+    vec3 crestC = mix(cW, cW * 0.5 + sunHue * 0.45, lowSun) * 1.15 + 0.05;
+    crestC = mix(crestC, uSkyHorizon * 0.3 / max(uWorldTint, vec3(0.05)), 0.6 * uDusk);
+    col = mix(col, crestC, smoothstep(0.35, 0.85, s.swell) * 0.45 * swk);
     // Light through the thin lip of a steepening crest.
     col = mix(col, cW * 1.3 * mix(vec3(1.0), uSunColor, 0.5) + 0.02, s.crest * 0.55);
     // Ripple marks and the chop's painted tones also shade the body a touch (facets turned to the
@@ -594,7 +601,7 @@ const FS = /* glsl */ `
         tu.y = min(tu.y, hy);
         vec4 c4 = textureLod(uRefl, clamp(tu, 0.001, 0.999), 0.0);
         // At night reflected land and roofs are a darker band than the sky they stand against.
-        vec3 c = mix(skyFill, c4.rgb * (1.0 - 0.4 * uNight), clamp(c4.a, 0.0, 1.0));
+        vec3 c = mix(skyFill, c4.rgb * (1.0 - 0.4 * nDim), clamp(c4.a, 0.0, 1.0));
         float w = 1.0 - 0.6 * abs(fi);
         acc += c * w; ws += w;
         mx = max(mx, c);
@@ -764,8 +771,13 @@ const FS = /* glsl */ `
     // In low sun the warmth comes from the bright sky in the mirror, not from the body; under a low
     // sun the preset's warm reflection tint is half neutral, as that sky is gold already.
     vec3 wRefl = mix(uWaterRefl, vec3(dot(uWaterRefl, vec3(0.3333))), 0.5 * lowSun);
-    refl = mix(vec3(rl), refl, 1.15) * wRefl * mix(0.9, 0.68, uNight) * (1.0 + 0.12 * warmSky * (1.0 - lowSun));
+    refl = mix(vec3(rl), refl, 1.15) * wRefl * mix(0.9, 0.68, nDim) * (1.0 + 0.12 * warmSky * (1.0 - lowSun));
     refl /= max(uWorldTint, vec3(0.05));
+    // At dusk the dark mirrored hills and roofs take the deep water's blue-violet at their own value:
+    // a soft darker band in twilight water, never a brown hole. The bright afterglow keeps its warmth.
+    float rlD = dot(refl, vec3(0.2126, 0.7152, 0.0722));
+    vec3 deepHue = mix(vec3(1.0), uWaterDeep / max(dot(uWaterDeep, vec3(0.2126, 0.7152, 0.0722)), 1e-3), 0.5);
+    refl = mix(refl, rlD * deepHue, 0.6 * uDusk * (1.0 - smoothstep(0.08, 0.3, rlD)));
     refl = mix(refl, wCool(refl), 0.55 * (1.0 - smoothstep(0.3, 1.5, s.h)));
     refl = mix(refl, reflB, objR);
     float cosT = max(dot(-V, Nw), 0.0);
@@ -821,7 +833,7 @@ const FS = /* glsl */ `
     col *= 1.0 + uNight * chopK * (0.35 * (vnoise(q * 0.006 + uTime * 0.01) - 0.5) + 0.12 * s.swell * offs - 0.1 * tone);
     // Far off the sea is one smooth band brightening toward the horizon, taken from the sky.
     float hK = smoothstep(0.06, 0.004, -V.y) * smoothstep(150.0, 700.0, dist) * offs;
-    col = mix(col, mix(col, skyH * uWaterRefl * mix(0.82, 0.6, uNight), 0.5 + 0.4 * smoothstep(0.03, 0.004, -V.y)), hK);
+    col = mix(col, mix(col, skyH * uWaterRefl * mix(0.82, 0.6, nDim), 0.5 + 0.4 * smoothstep(0.03, 0.004, -V.y)), hK);
     // Lights stretched by the ripples are bright facets, not a faint mirror: they read at any angle.
     // Lit windows streak right up to the shore: only foam and broken surf hide them.
     // Light, not lit surface: undo the world tint applied later, or the warm streaks go tan-grey.
@@ -1147,7 +1159,7 @@ const SKIRTS = { value: rockSkirts() };
 function material(band: boolean): THREE.ShaderMaterial {
   const m = new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
-    uniforms: { ...G, ...DEPTH, ...REFL, ...WAKE_U, uRocks: SKIRTS, uBuoys: BUOY_U, uPierLamps: PIER_LAMP_U, uGridO: GRID_UNIFORM, uBand: { value: band ? 1 : 0 }, uId: { value: ID.water }, uMask: { value: 0 } },
+    uniforms: { ...G, ...DEPTH, ...REFL, ...WAKE_U, ...WATER_TOD, uRocks: SKIRTS, uBuoys: BUOY_U, uPierLamps: PIER_LAMP_U, uGridO: GRID_UNIFORM, uBand: { value: band ? 1 : 0 }, uId: { value: ID.water }, uMask: { value: 0 } },
     vertexShader: VS,
     fragmentShader: FS,
   });

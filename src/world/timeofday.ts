@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { G } from "../render/materials";
 import { TOD_GRADE } from "../render/todUniforms";
+import { WATER_TOD } from "../water/look";
 import type { Post } from "../render/post";
 import type { SunShadow } from "../render/lightpasses";
 
@@ -42,6 +43,8 @@ interface Look {
   gSpread: number; gSheen: number;
   /** Lighthouse lamp and beam. */
   beam: number;
+  /** 1 at dusk only: the twilight sky still lights the water (water/look.ts). */
+  dusk: number;
   evening: number;
   birds: number; // share of seabirds aloft
 }
@@ -86,6 +89,7 @@ const LOOKS: Record<Preset, Look> = {
     wShallow: hx("#86cfc6"), wDeep: hx("#326c9c"), wRefl: [1.0, 0.97, 0.95], glint: 0.55, glintCol: [1.0, 0.9, 0.78], glintMoon: 0,
     gSpread: 0.15, gSheen: 0.12,
     beam: 0,
+    dusk: 0,
     evening: 0.25,
     birds: 1,
   },
@@ -106,6 +110,7 @@ const LOOKS: Record<Preset, Look> = {
     wShallow: hx("#58d6c8"), wDeep: hx("#1a5aa0"), wRefl: [1.0, 1.0, 1.0], glint: 0.5, glintCol: [1.0, 0.97, 0.9], glintMoon: 0,
     gSpread: 0.17, gSheen: 0.1,
     beam: 0,
+    dusk: 0,
     evening: 0,
     birds: 1,
   },
@@ -127,6 +132,7 @@ const LOOKS: Record<Preset, Look> = {
     wShallow: hx("#a2b590"), wDeep: hx("#2e5a76"), wRefl: [1.1, 0.96, 0.78], glint: 1.0, glintCol: [1.0, 0.84, 0.56], glintMoon: 0,
     gSpread: 0.14, gSheen: 0.16,
     beam: 0,
+    dusk: 0,
     evening: 0.8,
     birds: 1,
   },
@@ -148,10 +154,12 @@ const LOOKS: Record<Preset, Look> = {
     wShallow: hx("#9a90a2"), wDeep: hx("#2a3868"), wRefl: [1.05, 0.9, 0.85], glint: 1.0, glintCol: [1.0, 0.66, 0.38], glintMoon: 0,
     gSpread: 0.12, gSheen: 0.14,
     beam: 0.3,
+    dusk: 0,
     evening: 0.95,
     birds: 0.5,
   },
-  // After the sun: dark slate clouds with thin pink rims, the first stars high up.
+  // After the sun: dark slate clouds with thin pink rims, the first stars high up, and a deep
+  // blue-violet sea that still holds the twilight (its deep body ends near #30327e under this world tint).
   dusk: {
     az: -116, el: -3, shadeMin: 18, keyHue: 0.4,
     sun: hx("#535d96"), shadow: hx("#40497a"), rim: hx("#ff9a6a", 0.7),
@@ -166,13 +174,15 @@ const LOOKS: Record<Preset, Look> = {
     grade: [0.97, 0.98, 1.04], sat: 1.05,
     bloomS: 0.6, bloomR: 0.55, bloomT: 0.85,
     moonAz: -62, moonEl: 11, moon: [0.95, 0.88, 0.72],
-    wShallow: hx("#4a5a86"), wDeep: hx("#18204a"), wRefl: [1.0, 1.0, 1.0], glint: 0.25, glintCol: [1.0, 0.62, 0.45], glintMoon: 0,
+    wShallow: hx("#6e78ae"), wDeep: hx("#4e4e92"), wRefl: [1.0, 1.0, 1.0], glint: 0.25, glintCol: [1.0, 0.62, 0.45], glintMoon: 0,
     gSpread: 0.12, gSheen: 0.1,
     beam: 1,
+    dusk: 1,
     evening: 1.0,
     birds: 0,
   },
-  // Moonlight: cool weak clouds lit only on the moon side, haze and far land darker than the sky.
+  // Moonlight: cool weak clouds lit only on the moon side, haze and far land darker than the sky,
+  // an indigo sea that still reads as water.
   night: {
     az: -84, el: 19, shadeMin: 15, keyHue: 0.55,
     sun: hx("#7d90c8", 0.66), shadow: hx("#26305e"), rim: hx("#a8bce8", 0.8),
@@ -187,9 +197,10 @@ const LOOKS: Record<Preset, Look> = {
     grade: [0.96, 0.98, 1.06], sat: 1.05,
     bloomS: 0.6, bloomR: 0.55, bloomT: 0.85,
     moonAz: -84, moonEl: 19, moon: [0.95, 0.88, 0.7],
-    wShallow: hx("#1e3a5e"), wDeep: hx("#08122e"), wRefl: [0.9, 0.92, 1.0], glint: 0.75, glintCol: [1.0, 0.92, 0.74], glintMoon: 1,
+    wShallow: hx("#264874"), wDeep: hx("#0e2048"), wRefl: [0.9, 0.92, 1.0], glint: 0.75, glintCol: [1.0, 0.92, 0.74], glintMoon: 1,
     gSpread: 0.13, gSheen: 0.14,
     beam: 1,
+    dusk: 0,
     evening: 1,
     birds: 0,
   },
@@ -380,6 +391,7 @@ export class TimeOfDay {
     G.uWaterShallow.value.setRGB(...l.wShallow);
     G.uWaterDeep.value.setRGB(...l.wDeep);
     G.uWaterRefl.value.setRGB(...l.wRefl);
+    WATER_TOD.uDusk.value = l.dusk;
     G.uBeam.value = l.beam;
     TOD_GRADE.uGradeMul.value.setRGB(...l.grade);
     TOD_GRADE.uSat.value = l.sat;
