@@ -329,17 +329,22 @@ Wake wakeShade(vec2 q, float px, float pxm){
     float wP = (0.42 + 0.14 * smoothstep(0.0, 2.5, xs)) * (1.0 - 0.45 * smoothstep(3.0, 14.0, xs));
     float wPe = max(wP, pxW);
     float lat = ay / wPe;
-    float stage = exp(-max(xs - 1.0, 0.0) / 4.0) * exp(-w.age / 6.0);
+    float stage = exp(-max(xs - 1.0, 0.0) / 2.6) * exp(-w.age / 6.0);
     float boil = w.churn * behind * exp(-lat * lat * 1.6) * stage * mix(sqrt(wP / wPe), 1.0, keep) * (1.0 + 0.8 * smoothstep(0.05, 0.4, pxL));
     boil *= (0.6 + 0.6 * vnoise(vec2(w.odo * 0.3, w.y * 1.4))) * (1.0 + 0.9 * exp(-max(xs, 0.0) / 1.5));
-    float boilF = wakeLace(vec2(w.y * 1.2, w.odo) + vec2(0.0, w.age * 0.5), clamp(boil * 0.8, 0.0, 1.0), 5.0, pxL, 1.0);
+    // Capped short of solid so holes of dark water stay open, densest only in the prop's own wash.
+    float boilF = wakeLace(vec2(w.y * 1.2, w.odo) + vec2(0.0, w.age * 0.5), clamp(boil * 0.8, 0.0, mix(0.72, 0.92, exp(-max(xs, 0.0) / 1.5))), 5.0, pxL, 1.0);
+    // Churned patches with dark water between, drifting as the water ages; whole in the prop wash,
+    // and its mean where the pixel is too coarse to draw them.
+    float chM = smoothstep(0.32, 0.62, vnoise(vec2(w.y * 2.4, w.odo * 0.9) + w.age * 0.7));
+    chM = mix(mix(chM, 1.0, 0.6 * exp(-max(xs, 0.0) / 1.2)), 0.55, smoothstep(0.08, 0.3, pxL));
     float wA2 = wPe * 1.5 + 0.25;
     // The aerated band and the slick have soft edges that wander in and out along the track,
     // never a ruled boundary, and the slick is patchy: calm lanes with chop creeping back in.
     float edgeN = vnoise(vec2(w.odo * 0.22, sd * 3.0)) - 0.5, edgeF = vnoise(vec2(w.odo * 0.9, w.y * 0.6 + 4.0)) - 0.5;
     float ayA = max(ay + edgeN * 0.5 * wA2 + edgeF * 0.25 * wA2, 0.0);
     // Patchy, so the band astern is broken pale water and never one flat wedge.
-    o.aer = w.churn * behind * exp(-max(xs, 0.0) / 9.0) * exp(-ayA * ayA / (wA2 * wA2)) * (0.45 + 0.7 * smoothstep(0.25, 0.7, vnoise(vec2(w.y * 0.8, w.odo * 0.5)))) * fade;
+    o.aer = w.churn * behind * exp(-max(xs, 0.0) / 6.0) * mix(0.35, 1.0, chM) * exp(-ayA * ayA / (wA2 * wA2)) * (0.45 + 0.7 * smoothstep(0.25, 0.7, vnoise(vec2(w.y * 0.8, w.odo * 0.5)))) * fade;
     float wS = max((0.75 + 0.05 * max(xs, 0.0)) * (0.75 + 0.5 * vnoise(vec2(w.odo * 0.12, sd * 7.0))), pxW);
     float ayS = max(ay + (edgeN * 0.7 + edgeF * 0.35) * wS, 0.0);
     o.slick = max(w.churn, S * 0.6) * 0.75 * exp(-w.age / 10.0) * exp(-ayS * ayS / (wS * wS)) * smoothstep(-1.0, 1.0, xs) * fade
@@ -351,7 +356,7 @@ Wake wakeShade(vec2 q, float px, float pxm){
     // Churned water holds no mirror image: behind the transom, a band a little wider than her
     // beam, fading as the water settles into the slick.
     float lB = ay / (uBoatB.y * 1.25 + 0.06 * max(xs, 0.0));
-    o.brk = clamp(w.churn * smoothstep(-0.6, 0.2, xs) * exp(-lB * lB * 1.4) * exp(-max(xs, 0.0) / 9.0) * 1.4 + boil + amp * prof * 0.7, 0.0, 1.0);
+    o.brk = clamp(w.churn * smoothstep(-0.6, 0.2, xs) * exp(-lB * lB * 1.4) * exp(-max(xs, 0.0) / 5.5) * 1.4 * chM + boilF * 0.8 + boil * 0.15 + amp * prof * 0.7, 0.0, 1.0);
 
     // Broken water roughs up the mirror and the glitter (fades before it could shimmer).
     float rough = clamp(amp * prof * 1.2 + boil + o.aer * 0.35, 0.0, 1.0) * (1.0 - smoothstep(0.1, 0.4, pxm));
