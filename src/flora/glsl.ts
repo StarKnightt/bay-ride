@@ -242,8 +242,16 @@ void main(){
   // drew chevrons up the steep ground.
   float cx = N.x * N.x, cz = (abs(N.z) + 0.25) * (abs(N.z) + 0.25);
   float wa = smoothstep(0.3, 0.7, cx / (cx + cz));
-  float s1 = mix(vnoise(vWPos.xz * vec2(0.42, 2.1)), vnoise(vWPos.zx * vec2(0.42, 2.1) + 5.3), wa);
-  float s2 = mix(vnoise(vWPos.xz * vec2(0.08, 0.42) + 11.0), vnoise(vWPos.zx * vec2(0.08, 0.42) + 17.0), wa);
+  // One pair of lookups wherever the slope faces one way (most of the screen), both in the blend.
+  float s1 = 0.0, s2 = 0.0;
+  if (wa < 0.999) {
+    s1 = vnoise(vWPos.xz * vec2(0.42, 2.1));
+    s2 = vnoise(vWPos.xz * vec2(0.08, 0.42) + 11.0);
+  }
+  if (wa > 0.001) {
+    s1 = mix(s1, vnoise(vWPos.zx * vec2(0.42, 2.1) + 5.3), wa);
+    s2 = mix(s2, vnoise(vWPos.zx * vec2(0.08, 0.42) + 17.0), wa);
+  }
   float k1 = 1.0 - smoothstep(0.12, 0.5, gFoot);
   float k2 = 1.0 - smoothstep(1.2, 4.0, gFoot);
   float st = (s1 - 0.5) * 0.42 * k1 + (s2 - 0.5) * 0.36 * k2;
