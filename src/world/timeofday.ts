@@ -71,15 +71,16 @@ const DEG = Math.PI / 180;
 // lavender shadow sides, warm rim light; the sea goes from clear turquoise shallows to deep blue,
 // gold and rose at sunset, indigo with a moon path at night.
 const LOOKS: Record<Preset, Look> = {
-  // Low sun over the hill: pale peach key, long cool shadows, a softer paler blue than noon.
+  // Low sun over the hill: pale peach key, long cool shadows, a paler teal than noon over a warm
+  // cream horizon.
   morning: {
     az: 140, el: 13, shadeMin: 15, keyHue: 0.15,
     sun: hx("#ffd9b4", 0.98), shadow: hx("#7b8ac4"), rim: hx("#ffd2a8", 1.35),
-    zenith: hx("#5a8cc4"), mid: hx("#a6c8e2"), horizon: hx("#f2dccc"), fog: hx("#dedfe2"), fogD: 0.001,
+    zenith: hx("#208ca3"), mid: hx("#55b5ca"), horizon: hx("#f2dccc"), fog: hx("#dedfe2"), fogD: 0.001,
     glow: [1.0, 0.82, 0.62], glowA: 0.24, glowB: 0.36,
     haze: [0.97, 0.9, 0.86], hazeA: 0.5,
     hgl: hx("#ffd2b0"), hglA: 0.38, hglF: 8,
-    cTop: [1.0, 0.89, 0.78], cMid: [0.8, 0.81, 0.9], cLow: [0.5, 0.54, 0.72], cRim: [1.0, 0.86, 0.72], cRimK: 0.6, cBack: 0.35,
+    cTop: [1.0, 0.9, 0.8], cMid: [0.8, 0.83, 0.88], cLow: [0.48, 0.55, 0.66], cRim: [1.0, 0.86, 0.72], cRimK: 0.6, cBack: 0.35,
     cUnder: [1.0, 0.8, 0.68], cUnderA: 0.25,
     wisp: [1.0, 0.93, 0.88], wispA: 0.5, disk: [1.7, 1.5, 1.2], stars: 0, night: 0,
     world: [1.02, 0.98, 0.94], far: [0.94, 0.95, 1.04], farHaze: 0.26,
@@ -96,29 +97,29 @@ const LOOKS: Record<Preset, Look> = {
   noon: {
     az: -150, el: 62, shadeMin: 62, keyHue: 0,
     sun: hx("#fff5e6"), shadow: hx("#8290bc"), rim: hx("#fff1d6"),
-    zenith: hx("#1f62b4"), mid: hx("#4fa2e0"), horizon: hx("#cfe4ee"), fog: hx("#cfe0e8"), fogD: 0.00075,
+    zenith: hx("#167586"), mid: hx("#04a8c0"), horizon: hx("#afe8f6"), fog: hx("#c8e6ea"), fogD: 0.00075,
     glow: [1.0, 0.92, 0.75], glowA: 0.12, glowB: 0.25,
-    haze: [0.86, 0.9, 0.92], hazeA: 0.45,
+    haze: [0.82, 0.93, 0.94], hazeA: 0.4,
     hgl: hx("#ffffff"), hglA: 0, hglF: 6,
-    cTop: [1.0, 0.98, 0.94], cMid: [0.8, 0.83, 0.9], cLow: [0.42, 0.47, 0.66], cRim: [1.0, 0.98, 0.92], cRimK: 0.45, cBack: 0.1,
+    cTop: [1.0, 0.98, 0.94], cMid: [0.8, 0.85, 0.9], cLow: [0.42, 0.5, 0.63], cRim: [1.0, 0.98, 0.92], cRimK: 0.45, cBack: 0.1,
     cUnder: [1.0, 0.9, 0.8], cUnderA: 0,
     wisp: [0.96, 0.97, 1.0], wispA: 0.55, disk: [3.0, 2.9, 2.6], stars: 0, night: 0,
     world: [1.0, 1.0, 1.0], far: [0.96, 1.0, 1.06], farHaze: 0.14,
     grade: [1.0, 1.0, 1.01], sat: 1.06,
     bloomS: 0.26, bloomR: 0.5, bloomT: 1.0,
     moonAz: 0, moonEl: -30, moon: [0, 0, 0],
-    wShallow: hx("#58d6c8"), wDeep: hx("#1a5aa0"), wRefl: [1.0, 1.0, 1.0], glint: 0.5, glintCol: [1.0, 0.97, 0.9], glintMoon: 0,
+    wShallow: hx("#58d6c8"), wDeep: hx("#1a5aa0"), wRefl: [1.12, 0.95, 1.05], glint: 0.5, glintCol: [1.0, 0.97, 0.9], glintMoon: 0,
     gSpread: 0.17, gSheen: 0.1,
     beam: 0,
     dusk: 0,
     evening: 0,
     birds: 1,
   },
-  // Amber hour: warm grey-blue zenith over a gold sky, cream-gold clouds, warm water.
+  // Amber hour: deep teal-blue zenith over a gold sky, cream-gold clouds, warm water.
   golden: {
     az: -100, el: 12, shadeMin: 9, keyHue: 0.45,
     sun: hx("#ffc887", 1.02), shadow: hx("#5b7f90"), rim: hx("#ffbe74", 1.7),
-    zenith: hx("#56708c"), mid: hx("#d4b37c"), horizon: hx("#f6cf90"), fog: hx("#dfcaa4"), fogD: 0.001,
+    zenith: hx("#3f7a8e"), mid: hx("#d4b37c"), horizon: hx("#f6cf90"), fog: hx("#dfcaa4"), fogD: 0.001,
     glow: [1.0, 0.72, 0.36], glowA: 0.24, glowB: 0.45,
     haze: [0.98, 0.82, 0.55], hazeA: 0.45,
     hgl: hx("#ffc480"), hglA: 0.45, hglF: 7,
@@ -140,7 +141,7 @@ const LOOKS: Record<Preset, Look> = {
   sunset: {
     az: -112, el: 4.5, shadeMin: 6, keyHue: 0.45,
     sun: hx("#ffa676", 0.92), shadow: hx("#5f5596"), rim: hx("#ff9448", 2.1),
-    zenith: hx("#34497a"), mid: hx("#c08ca4"), horizon: hx("#ffab68"), fog: hx("#8a76a2"), fogD: 0.0008,
+    zenith: hx("#2c5078"), mid: hx("#c08ca4"), horizon: hx("#ffab68"), fog: hx("#8a76a2"), fogD: 0.0008,
     glow: [1.0, 0.6, 0.28], glowA: 0.4, glowB: 0.55,
     haze: [1.0, 0.66, 0.42], hazeA: 0.38,
     hgl: hx("#ff8a5c"), hglA: 0.6, hglF: 5,

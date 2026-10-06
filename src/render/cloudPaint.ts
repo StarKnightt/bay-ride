@@ -2,16 +2,18 @@ import * as THREE from "three";
 import { COMMON, G } from "./materials";
 
 /** Lobes per cloud (texels per row of the lobe table; the last texel holds the cloud's top). */
-export const CLOUD_LOBES = 16;
+export const CLOUD_LOBES = 32;
 
 /**
  * Painted cumulus on cards parallel to the screen (turned to the camera's horizontal right axis,
  * so a level base stays level anywhere in the frame). Each card evaluates a smooth union of
- * uneven round lobes (x, y, radius per texel of `uLobes`, one row per cloud) over a soft, broken
- * base, then shades it as ONE volume: a broad envelope normal blended with the lobes, lit by the
- * sun or moon in painted tones whose boundary follows the lobes, a shaded lower body, a warm
- * underside at a low sun, and a rim on the edge that faces the light on screen. The body is
- * opaque; the outer edge is brushed soft. Distant clouds fade toward the sky behind them.
+ * uneven round lobes (x, y, radius, depth per texel of `uLobes`, one row per cloud) over a soft,
+ * broken base. Each pixel takes the front-most lobe sphere, so every lobe shades as its own round
+ * volume with a crisp crease where it overlaps the one behind; that normal is blended with one
+ * broad envelope so light also falls on a few large planes. Painted tones: bright sunlit tops,
+ * blue-grey shadow lobes and creases, a warm underside at a low sun, and a rim on the edge that
+ * faces the light on screen. The body is opaque with a defined edge about a pixel and a half wide.
+ * Distant clouds fade toward the sky behind them.
  *
  * Vertex attributes: position = cloud base centre, aCorner = card corner in cloud units (half
  * width = 1), aSize = (half width, vertical scale) in metres, aInfo = (row, seed, haze).
@@ -66,15 +68,41 @@ export function paintedCloudMaterial(lobes: THREE.DataTexture): THREE.ShaderMate
         float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
         return mix(b, a, h) - k * h * (1.0 - h);
       }
-      // Signed distance to the lobes (negative inside), in cloud units; the base is separate.
-      float lobeSd(vec2 p){
-        float d = 10.0;
+      // One pass over the lobes: the smooth-union distance (negative inside, cloud units), and the
+      // front surface of the lobe spheres (each at its own depth, .w) as a soft maximum, so the
+      // pixel takes the sphere normal of the lobe in front, blended over a narrow crease where two
+      // lobes meet. The crease is where no single lobe dominates.
+      struct Hit { float sd; vec3 n; float crease; float lobeY; vec2 n2; };
+      Hit lobes(vec2 p){
+        Hit h; h.sd = 10.0; h.n2 = vec2(0.0, 1.0);
+        const float K = 0.022;
+        float m = -1e3, S = 0.0, Y = 0.0, nearD = 1e3;
+        vec3 A = vec3(0.0);
         for (int i = 0; i < ${CLOUD_LOBES - 1}; i++) {
           vec4 L = texelFetch(uLobes, ivec2(i, vRow), 0);
           if (L.z <= 0.0) break;
-          d = smin(d, length(p - L.xy) - L.z, 0.06);
+          vec2 q = p - L.xy;
+          float r2 = dot(q, q);
+          float d = sqrt(r2) - L.z;
+          h.sd = smin(h.sd, d, 0.035);
+          if (d < nearD) { nearD = d; h.n2 = q / max(sqrt(r2), 1e-4); }
+          if (d < 0.0) {
+            float zl = sqrt(L.z * L.z - r2);
+            float s = zl + L.w;
+            vec3 nI = vec3(q, zl) / L.z;
+            if (s > m) {
+              float f = exp((m - s) / K);
+              S = S * f + 1.0; A = A * f + nI; Y = Y * f + L.y; m = s;
+            } else {
+              float e = exp((s - m) / K);
+              S += e; A += nI * e; Y += L.y * e;
+            }
+          }
         }
-        return d;
+        h.n = S > 0.0 ? normalize(A + vec3(0.0, 0.0, 1e-4)) : vec3(0.0, 0.0, 1.0);
+        h.lobeY = S > 0.0 ? Y / S : 0.0;
+        h.crease = S > 0.0 ? smoothstep(0.5, 0.85, 1.0 / S) : 1.0;
+        return h;
       }
       // Soft, slightly wavy base a little above the lowest lobe edges (never a ruler line).
       float baseSd(vec2 p){
@@ -86,43 +114,48 @@ export function paintedCloudMaterial(lobes: THREE.DataTexture): THREE.ShaderMate
         vec2 w = vec2(vnoise(vP * 2.6 + vSeed * 13.0), vnoise(vP * 2.6 + vSeed * 13.0 + 7.3)) - 0.5;
         vec2 p = vP + w * vec2(0.08, 0.05) * smoothstep(-0.02, 0.12, vP.y);
         float top = texelFetch(uLobes, ivec2(${CLOUD_LOBES - 1}, vRow), 0).x;
-        float ls = lobeSd(p);
+        Hit hit = lobes(p);
+        float ls = hit.sd;
         float bs = baseSd(p);
         float sd = max(ls, bs);
-        // Brushed rim: a short soft ramp broken up by stroke noise, no cut edge.
+        // Defined edge: about a pixel and a half of ramp, nudged by a fine brush wobble.
         float brushN = vnoise(vec2(p.x * 14.0 + p.y * 3.0, p.y * 30.0) + vSeed * 29.0) - 0.5;
-        float aa = max(fwidth(sd), 0.002);
-        float alpha = 1.0 - smoothstep(-0.018 - aa, aa, sd + brushN * 0.016);
-        // The base thins out softly over the last few metres.
-        alpha *= smoothstep(-0.015, 0.05, p.y + brushN * 0.03 - 0.012 * sin(p.x * 9.0 + vSeed * 3.0));
+        float aa = max(fwidth(sd), 0.0015);
+        float alpha = 1.0 - smoothstep(-aa * 1.5, aa * 1.5, sd + brushN * 0.007);
+        // The flat base thins out softly over the last few metres.
+        alpha *= smoothstep(-0.015, 0.04, p.y + brushN * 0.025 - 0.012 * sin(p.x * 9.0 + vSeed * 3.0));
         if (alpha < 0.004) discard;
 
-        const float E = 0.035;
-        vec2 grad = vec2(lobeSd(p + vec2(E, 0.0)) - lobeSd(p - vec2(E, 0.0)), lobeSd(p + vec2(0.0, E)) - lobeSd(p - vec2(0.0, E)));
-        vec2 n2 = normalize(grad + 1e-5);
-        float ins = clamp(-ls / 0.3, 0.0, 1.0);
-        float z = sqrt(ins * (2.0 - ins));
-        vec3 nLobe = normalize(vec3(n2 * (1.0 - z * 0.8), z));
-        // Whole-cloud envelope: one big rounded mass, so light falls on a few large planes.
+        vec2 n2 = hit.n2;
+        // Outside every sphere (the blended necks and the brushed rim) the outline normal stands in.
+        vec3 nLobe = hit.n.z > 0.0 && ls < 0.0 ? hit.n : normalize(vec3(n2, 0.35));
+        // Whole-cloud envelope: one big rounded mass, so light also falls on a few large planes.
         vec2 e = (p - vec2(0.0, top * 0.5)) / vec2(1.05, top * 0.68);
         vec3 nEnv = normalize(vec3(e, sqrt(max(1.0 - dot(e, e), 0.08))));
-        vec3 N = normalize(mix(nEnv, nLobe, 0.58));
+        vec3 N = normalize(mix(nEnv, nLobe, 0.72));
         vec3 up = vec3(0.0, 1.0, 0.0);
         vec3 Nw = normalize(vRight * N.x + up * N.y + vFwd * N.z);
         vec3 L = uCloudLight;
 
         float br = vnoise(p * vec2(3.0, 5.0) + vSeed * 3.0) * 0.6 + vnoise(p * 9.0 + vSeed) * 0.4;
         float ph = p.y / max(top, 0.1);
-        // The lower body sits in its own shade; the boundary rides the lobes, not a straight line.
-        float selfSh = 1.0 - smoothstep(0.05, 0.62, ph + nLobe.y * 0.16 + (br - 0.5) * 0.2);
-        float t = dot(Nw, L) * 0.5 + 0.5 + (br - 0.5) * 0.2 - selfSh * 0.24;
-        float lit = smoothstep(0.5, 0.6, t);
+        float lobePh = hit.lobeY / max(top, 0.1);
+        // The lower lobes sit in the body's own shade, lobe by lobe (each keeps its round shape).
+        float selfSh = 1.0 - smoothstep(0.1, 0.7, mix(ph, lobePh, 0.6) + nLobe.y * 0.2 + (br - 0.5) * 0.14);
+        // Each lobe's own underside turns away from the sky.
+        float underLobe = 1.0 - smoothstep(-0.65, 0.05, nLobe.y);
+        // Sky light from above: tops stay bright even when the sun sits behind the viewer.
+        float sky = smoothstep(0.1, 0.8, Nw.y);
+        float t = dot(Nw, L) * 0.5 + 0.5 + (br - 0.5) * 0.14 - selfSh * 0.36 - underLobe * 0.16 + sky * 0.12;
+        float lit = smoothstep(0.52, 0.6, t);
         float mid = smoothstep(0.3, 0.4, t);
         vec3 col = mix(uCloudLow, uCloudMid, mid);
         col = mix(col, uCloudTop, lit);
-        // Darker, soft-edged base.
-        float baseK = 1.0 - smoothstep(0.0, 0.16, ph + (br - 0.5) * 0.08);
-        col = mix(col, uCloudLow * 0.9, baseK * 0.45);
+        // Creases between lobes and the flat underside take the blue-grey shade.
+        float crease = (1.0 - hit.crease) * (1.0 - lit * 0.5);
+        col = mix(col, uCloudLow * 0.92, crease * 0.3);
+        float baseK = 1.0 - smoothstep(0.0, 0.12, ph + (br - 0.5) * 0.06);
+        col = mix(col, uCloudLow * 0.9, baseK * 0.4);
 
         vec3 dir = normalize(vWPos - cameraPosition);
         vec2 Lh = normalize(L.xz + 1e-5);

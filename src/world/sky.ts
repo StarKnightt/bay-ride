@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { blob, prep, M, ID } from "./geo";
 import { SEA_Y } from "./bay/road";
-import { skyMaterial, uber } from "../render/materials";
+import { uber } from "../render/materials";
+import { skyDomeMaterial } from "./skyDome";
 import { CLOUD_LOBES, paintedCloudMaterial } from "../render/cloudPaint";
 import { LAYER_REFLECT, onLayers } from "../render/lightpasses";
 import { mulberry32, range } from "../core/rng";
@@ -24,7 +25,7 @@ export class Sky {
   readonly far = new THREE.Group();
 
   constructor() {
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(4100, 48, 24), skyMaterial());
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(4100, 48, 24), skyDomeMaterial());
     dome.frustumCulled = false;
     dome.renderOrder = -10;
     this.group.add(dome);
@@ -76,7 +77,8 @@ export class Sky {
   }
 }
 
-type Lobe = [number, number, number];
+/** x, y, radius, depth (toward the camera; the front-most lobe sphere at a pixel shades it). */
+type Lobe = [number, number, number, number];
 type CloudKind = "cumulus" | "heap" | "strata";
 
 const clampX = (x: number, rad: number) => Math.max(-0.97 + rad, Math.min(0.97 - rad, x));
@@ -85,13 +87,14 @@ const clampX = (x: number, rad: number) => Math.max(-0.97 + rad, Math.min(0.97 -
  * Lobe layout of one cloud in cloud units (half width = 1, base at y = 0). Towering cumulus: a
  * broad base under a tall body heaped off-centre, its crown broken into small cauliflower bumps.
  * Heaps: one to three lopsided masses with a few bumps. Strata: a long, thin, wavy strip of
- * small lobes that swells and breaks along its length.
+ * small lobes that swells and breaks along its length. Higher masses sit further back, so the
+ * lower ones overlap their bases; bumps sit on the surface of the lobe they grow from.
  */
 function cloudLobes(r: () => number, kind: CloudKind): { lobes: Lobe[]; top: number } {
   const lobes: Lobe[] = [];
   const max = CLOUD_LOBES - 1;
-  const add = (x: number, y: number, rad: number) => {
-    if (lobes.length < max) lobes.push([clampX(x, rad), y, rad]);
+  const add = (x: number, y: number, rad: number, depth = -y * 0.15 + r() * 0.18 * rad / 0.3) => {
+    if (lobes.length < max) lobes.push([clampX(x, rad), y, rad, depth]);
   };
   // Small cauliflower bumps on the upper edges of the big masses.
   const bumps = (n: number, r0: number, r1: number) => {
@@ -101,7 +104,8 @@ function cloudLobes(r: () => number, kind: CloudKind): { lobes: Lobe[]; top: num
       const ang = range(r, 0.25, Math.PI - 0.25);
       const s = range(r, r0, r1);
       const d = b[2] - s * range(r, 0.15, 0.55);
-      add(b[0] + Math.cos(ang) * d, b[1] + Math.sin(ang) * d, s);
+      const onParent = b[3] + Math.sqrt(Math.max(0, b[2] * b[2] - d * d));
+      add(b[0] + Math.cos(ang) * d, b[1] + Math.sin(ang) * d, s, onParent - s * range(r, 0.35, 0.6));
     }
   };
   if (kind === "strata") {
@@ -114,7 +118,7 @@ function cloudLobes(r: () => number, kind: CloudKind): { lobes: Lobe[]; top: num
       if (i === gap) continue;
       const swell = 0.6 + 0.7 * Math.max(0, Math.sin(x * 2.1 + phase));
       const rad = step * swell * range(r, 0.85, 1.2);
-      add(x, rad * range(r, 0.7, 0.95) + 0.02 * Math.sin(x * 4 + phase), rad);
+      add(x, rad * range(r, 0.7, 0.95) + 0.02 * Math.sin(x * 4 + phase), rad, r() * 0.03);
     }
   } else if (kind === "cumulus") {
     // Broad base, a tall body heaped off-centre, then cauliflower bumps round the crown.
@@ -132,7 +136,7 @@ function cloudLobes(r: () => number, kind: CloudKind): { lobes: Lobe[]; top: num
       add(cx + range(r, -0.18, 0.18), y, rad);
       if (r() < 0.6) add(cx + range(r, -0.35, 0.35), y - range(r, 0.05, 0.15), rad * range(r, 0.65, 0.85));
     }
-    bumps(max - lobes.length, 0.09, 0.16);
+    bumps(Math.min(max - lobes.length, 12 + Math.floor(r() * 7)), 0.08, 0.16);
   } else {
     // Lopsided heap: one to three big masses, maybe a raised shoulder, a few bumps.
     const nb = 1 + Math.floor(r() * 3);
@@ -145,7 +149,7 @@ function cloudLobes(r: () => number, kind: CloudKind): { lobes: Lobe[]; top: num
       add(b[0] + range(r, -0.2, 0.2), b[1] + b[2] * range(r, 0.5, 0.8), b[2] * range(r, 0.6, 0.8));
     }
     if (r() < 0.5) add(range(r, -0.75, 0.75), range(r, 0.06, 0.12), range(r, 0.12, 0.2));
-    bumps(3 + Math.floor(r() * 5), 0.08, 0.15);
+    bumps(8 + Math.floor(r() * 9), 0.07, 0.15);
   }
   const top = Math.max(...lobes.map((l) => l[1] + l[2]));
   return { lobes, top };
@@ -208,7 +212,7 @@ function cloudField(r: () => number): THREE.Mesh {
   const table = new Float32Array(CLOUD_LOBES * n * 4);
   const pos: number[] = [], corner: number[] = [], size: number[] = [], info: number[] = [], idx: number[] = [];
   clouds.forEach((c, row) => {
-    c.lobes.forEach((l, i) => table.set([l[0], l[1], l[2], 0], (row * CLOUD_LOBES + i) * 4));
+    c.lobes.forEach((l, i) => table.set(l, (row * CLOUD_LOBES + i) * 4));
     table.set([c.top, 0, 0, 0], (row * CLOUD_LOBES + CLOUD_LOBES - 1) * 4);
     const seed = r();
     const v0 = pos.length / 3;
