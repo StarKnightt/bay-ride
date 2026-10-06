@@ -218,6 +218,34 @@ function rail(skin: Skin): void {
   }
 }
 
+/**
+ * A small hurricane lantern on a short iron post at the starboard quarter, clear of her seat (port
+ * of the centreline), the tiller's swing and the outboard: a dark frame, warm amber glass, a cap with
+ * a chimney, and a bail handle. The glass is the night-glow panel the pier lamp heads use (plain paint
+ * by day, lit from sunset; the bloom gives it its halo). It merges into the hull, so no new program.
+ */
+export const LANTERN_AT = { x: 0, y: 0, z: ZS - 0.12 };
+function sternLantern(parts: THREE.BufferGeometry[]): void {
+  const IRON = "#2b2a2c", g = gunwaleAt(LANTERN_AT.z);
+  const x = g.half + 0.02, z = LANTERN_AT.z, y0 = g.y;
+  LANTERN_AT.x = x;
+  parts.push(xf(cyl(0.012, 0.014, 0.2, IRON, M.metal, 6), x, y0 + 0.1, z));
+  const yb = y0 + 0.2;
+  parts.push(xf(cyl(0.046, 0.05, 0.014, IRON, M.metal, 10), x, yb + 0.007, z));
+  parts.push(xf(cyl(0.037, 0.037, 0.09, "#ffb04a", M.glow, 10), x, yb + 0.059, z));
+  for (let k = 0; k < 4; k++) {
+    const a = (k + 0.5) * (Math.PI / 2);
+    parts.push(xf(box(0.007, 0.1, 0.007, IRON, M.metal), x + Math.cos(a) * 0.041, yb + 0.059, z + Math.sin(a) * 0.041));
+  }
+  const yt = yb + 0.104;
+  parts.push(xf(cyl(0.018, 0.05, 0.034, IRON, M.metal, 10), x, yt + 0.017, z));
+  parts.push(xf(cyl(0.011, 0.012, 0.022, IRON, M.metal, 6), x, yt + 0.045, z));
+  // Bail handle: a wire hoop over the cap, across the boat.
+  const hk = [v3(x - 0.042, yt + 0.01, z), v3(x - 0.03, yt + 0.07, z), v3(x, yt + 0.088, z), v3(x + 0.03, yt + 0.07, z), v3(x + 0.042, yt + 0.01, z)];
+  for (let k = 0; k < hk.length - 1; k++) parts.push(beam(hk[k], hk[k + 1], 0.0035, IRON, M.metal, 4));
+  LANTERN_AT.y = yb + 0.059;
+}
+
 /** Flat transom: painted outside, varnished inside. */
 function transom(skin: Skin): void {
   const p = profile(0);
@@ -344,6 +372,7 @@ export function buildBoat(): BoatModel {
   parts.push(xf(box(0.2, 0.2, 0.3, "#c2412f", M.metal), -0.3, floorY + 0.1, 1.3));
   parts.push(xf(cyl(0.025, 0.025, 0.05, "#2e2e30", M.metal, 6), -0.3, floorY + 0.22, 1.2));
 
+  sternLantern(parts);
   const hull = new THREE.Mesh(merge(parts), uber(ID.boat, 1));
   root.add(hull);
 
