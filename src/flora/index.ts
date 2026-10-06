@@ -170,31 +170,42 @@ function wildTrees(layout: Layout): TreeRegion[] {
     const bush = rf() < 0.45;
     (z < -40 ? farS : farN).push({ x, z, kind: bush ? "bush" : rf() < 0.3 ? "tall" : "round", scale: bush ? range(rf, 1.6, 2.4) : range(rf, 0.9, 1.4), seed: Math.floor(rf() * 1e9), far: uOf(x, z) > 215 });
   }
-  // Seaside pines on the headlands, shrubs in their lee.
-  for (const [zc, list] of [[262, hn], [-298, hs]] as const) {
-    for (let k = 0, tries = 0; k < 26 && tries < 900; tries++) {
-      const z = zc + range(r, -55, 55), x = range(r, -175, 130);
-      if (onHill(x, z)) continue;
-      const y = groundY(x, z);
-      if (y < SEA_Y + 5 || slopeAt(x, z) > 0.45 || !layout.free(x, z, 2)) continue;
-      k++;
-      list.push({ x, z, kind: "pine", scale: range(r, 0.8, 1.2), seed: seed() });
-      if (r() < 0.6) {
-        const a = r() * Math.PI * 2;
-        const bx = x + Math.cos(a) * 3.5, bz = z + Math.sin(a) * 3.5;
-        if (groundY(bx, bz) > SEA_Y + 3) list.push({ x: bx, z: bz, kind: "bush", scale: range(r, 0.8, 1.2), seed: seed() });
-      }
+  // Headland and island trees in groves, not a sprinkle: a few tight clumps of mixed pines and round
+  // crowns, big in the middle and smaller to the edge, 2-4 m apart so the crowns overlap and hide
+  // each other's trunks, with bushes at the skirt. Own stream: nothing else moves.
+  const rg = mulberry32(6464);
+  const grove = (list: TreeSpot[], cx: number, cz: number, n: number, rad: number, minY: number, pine: number, sMax: number) => {
+    for (let i = 0, tries = 0; i < n && tries < n * 6; tries++) {
+      const a = rg() * Math.PI * 2, d = rad * Math.sqrt(rg());
+      const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
+      if (groundY(x, z) < minY || slopeAt(x, z) > 0.5 || !layout.free(x, z, 1.2)) continue;
+      if (list.some((t) => Math.hypot(t.x - x, t.z - z) < 2.2)) continue;
+      i++;
+      const core = 1 - d / rad;
+      const edge = d > rad * 0.75 && rg() < 0.55;
+      const kind = edge ? "bush" : rg() < pine ? "pine" : "round";
+      list.push({ x, z, kind, scale: edge ? range(rg, 0.9, 1.3) : range(rg, 0.75, 0.95) + (sMax - 0.95) * core, seed: Math.floor(rg() * 1e9) });
     }
+  };
+  for (const [zc, list] of [[262, hn], [-298, hs]] as const) {
+    const centres: [number, number][] = [];
+    for (let tries = 0; centres.length < 4 && tries < 600; tries++) {
+      const z = zc + range(rg, -50, 50), x = range(rg, -165, 120);
+      if (onHill(x, z) || groundY(x, z) < SEA_Y + 6 || slopeAt(x, z) > 0.4 || !layout.free(x, z, 3)) continue;
+      if (centres.some(([px, pz]) => Math.hypot(px - x, pz - z) < 40)) continue;
+      centres.push([x, z]);
+    }
+    for (const [x, z] of centres) grove(list, x, z, 6 + Math.floor(rg() * 4), range(rg, 6, 9), SEA_Y + 4, 0.55, 1.45);
   }
-  // A few pines round the lighthouse, kept lower than its gallery and off the line to the pier.
-  for (let k = 0, tries = 0; k < 9 && tries < 300; tries++) {
-    const a = r() * Math.PI * 2, d = range(r, 9, 27);
+  // Round the lighthouse: two groves, lower than its gallery, on the faces the opening view from the
+  // pier end does not see (the tower stays clear there).
+  for (let k = 0, tries = 0; k < 2 && tries < 300; tries++) {
+    const a = rg() * Math.PI * 2, d = range(rg, 13, 24);
+    if (Math.cos(a) * 0.52 - Math.sin(a) * 0.85 > 0.2) continue;
     const x = LIGHTHOUSE.x + Math.cos(a) * d, z = LIGHTHOUSE.z + Math.sin(a) * d;
-    // Not on the face the opening view sees from the pier end: the tower stays clear there.
-    if (Math.cos(a) * 0.52 - Math.sin(a) * 0.85 > 0.35) continue;
-    if (groundY(x, z) < SEA_Y + 4 || slopeAt(x, z) > 0.45) continue;
+    if (groundY(x, z) < SEA_Y + 5 || slopeAt(x, z) > 0.4) continue;
     k++;
-    island.push({ x, z, kind: r() < 0.75 ? "pine" : "bush", scale: range(r, 0.7, 0.95), seed: seed() });
+    grove(island, x, z, 5, 5, SEA_Y + 4, 0.7, 1.05);
   }
   // Low scrub in clumps over the island's slopes, above the rock band (never as tall as the tower).
   for (let k = 0, tries = 0; k < 30 && tries < 600; tries++) {
@@ -217,8 +228,10 @@ function wildTrees(layout: Layout): TreeRegion[] {
     south.push({ x, z, kind: rt() < 0.25 ? "tall" : "round", scale: range(rt, 1.1, 1.6), seed: Math.floor(rt() * 1e9) });
   }
   for (const [zc, s, tip, list] of [[262, 1.3, -190, hn], [-298, 4.1, -165, hs]] as const) {
-    for (let x = tip + 35; x < 125; x += range(rt, 5, 9)) {
-      const z = zc + 10 * Math.sin(x * 0.021 + s) + 5 * Math.sin(x * 0.067 + s * 2.0) + range(rt, -7, 7);
+    // In belts with open gaps between (a slow wave along the crest), packed close where they stand.
+    for (let x = tip + 35; x < 125; x += range(rt, 3, 5)) {
+      if (Math.sin(x * 0.045 + s * 3.0) + 0.5 * Math.sin(x * 0.11 + s) < -0.15) continue;
+      const z = zc + 10 * Math.sin(x * 0.021 + s) + 5 * Math.sin(x * 0.067 + s * 2.0) + range(rt, -5, 5);
       if (onHill(x, z) || groundY(x, z) < SEA_Y + 6 || slopeAt(x, z) > 0.5 || !layout.free(x, z, 2)) continue;
       list.push({ x, z, kind: rt() < 0.35 ? "bush" : "round", scale: range(rt, 1.2, 1.8), seed: Math.floor(rt() * 1e9), far: true });
     }
