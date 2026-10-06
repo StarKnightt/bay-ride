@@ -242,7 +242,7 @@ function plant(b: Builder, s: TreeSpot, y: number): { trunk: number; h: number }
       const a = r() * Math.PI * 2, d = rad * 0.18;
       cl.push({ c: V(top.x * f + Math.cos(a) * d, y, top.z * f + Math.sin(a) * d), r: rad * range(r, 0.9, 1.1) });
     }
-    crown(t, r, cl, V(top.x, h * 0.62, top.z), pop ? BROAD : PINE, pop ? 18 : 20, pop ? 60 : 40, pop ? [0.5, 0.72] : [0.55, 0.78], pop ? LEAF_CELL.ovate : LEAF_CELL.lance, sway, pop ? 1 : 0.55, 0.3);
+    crown(t, r, cl, V(top.x, h * 0.62, top.z), pop ? BROAD : PINE, pop ? 13 : 14, pop ? 40 : 28, pop ? [0.5, 0.72] : [0.55, 0.78], pop ? LEAF_CELL.ovate : LEAF_CELL.lance, sway, pop ? 1 : 0.55, 0.3);
   } else {
     // Shrub (or a clipped hedge clump): low clusters of broad leaves, no trunk to speak of.
     const hedge = s.kind === "hedge";

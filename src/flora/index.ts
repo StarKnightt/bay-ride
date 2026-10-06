@@ -61,7 +61,7 @@ function wildTrees(layout: Layout): TreeRegion[] {
       placed.push({ x: tx, z: tz });
       hill(tz).push({ x: tx, z: tz, kind: pick(), scale: sc, seed: seed() });
     }
-    for (let i = 0; i < Math.round(n * 1.8); i++) {
+    for (let i = 0; i < n; i++) {
       const s = range(r, -0.6, 0.6) * len, w = (r() < 0.5 ? -1 : 1) * range(r, wid * 0.8, wid * 1.8);
       const tx = x + ax * s - az * w, tz = z + az * s + ax * w;
       if (onHill(tx, tz) && ok(tx, tz, 1)) hill(tz).push({ x: tx, z: tz, kind: "bush", scale: range(r, 0.8, 1.4), seed: seed() });
@@ -126,11 +126,11 @@ function wildTrees(layout: Layout): TreeRegion[] {
   // The big tree on the north path, with its bench.
   hill(78).push({ x: roadX(80) + 73.5, z: 80, kind: "hero", scale: 1, seed: 4242 });
   // Shrubs scattered along the meadow's lower edge and up the hill.
-  for (let k = 0, tries = 0; k < 140 && tries < 1800; tries++) {
+  for (let k = 0, tries = 0; k < 70 && tries < 1800; tries++) {
     const z = range(r, -280, 245), u = 8 + Math.pow(r(), 1.5) * 140, x = roadX(z) + u;
     if (!onHill(x, z) || !ok(x, z, 1.2, 0.36)) continue;
     k++;
-    for (let i = 0, m = r() < 0.5 ? 1 : 2 + Math.floor(r() * 3); i < m; i++) {
+    for (let i = 0, m = r() < 0.75 ? 1 : 2; i < m; i++) {
       const bx = x + (i ? range(r, -2.2, 2.2) : 0), bz = z + (i ? range(r, -2.2, 2.2) : 0);
       if (i === 0 || (onHill(bx, bz) && ok(bx, bz, 0.8, 0.4))) hill(bz).push({ x: bx, z: bz, kind: "bush", scale: range(r, 0.6, 1.4), seed: seed() });
     }

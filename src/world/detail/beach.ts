@@ -243,26 +243,28 @@ export function buildBeach(layout: Layout, colliders: Collider[]): THREE.Group {
     }
   }
   // Shot 1's foreground (eye on the wet sand at u -27, z 40, looking along the shore): a log and
-  // dry tufts to landward, pebbles, shells and a strand of weed across the sand in front.
+  // dry tufts to landward, pebbles, shells and a strand of weed across the sand in front. Hand
+  // placed on open sand, so only kept above the sea line.
   {
-    const ex = at(-27, 40), fx = -0.65, fz = -0.76, rx = 0.76, rz = -0.65;
+    const ex = at(-27, 40), fx = -0.585, fz = -0.811, rx = 0.811, rz = -0.585;
     const p = (d: number, s: number): [number, number] => [ex + fx * d + rx * s, 40 + fz * d + rz * s];
-    const [lx, lz] = p(6.5, 2.6);
-    if (ok(lx, lz, 1)) {
-      driftwood(r, props, lx, lz, 2.6, 0.12);
-      colliders.push({ x: lx, z: lz, r: 1.2, top: groundY(lx, lz) + 0.2 });
+    const dry = (x: number, z: number, m = 0.06) => groundY(x, z) > SEA_Y + m;
+    const [lx, lz] = p(5, 3.2);
+    if (dry(lx, lz)) {
+      driftwood(r, props, lx, lz, 2.4, 0.11);
+      colliders.push({ x: lx, z: lz, r: 1.1, top: groundY(lx, lz) + 0.2 });
     }
-    for (let i = 0; i < 70; i++) {
-      const [x, z] = p(range(r, 2.2, 11), range(r, -2.5, 4.5));
-      if (ok(x, z)) add(z, r() < 0.5 ? pebble(r, x, z, r() < 0.5) : shell(r, x, z));
+    for (let i = 0; i < 90; i++) {
+      const [x, z] = p(range(r, 3.2, 8), range(r, -1.5, 5));
+      if (dry(x, z)) add(z, r() < 0.55 ? pebble(r, x, z, r() < 0.55) : shell(r, x, z));
     }
-    for (let i = 0; i < 46; i++) {
-      const t = i / 45, [x, z] = p(4 + t * 7 + range(r, -0.3, 0.3), 3.8 - t * 6 + range(r, -0.3, 0.3));
-      if (ok(x, z)) add(z, r() < 0.8 ? weed(r, x, z, r() < 0.4) : clump(r, x, z));
+    for (let i = 0; i < 60; i++) {
+      const t = i / 59, [x, z] = p(3.4 + t * 5 + range(r, -0.25, 0.25), 4.2 - t * 4.5 + range(r, -0.25, 0.25));
+      if (dry(x, z)) add(z, r() < 0.75 ? weed(r, x, z, r() < 0.4) : clump(r, x, z));
     }
-    for (const [d, s] of [[4.5, 4.2], [8, 5], [10.5, 3.6]] as const) {
+    for (const [d, s] of [[3.8, 5.2], [6.5, 5.8], [8.5, 4.6]] as const) {
       const [x, z] = p(d, s);
-      if (ok(x, z, 0.3)) layout.spot(x, z, 0.9, 10, ["weed", "weed", "thrift", "weed"]);
+      if (dry(x, z, 0.1)) layout.spot(x, z, 0.8, 10, ["weed", "weed", "thrift", "weed"]);
     }
   }
   // The beach set on the upper sand, on shot 2's centre line (eye on the road at z 60, looking

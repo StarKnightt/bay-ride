@@ -221,9 +221,12 @@ void main(){
   // Up the hill: a patchwork of fields in warped, rotated cells, divided by hedgerows.
   // Hedge lines never thin below ~1.5 px so they still read from the bay.
   float hill = smoothstep(4.0, 12.0, vWPos.y) * (1.0 - pathK);
-  {
-    vec2 w = vec2(dot(vWPos.xz, vec2(0.94, 0.34)), dot(vWPos.xz, vec2(-0.34, 0.94)));
-    w += vec2(7.0 * sin(w.y * 0.043 + 1.0), 6.0 * sin(w.x * 0.061 + 2.0));
+  vec2 w = vec2(dot(vWPos.xz, vec2(0.94, 0.34)), dot(vWPos.xz, vec2(-0.34, 0.94)));
+  w += vec2(7.0 * sin(w.y * 0.043 + 1.0), 6.0 * sin(w.x * 0.061 + 2.0));
+  // Per-axis screen footprint, taken outside the branch: at grazing angles a line keeps ~1.6 px
+  // across rather than its depth smear.
+  vec2 fw = fwidth(w);
+  if (hill > 0.0) {
     vec2 sz = vec2(46.0, 34.0);
     vec2 cP = floor(w / sz), fP = w / sz - cP;
     float t = hash12(cP + 0.37);
@@ -235,8 +238,6 @@ void main(){
     float dX = min(fP.x, 1.0 - fP.x) * sz.x, dY = min(fP.y, 1.0 - fP.y) * sz.y;
     float onX = step(hash12(sideX + 5.1), 0.62), onY = step(hash12(sideY + 9.3), 0.55);
     float bush = vnoise(w * 0.35) * 0.9 + 0.3;
-    // Per-axis screen footprint: at grazing angles the line keeps ~1.6 px across, not its depth smear.
-    vec2 fw = fwidth(w);
     float wx = max(1.2 * bush, fw.x * 1.6), wy = max(1.2 * bush, fw.y * 1.6);
     float hx = onX * (1.0 - smoothstep(wx * 0.55, wx, dX)), hy = onY * (1.0 - smoothstep(wy * 0.55, wy, dY));
     float gap = smoothstep(0.1, 0.22, vnoise(w * 0.09 + 4.0));

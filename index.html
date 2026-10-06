@@ -7,17 +7,41 @@
     <meta name="description" content="Walk the pier and the beach of a painted seaside bay, then take the little motorboat out on the water, from early morning to moonlit night." />
     <meta name="theme-color" content="#168fb0" />
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='k' x2='0' y2='1'%3E%3Cstop offset='0' stop-color='%23168fb0'/%3E%3Cstop offset='1' stop-color='%23a8dade'/%3E%3C/linearGradient%3E%3CclipPath id='r'%3E%3Crect width='64' height='64' rx='14'/%3E%3C/clipPath%3E%3C/defs%3E%3Cg clip-path='url(%23r)'%3E%3Crect width='64' height='43' fill='url(%23k)'/%3E%3Ccircle cx='46' cy='20' r='8' fill='%23fff2cc'/%3E%3Cpath d='M6 43c4-6 10-9 17-9s13 3 17 9z' fill='%235d8ea2'/%3E%3Cpath d='M20 35l1.4-16h5.2l1.4 16z' fill='%23f4f0e6'/%3E%3Cpath d='M20.9 25h6.2l.3 3.5h-6.8zM21 19h6l-3-4z' fill='%23c8473a'/%3E%3Crect y='42' width='64' height='22' fill='%2325789a'/%3E%3Cpath d='M4 51q5-3 10 0t10 0t10 0t10 0t10 0t10 0' fill='none' stroke='%23dff3f1' stroke-width='2.4' stroke-linecap='round'/%3E%3Cpath d='M41 46h10M43 57h6' stroke='%23fff2cc' stroke-width='2' stroke-linecap='round'/%3E%3C/g%3E%3C/svg%3E" />
+    <script>
+      // Before first paint: the loader's backdrop in the opening time of day's sky and sea (the
+      // painted intro's own gradients), by the same URL rules as bootPreset, so no cream frame.
+      (function () {
+        var P = {
+          morning: ["#2b98ad", "#5bb5c6", "#b6d8d6", "#f3dfc9", "#9ccac8", "#4f9db0", "#2f7c9c", "#24688a"],
+          noon: ["#168fb0", "#36a9c6", "#9fd6dc", "#dcefe6", "#7cbcc6", "#3f97ad", "#25789a", "#1d6588"],
+          golden: ["#3f7a8e", "#b3a684", "#ebc78c", "#f6d49a", "#e2c18c", "#8f9a86", "#3a6a80", "#28506a"],
+          sunset: ["#2c5078", "#9c7f9c", "#e9a58c", "#ffb878", "#e8a07a", "#8a7896", "#3a4c78", "#25335a"],
+          dusk: ["#141a46", "#34467a", "#8a6e88", "#dd8e6c", "#8a7a9a", "#4e5a92", "#2c3466", "#1a2048"],
+          night: ["#071131", "#122452", "#22386a", "#33497e", "#2c4470", "#1a3058", "#10224a", "#0a1838"]
+        };
+        var q = new URLSearchParams(location.search);
+        var k = (q.get("tod") || q.get("time") || "").toLowerCase().replace(/[^a-z]/g, "");
+        if (k === "goldenhour") k = "golden";
+        if (q.get("timelapse") === "1") k = "morning";
+        var c = P[k] || P.golden, H = 63;
+        var g = "linear-gradient(to bottom, " + c[0] + " 0%, " + c[1] + " " + H * 0.45 + "%, " + c[2] + " " + H * 0.82 + "%, " + c[3] + " " + H + "%, " +
+          c[4] + " " + H + "%, " + c[5] + " " + (H + 37 * 0.3) + "%, " + c[6] + " " + (H + 37 * 0.65) + "%, " + c[7] + " 100%)";
+        var r = document.documentElement.style;
+        r.setProperty("--boot", g);
+        r.setProperty("--boot-c", c[7]);
+      })();
+    </script>
     <style>
-      html, body { margin: 0; height: 100%; overflow: hidden; background: #efe6d2; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: var(--boot-c, #efe6d2); }
       canvas { display: block; }
-      #fade { position: fixed; inset: 0; background: #efe6d2; pointer-events: none; }
+      #fade { position: fixed; inset: 0; background: var(--boot, #efe6d2); pointer-events: none; }
       #loader {
         position: fixed; inset: 0; display: flex; align-items: flex-end; justify-content: center;
-        background: #efe6d2; transition: background 1.6s ease, opacity 0.9s ease; z-index: 5; cursor: pointer;
+        background: var(--boot, #efe6d2); transition: opacity 0.9s ease; z-index: 5; cursor: pointer;
       }
       #loader .bar { width: 160px; height: 1px; margin-bottom: 9vh; background: rgba(91, 81, 68, 0.18); overflow: hidden; transition: width 1.6s ease, background 1.6s ease; }
       #loader .bar i { display: block; height: 100%; background: #5b5144; transform: scaleX(0); transform-origin: left; transition: transform 0.3s ease, background 1.6s ease; }
-      #loader.ready { background: rgba(239, 230, 210, 0); }
+      #loader.ready { background: transparent; }
       #loader.ready .bar { width: 44px; background: transparent; animation: breathe 2.8s ease-in-out infinite; }
       #loader.ready .bar i { background: rgba(255, 252, 244, 0.9); box-shadow: 0 0 6px rgba(255, 250, 235, 0.8); }
       #loader.gone { opacity: 0; pointer-events: none; }

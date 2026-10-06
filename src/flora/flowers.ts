@@ -385,8 +385,8 @@ export class Flowers {
     const WASH: Partial<Record<FlowerKind, string>> = { lavender: "#8a7ab4", daisy: "#c8c8a8", yellow: "#c8b440", pink: "#b07890" };
     const SWATHE: FlowerKind[] = ["lavender", "poppy", "daisy", "yellow", "pink", "lavender", "daisy", "poppy"];
     // Fixed anchors where she looks most: round the bench and on the slopes above the opening.
-    const ANCHORS: [number, number][] = [[roadX(80) + 66, 74], [roadX(80) + 80, 88], [roadX(80) + 70, 92], [86, -52], [92, -70], [80, -40], [98, -58]];
-    for (let k = 0, tries = 0; tries < 900 && k < 48; tries++) {
+    const ANCHORS: [number, number][] = [[roadX(80) + 66, 74], [roadX(80) + 80, 88], [roadX(80) + 70, 92], [80, -78], [90, -92], [70, -96], [96, -106], [62, -54], [58, -67], [84, -66]];
+    for (let k = 0, tries = 0; tries < 900 && k < 52; tries++) {
       const anc = k < ANCHORS.length ? ANCHORS[k] : null;
       const z = anc ? anc[1] + range(r, -3, 3) : range(r, -275, 245), x = anc ? anc[0] + range(r, -3, 3) : roadX(z) + range(r, 14, 150), u = x - roadX(z);
       if (headlandsH(x, z) > coastH(u, z) + 0.5 || !layout.free(x, z, 3) || slopeAt(x, z) > 0.3) continue;
@@ -394,13 +394,14 @@ export class Flowers {
       const kind = SWATHE[k % SWATHE.length];
       const ang = range(r, -0.6, 0.6) + (r() < 0.5 ? 0 : Math.PI / 2), L = range(r, 9, 24), W = L * range(r, 0.3, 0.5);
       const ca = Math.cos(ang), sa = Math.sin(ang);
-      const n = Math.round(L * W * range(r, 0.9, 1.35));
+      const n = Math.round(L * W * range(r, 1.7, 2.4));
       this.drifts.push([x, groundY(x, z), z, Math.min(L, 9)]);
       for (let i = 0; i < n; i++) {
         const s = range(r, -1, 1), w = (r() + r() + r() - 1.5) * 0.8 * (1 - 0.5 * Math.abs(s));
         const fx = x + ca * s * L - sa * w * W, fz = z + sa * s * L + ca * w * W;
         if (!layout.free(fx, fz, 0.1)) continue;
-        put(r() < 0.12 ? (kind === "daisy" ? "yellow" : "daisy") : kind, fx, groundY(fx, fz) - 0.03, fz);
+        // Raised a little over the meadow blades so the drift reads as colour from mid-distance.
+        put(r() < 0.12 ? (kind === "daisy" ? "yellow" : "daisy") : kind, fx, groundY(fx, fz) - 0.03, fz, range(r, 1.1, 1.4));
       }
       const wash = WASH[kind];
       if (wash) tintUnder(x, z, ang, L * 0.9, W * 0.8, 0.32, _w.set(wash));
