@@ -308,19 +308,19 @@ void main(){
     vec2 lq;
     float lA = lens(fp, vDirB, pw, lq);
     if (lA > 0.0) {
-      // Clear glass with a light, even tint: what is seen through it keeps its value but sheds
-      // part of the scene light's hue, so the lens reads the same at noon, golden and night.
-      float cl = dot(col, vec3(0.2126, 0.7152, 0.0722));
-      vec3 hueFree = col * (dot(Le, vec3(0.2126, 0.7152, 0.0722)) / max(Le, vec3(0.03)));
-      vec3 seen = mix(col, mix(hueFree, vec3(cl), 0.2), 0.45);
-      col = mix(col, seen * ${lin("#f1e3d6")}, lA * 0.8);
-      // One thin reflection along the upper-outer rim of each lens (lens x is mirrored, + = outer):
-      // above the lash line and the iris, tapering at both ends, half transparent.
-      float ang = atan(lq.y, lq.x);
-      float rr = pow(pow(abs(lq.x), LN) + pow(abs(lq.y), LN), 1.0 / LN);
-      float along = smoothstep(0.84, 0.98, ang) * (1.0 - smoothstep(1.22, 1.4, ang));
-      float streak = cov((abs(rr - 0.9) - 0.035 * along) * LHH, pw * 0.8) * along;
-      over(col, vec3(1.0) * mix(1.0, 0.6, uNight) * max(Le, vec3(0.6)), streak * 0.6 * lA);
+      // A light, even warm-brown tint (about 20% darker, the same over the whole lens): her
+      // irises, pupils and catch-lights stay clear through it.
+      col = mix(col, col * ${lin("#dcc6b2")}, lA);
+      // One clean white reflection streak (lens x is mirrored, + = outer): a straight diagonal band
+      // from the upper outer corner down toward the lower inner side, passing outside the iris,
+      // about 17% of the lens width, never under ~2 px wide (it stays put: lens space, AA by footprint).
+      vec2 lm = vec2(lq.x * LHW, lq.y * LHH);
+      vec2 sa = vec2(0.95 * LHW, LHH), sb = vec2(0.15 * LHW, -LHH);
+      vec2 sd = normalize(sb - sa);
+      float across = abs(dot(lm - sa, vec2(-sd.y, sd.x)));
+      float shw = max(0.17 * LHW, pw * 1.4);
+      float streak = cov(across - shw, pw * 0.9);
+      over(col, vec3(mix(1.0, 0.5, uNight)), streak * 0.9 * lA);
     }
   }
   col = applyFog(col, vWPos);
