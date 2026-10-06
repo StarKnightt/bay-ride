@@ -141,10 +141,10 @@ export function buildDuneGrass(colliders: readonly Collider[], layout?: Layout):
         const x = rx + uu;
         const hum = pnoise(x * 0.22, zz * 0.22, 33);
         const crown = smooth(0.5, 0.68, hum);
-        const pr = (1 - smooth(2.5, 6.2, WALL_OUT - uu)) * (0.45 + 0.55 * smooth(0.3, 0.55, hum));
+        const pr = (1 - smooth(2.0, 6.2, WALL_OUT - uu)) * (0.35 + 0.65 * smooth(0.3, 0.55, hum));
         if (r() > pr || !free(x, zz)) continue;
         // Hummock crowns grow full tussocks; marram rings them and runs thinner between.
-        if (r() < crown * 0.55) put(3, x, zz, range(r, 0.85, 1.25) * (0.85 + 0.3 * hum));
+        if (r() < crown * 0.35) put(3, x, zz, range(r, 0.85, 1.25) * (0.85 + 0.3 * hum));
         else put(r() < 0.1 ? 2 : 1, x, zz, range(r, 0.85, 1.3) * (0.8 + 0.5 * hum));
       }
     }
