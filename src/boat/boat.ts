@@ -84,6 +84,8 @@ export class Boat {
   private wBow = SEA_Y;
   private wStern = SEA_Y;
   private vy = 0;
+  /** Sideways speed the hull's grip on the water took off this step (slide() gives back what ran along a face). */
+  private slipLoss = 0;
   private vp = 0;
   private vr = 0;
   private latLP = 0;
@@ -200,7 +202,9 @@ export class Boat {
     else if (this.throttle < 0) a = this.u > 0.3 ? this.throttle * BRAKE : this.throttle * REVERSE;
     a -= DRAG1 * this.u + DRAG2 * this.u * Math.abs(this.u);
     this.u += a * dt;
+    const v0 = this.v;
     this.v *= Math.exp(-(SLIP + 0.5 * Math.abs(this.v)) * dt);
+    this.slipLoss = v0 - this.v;
 
     // The tiller turns her through the water once she has way on; at rest the prop wash still swings
     // the stern a little. Turning bleeds a little speed.
@@ -260,11 +264,11 @@ export class Boat {
    * Land, rocks, the pier and buoys. Running up the bed stops her and pushes her back toward deeper
    * water. Against a solid (the pier and its stage, a rock, a buoy) she slides: pushed out by the
    * penetration, only the speed into it is taken off (a soft bump), the speed along it kept, and
-   * the hit off her centre line swings her away from it.
+   * her heading eased along the face.
    */
   private collide(px: number, pz: number, dt: number): void {
     let nx = 0, nz = 0, ground = false;
-    let ox = 0, oz = 0, tq = 0, solid = false;
+    let ox = 0, oz = 0, solid = false;
     const cx = Math.cos(this.yaw), sx = Math.sin(this.yaw);
     for (const [pf, ps] of PROBES) {
       const rx = this.fx * pf + cx * ps, rz = this.fz * pf - sx * ps;
@@ -291,16 +295,14 @@ export class Boat {
       if (pen > 0) {
         ox += cnx * pen;
         oz += cnz * pen;
-        // Yaw that moves this probe out along the normal (+ yaw turns her left).
-        tq += rz * cnx - rx * cnz;
         solid = true;
       }
     }
     if (ground) this.runAground(px, pz, nx, nz, cx, sx);
-    else if (solid) this.slide(ox, oz, tq, cx, sx, dt);
+    else if (solid) this.slide(ox, oz, cx, sx, dt);
   }
 
-  private slide(ox: number, oz: number, tq: number, cx: number, sx: number, dt: number): void {
+  private slide(ox: number, oz: number, cx: number, sx: number, dt: number): void {
     const l = Math.hypot(ox, oz);
     if (l < 1e-6) return;
     const nx = ox / l, nz = oz / l;
@@ -311,15 +313,29 @@ export class Boat {
     const wx = this.fx * this.u + cx * this.v, wz = this.fz * this.u - sx * this.v;
     const vn = wx * nx + wz * nz;
     let vx = wx, vz = wz;
+    // Rubbing along a face, her keel's grip on the water doesn't stop her sliding along it: the
+    // sideways speed it took this step is given back where it ran along the face.
+    const tx = -nz, tz = nx;
+    const back = (cx * tx - sx * tz) * this.slipLoss;
+    vx += back * tx;
+    vz += back * tz;
     if (vn < 0) {
-      vx -= 1.25 * vn * nx;
-      vz -= 1.25 * vn * nz;
+      vx -= 1.05 * vn * nx;
+      vz -= 1.05 * vn * nz;
       if (-vn > 0.8) {
         this.bumped = clamp(-vn / 5, 0.2, 1);
         this.onSlap(this.bumped * 0.7);
       }
-      // A little yaw away, more for a harder hit, from the off-centre contact.
-      this.yawRate += clamp(Math.sign(tq) * Math.min(1, Math.abs(tq)) * -vn * 0.35, -0.6, 0.6);
+      // Pressed against the face she lines up with it, the way she was already heading along it,
+      // gently: a hard swing off the contact would aim her thrust away from the face and throw her
+      // off it instead of letting her rub along.
+      const along = this.fx * tx + this.fz * tz;
+      const dir = Math.abs(along) > 0.08 ? Math.sign(along) : Math.sign(vx * tx + vz * tz) || 1;
+      const err = Math.atan2(-dir * tx, -dir * tz) - this.yaw;
+      const e = Math.atan2(Math.sin(err), Math.cos(err));
+      const aim = clamp(e * 1.5, -0.6, 0.6);
+      // The tiller still wins: steering off the face turns her off it.
+      this.yawRate += (aim - this.yawRate) * (1 - Math.exp(-5 * dt)) * (1 - 0.8 * Math.abs(this.steer));
     }
     // Rubbing along it: light friction, never a stop.
     const f = Math.exp(-0.8 * dt);

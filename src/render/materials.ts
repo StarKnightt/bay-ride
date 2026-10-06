@@ -279,7 +279,7 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   }
   float t = dot(N, Ld) + (br - 0.5) * 0.32 * paint * flatK + jitter;
   float sv = shadowVis(wpos, N);
-  sv = mix(sv, 1.0, 0.5 * uNight * gHer);
+  sv = mix(sv, 1.0, 0.3 * uNight * gHer);
   sv = mix(sv, 1.0, clamp(dot(gLamp, vec3(0.6, 0.3, 0.1)) * 4.0, 0.0, 0.9));
   // Skin (the only very soft material): cast shadows from hair/cap fall softly, no hard seams.
   // Her hair too: thin overlapping locks shadowing each other read as crumpled patches.
@@ -287,8 +287,8 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   float lit = smoothstep(0.02 - soft, 0.06 + soft, t) * sv;
   float mid = smoothstep(-0.5 - soft, -0.44 + soft, t);
   float al = dot(base, vec3(0.2126, 0.7152, 0.0722));
-  // Moonlight on her is lifted so her face and form read at boat distance.
-  vec3 cLit = base * uSunColor * (1.0 + 0.5 * uNight * gHer);
+  // Moonlight on her is lifted a touch so her face and form read at boat distance.
+  vec3 cLit = base * uSunColor * (1.0 + 0.2 * uNight * gHer);
   // Her skin stays warm under the cool moon: the light's level, a little of its hue.
   if (gSoftCast > 0.5 && gHer > 0.5) {
     float ml = dot(uSunColor, vec3(0.2126, 0.7152, 0.0722)) * 1.5;
@@ -333,12 +333,13 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   // (Weak on her hair: its lock ends would outline as a bright sawtooth.)
   float moonRim = smoothstep(0.66, 0.86, fr) * smoothstep(-0.25, 0.35, dot(N, Ld)) * uNight * gHer;
   col += uRimColor * (base * 0.5 + 0.06) * moonRim * 0.75 * (1.0 - 0.7 * gHairLock);
-  // Her night value sits above the moonlit deck around her so she reads at play distance, and a
-  // soft cool rim round her silhouette (whatever side the moon is on) separates her from it: a
-  // wide fresnel band (~2-3 px past the ink at 8-10 m), cool against the warm lamp-lit boards.
-  col *= 1.0 + 1.1 * uNight * gHer;
+  // At dusk and night she sits in the scene's light like everything round her, only a little above
+  // it (any more and she reads self-lit, the brightest thing in the frame), and a soft cool rim
+  // round her silhouette (whatever side the moon is on) separates her from the dark: a wide
+  // fresnel band (~2-3 px past the ink at 8-10 m), cool against the warm lamp-lit boards.
+  col *= 1.0 + 0.15 * uNight * gHer;
   float herRim = smoothstep(0.4, 0.8, fr);
-  col += vec3(0.62, 0.76, 1.0) * (base * 0.42 + 0.045) * herRim * herRim * uNight * gHer * (1.0 - 0.6 * gHairLock);
+  col += vec3(0.62, 0.76, 1.0) * (base * 0.3 + 0.02) * herRim * herRim * uNight * gHer * (1.0 - 0.6 * gHairLock);
   col *= 1.0 + (br - 0.5) * 0.14 * paint;
   // Under the moon whites stay a dim cool grey: the moonlight is far weaker than the sun, and
   // unchecked they read as lit from within against the dark water.
