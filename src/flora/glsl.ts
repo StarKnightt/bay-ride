@@ -81,10 +81,12 @@ in vec4 aOff;   // world x, y, z, yaw
 in vec4 aVar;   // height (m), width scale, hue 0..1, rank 0..1
 out vec3 vWPos;
 out vec3 vN;
-out vec3 vCol;
-out float vTip;
-out float vHue;
-out float vWave;
+// Centroid: with 4x MSAA a sliver blade's pixel centre can lie off the triangle, and vTip
+// extrapolated there (tip squared drives the sun tint) printed saturated yellow specks.
+centroid out vec3 vCol;
+centroid out float vTip;
+centroid out float vHue;
+centroid out float vWave;
 void main(){
   vec3 root = aOff.xyz;
   float d = distance(root, cameraPosition);
@@ -138,10 +140,10 @@ ${OUT}
 ${FLORA_UNI}
 in vec3 vWPos;
 in vec3 vN;
-in vec3 vCol;
-in float vTip;
-in float vHue;
-in float vWave;
+centroid in vec3 vCol;
+centroid in float vTip;
+centroid in float vHue;
+centroid in float vWave;
 void main(){
   vec3 N = normalize(vN);
   if (!gl_FrontFacing) N = -N;
