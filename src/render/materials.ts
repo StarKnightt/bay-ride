@@ -814,9 +814,15 @@ void main(){
     return;
   } else if ((HAS(31) && mt == 31)) {    // stone-lantern fire box: dark by day, a warm flame at dusk
     gEmit = vec3(1.0, 0.58, 0.24) * uNight * 2.2;
-  } else if ((HAS(30) && mt == 30)) {    // lamp / vending / sign panel: plain paint by day, lit at night
+  } else if ((HAS(30) && mt == 30)) {    // lamp glass: dark, sky-tinted glass by day, lit warm from sunset
     paint = 0.3; rim = 0.5;
-    gEmit = mix(base, vec3(1.0, 0.93, 0.8), 0.35) * uNight * 1.3;
+    vec3 lampCol = base;
+    // By day the pale lamp colour in full sun read as a bright dot, flickering once it was smaller
+    // than a pixel: the glass stays a dim grey-green with a little of its colour until the lamps come on.
+    base = mix(vec3(0.07, 0.08, 0.075) + lampCol * 0.12 + uSkyMid * 0.05, lampCol, smoothstep(0.15, 0.35, uNight));
+    gEmit = mix(lampCol, vec3(1.0, 0.93, 0.8), 0.35) * uNight * 1.3;
+    // A lamp only a pixel or two across: a steady modest glow rather than a sparkle.
+    gEmit *= mix(1.0, 0.4, smoothstep(0.03, 0.15, gFoot));
 #ifndef RIDER
     // The pier lamps' heads burn well above a sign panel, so the bloom gives them a halo that reads
     // as a lit lamp from far along the pier.

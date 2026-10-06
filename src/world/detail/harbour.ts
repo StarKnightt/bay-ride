@@ -114,7 +114,7 @@ function openingCorners(c: Ctx): void {
   c.out.push(xf(cyl(0.05, 0.05, 0.05, "#2c3135", M.metal, 8), rx + 0.95, y + 0.2, N + 0.05, Math.PI / 2, 0, 0));
   // Lower right: a small crate with a lantern on it and fish boxes, by the south rail.
   crate(c, -83.6, y, S + 0.04, 0.5, 0.2);
-  c.out.push(xf(box(0.2, 0.26, 0.2, "#f2d796", M.glass), -83.6, y + 0.63, S + 0.04));
+  c.out.push(xf(box(0.2, 0.26, 0.2, "#ffe2a0", M.glow), -83.6, y + 0.63, S + 0.04));
   c.out.push(xf(cyl(0.02, 0.15, 0.1, "#2c3135", M.metal, 8), -83.6, y + 0.81, S + 0.04));
   fishBoxes(c, -82.9, y, S + 0.02, 2, -0.15);
   // Kept to the gear's own footprint: the deck's walking lane must stay wide.
@@ -255,7 +255,7 @@ function bench(c: Ctx, x: number, y: number, z: number, yaw: number): void {
 /** Short harbour lantern post. */
 function lantern(c: Ctx, x: number, y: number, z: number): void {
   c.out.push(xf(cyl(0.06, 0.08, 2.3, "#2c3135", M.metal, 8), x, y + 1.15, z));
-  c.out.push(xf(box(0.26, 0.34, 0.26, "#f2d796", M.glass), x, y + 2.45, z));
+  c.out.push(xf(box(0.26, 0.34, 0.26, "#ffe2a0", M.glow), x, y + 2.45, z));
   c.out.push(xf(cyl(0.02, 0.2, 0.14, "#2c3135", M.metal, 8), x, y + 2.68, z));
   c.colliders.push({ x, z, r: 0.14, top: y + 2.7 });
 }
