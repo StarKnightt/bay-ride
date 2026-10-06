@@ -286,12 +286,14 @@ function overStair(x: number, z: number): boolean {
  */
 function treadFit(xa: number, xb: number): number {
   const S = PIER_STAIR;
-  const lo = Math.min(xa, xb), hi = Math.max(xa, xb);
+  // (the toe, 7 cm on past the ball, must stay out of the riser ahead too)
+  const xt = xb + Math.sign(xb - xa) * 0.07;
+  const lo = Math.min(xa, xt), hi = Math.max(xa, xt);
   const k0 = clamp(Math.ceil((S.x1 - (lo + hi) / 2) / S.going), 0, S.n);
   let best = 0, bestA = Infinity;
   for (let k = Math.max(0, k0 - 1); k <= Math.min(S.n, k0 + 1); k++) {
-    const a = k === S.n ? -Infinity : S.x1 - k * S.going + 0.03;
-    const b = k === 0 ? Infinity : S.x1 - (k - 1) * S.going - 0.04;
+    const a = k === S.n ? -Infinity : S.x1 - k * S.going - 0.01;
+    const b = k === 0 ? Infinity : S.x1 - (k - 1) * S.going - 0.03;
     if (hi - lo > b - a) continue;
     const d = lo < a ? a - lo : hi > b ? b - hi : 0;
     if (Math.abs(d) < bestA) {
@@ -301,7 +303,7 @@ function treadFit(xa: number, xb: number): number {
   }
   return best;
 }
-const _ch = new THREE.Vector3(), _cb = new THREE.Vector3();
+const _ch = new THREE.Vector3(), _cb = new THREE.Vector3(), _ct = new THREE.Vector3();
 
 /** A spring chain (hair lock, ribbon tail, knot tail): rotated as a whole toward the wind. */
 interface Spring {
@@ -789,7 +791,8 @@ export class Rider {
         ft.psi0 = ft.psi;
         ft.swingT = 0;
         // On the stair, landing a little off a tread: the sole settles onto it as it takes the weight.
-        if (ft.plantT < 0.15 && !idle && ft.restep < 0 && dt > 0) ft.fx = damp(ft.fx, ft.fxI, 30, dt);
+        // Standing on it (stopped mid-stair), a straddling sole shuffles onto its tread at once.
+        if (((ft.plantT < 0.15 && !idle) || (idle && Number.isFinite(ft.gS))) && ft.restep < 0 && dt > 0) ft.fx = damp(ft.fx, ft.fxI, idle ? 22 : 30, dt);
         ft.plantT += dt;
       } else {
         ft.plantT = 0;
@@ -848,6 +851,8 @@ export class Rider {
       _cb.z += ft.s.y;
       const onStair = !free && !airborne && !f.busy && overStair((_ch.x + _cb.x) / 2, (_ch.z + _cb.z) / 2);
       ft.fxI = onStair ? ft.fx + treadFit(_ch.x, _cb.x) : 0;
+      // Swing progress (a re-step standing has its own).
+      const su = ft.restep >= 0 ? clamp(ft.restep / 0.3, 0, 1) : u;
       ft.gS = NaN;
       let gTarget = 0;
       if (onStair) {
@@ -858,7 +863,7 @@ export class Rider {
         // (and ahead of the toe, so it is up before it reaches the riser)
         const gt = this.groundAt(_cb.x + (_cb.x - _ch.x) * 0.9, _cb.z + (_cb.z - _ch.z) * 0.9, wy);
         const hb = Math.max(gh?.h ?? -Infinity, gb?.h ?? -Infinity);
-        const h = contact || u > 0.7 ? gm?.h : Math.max(hb, gt?.h ?? -Infinity);
+        const h = contact || su > 0.7 ? gm?.h : Math.max(hb, ft.restep >= 0 ? -Infinity : gt?.h ?? -Infinity);
         if (h !== undefined && Number.isFinite(h)) {
           gTarget = clamp(h - wy, -0.35, 0.35);
           ft.gS = h;
@@ -871,12 +876,31 @@ export class Rider {
       ft.gOff = dt > 0 && this.simInit ? damp(ft.gOff, gTarget, contact || (onStair && gTarget > ft.gOff) ? 40 : 18, dt) : gTarget;
       // A planted sole's lower contact point sits on the ground: blends between clips (start, stop,
       // walk to run) otherwise leave the blended foot hovering a few centimetres up.
-      const cT = contact && !free && !airborne ? clamp(wy - Math.min(heel.y, ball.y), -0.08, 0.08) : 0;
-      ft.cY = contact || dt <= 0 || !this.simInit ? cT : damp(ft.cY, cT, 10, dt);
+      // (on the stair a foot caught high mid-swing by a stop, or met by a tread, comes down quickly)
+      const cL = onStair ? 0.25 : 0.08;
+      const cT = contact && !free && !airborne ? clamp(wy - Math.min(heel.y, ball.y), -cL, cL) : 0;
+      ft.cY = (contact && !onStair) || dt <= 0 || !this.simInit ? cT : damp(ft.cY, cT, contact ? 30 : 10, dt);
       const T = ank.clone();
       T.x += ft.s.x + ft.fx;
       T.z += ft.s.y;
       T.y += ft.gOff + lift + ft.cY;
+      if (onStair && !contact) {
+        // Swinging over the treads: heel, ball and toe (and, early on, a little ahead of each along
+        // her way) clear every tread under them by 3 cm, the margin closing as the foot comes down.
+        const dy = T.y - ank.y;
+        _ct.subVectors(_cb, _ch).setY(0).normalize().multiplyScalar(0.07).add(_cb);
+        const m = 0.03 * (1 - smooth(0.7, 1, su));
+        const sp = Math.hypot(this.vel.x, this.vel.z), wa = sp > 0.1 ? 0.1 * (1 - smooth(0.55, 0.8, su)) / sp : 0;
+        let need = 0;
+        // (either side too: a nosing overhangs the tread below it by 3 cm)
+        for (const P of [_ch, _cb, _ct])
+          for (const a of [0, wa])
+            for (const ox of [0, -0.035, 0.035]) {
+              const g = this.groundAt(P.x + this.vel.x * a + ox, P.z + this.vel.z * a, wy);
+              if (g) need = Math.max(need, g.h + m - (P.y + dy));
+            }
+        T.y += need;
+      }
       if (free && f.busy && !airborne) {
         // Sitting down or getting up on a scripted move: the blend never pushes a sole through the floor.
         const g = this.groundAt(T.x, T.z, wy);
@@ -930,7 +954,7 @@ export class Rider {
     for (let i = 0; i < 2; i++) {
       const hip = wpos(this.legs[i].thigh, _a);
       const d = hip.distanceTo(targets[i]) - this.legLen * 0.985;
-      if (d > 0) need = Math.max(need, Math.min(d * 1.1, 0.3));
+      if (d > 0) need = Math.max(need, Math.min(d * 1.1, Number.isFinite(this.feet[i].gS) ? 0.45 : 0.3));
     }
     // On the stair the pelvis follows the lower foot (the walker rides the line of the nosings).
     let sd = 0;

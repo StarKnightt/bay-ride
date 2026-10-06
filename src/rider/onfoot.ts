@@ -33,7 +33,7 @@ const WALK = 1.3;
 /** Shift: an easy run (stride lengthens with speed, see gaitA). */
 const RUN = 3.4;
 /** On the stair: about one tread a step at the walk's cadence, two with Shift. */
-const STAIR_WALK = 0.52, STAIR_RUN = 1.05;
+const STAIR_WALK = 0.52, STAIR_RUN = 0.8;
 /**
  * Her body's height over the stair: the line through the middle of each tread (her feet find the
  * treads themselves); NaN off it.
@@ -819,7 +819,7 @@ export class Explore {
       want = Math.min(want, WALK + (RUN - WALK) * (1 - smooth01((depth - 0.1) / 0.2)));
       want *= 1 - 0.45 * smooth01((depth - 0.08) / (WADE - 0.08));
       // The stair (and the step or two before it, so she has slowed by its edge).
-      const ax = this.x - Math.sin(this.yaw) * 0.45, az = this.z - Math.cos(this.yaw) * 0.45;
+      const ah = 0.45 + 0.4 * this.speed, ax = this.x - Math.sin(this.yaw) * ah, az = this.z - Math.cos(this.yaw) * ah;
       const onStair = (x: number, z: number) => x < PIER_STAIR.x1 + 0.05 && x > STAIR_FOOT_X - 0.05 && z <= PIER_STAIR.z0 + 0.1 && z >= PIER_STAIR.z1 - 0.05;
       if (onStair(this.x, this.z) || onStair(ax, az)) want = Math.min(want, runKey ? STAIR_RUN : STAIR_WALK);
       const err = this.steerToward(Math.atan2(-wx, -wz), dt, want > WALK ? 7 : 9);
