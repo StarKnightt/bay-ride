@@ -644,7 +644,7 @@ export class Rider {
       // A planted sole's lower contact point sits on the ground: blends between clips (start, stop,
       // walk to run) otherwise leave the blended foot hovering a few centimetres up.
       const cT = contact && !free && !airborne ? clamp(wy - Math.min(heel.y, ball.y), -0.08, 0.08) : 0;
-      ft.cY = dt > 0 && this.simInit ? damp(ft.cY, cT, contact ? 30 : 10, dt) : cT;
+      ft.cY = contact || dt <= 0 || !this.simInit ? cT : damp(ft.cY, cT, 10, dt);
       const T = ank.clone();
       T.x += ft.s.x;
       T.z += ft.s.y;

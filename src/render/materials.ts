@@ -328,8 +328,10 @@ vec3 toonT(vec3 base, vec3 N, vec3 wpos, float jitter, float paint, float rimAmt
   // (Weak on her hair: its lock ends would outline as a bright sawtooth.)
   float moonRim = smoothstep(0.66, 0.86, fr) * smoothstep(-0.25, 0.35, dot(N, Ld)) * uNight * gHer;
   col += uRimColor * (base * 0.5 + 0.06) * moonRim * 0.75 * (1.0 - 0.7 * gHairLock);
-  // Her night value sits above the moonlit deck around her so she reads at play distance.
-  col *= 1.0 + 0.55 * uNight * gHer;
+  // Her night value sits above the moonlit deck around her so she reads at play distance, and a
+  // soft cool rim round her silhouette (whatever side the moon is on) separates her from it.
+  col *= 1.0 + 0.7 * uNight * gHer;
+  col += uRimColor * (base * 0.35 + 0.035) * smoothstep(0.6, 0.86, fr) * uNight * gHer * (1.0 - 0.6 * gHairLock);
   col *= 1.0 + (br - 0.5) * 0.14 * paint;
   // Under the moon whites stay a dim cool grey: the moonlight is far weaker than the sun, and
   // unchecked they read as lit from within against the dark water.
@@ -843,6 +845,9 @@ void main(){
   // The mint shirt shades toward olive-sage, not the blue-grey of whites in shade, and its folds
   // shadowing each other stay soft, so no blue patches over the mint.
   if (uId == 13.0) { gWarmShade = 1.0; gHairCast = 1.0; shT = herShade(vec3(0.6, 0.68, 0.58)); }
+  // The shorts' inseam (the two legs' inner walls meet flush, edge-on from front and back) draws
+  // no ink: a few pixels either side of it are unmasked (bind-pose position, y up).
+  if (uId == 23.0) mask *= smoothstep(0.008, 0.02, abs(vObj.x)) + step(0.805, vObj.y) + step(vObj.y, 0.6);
 #endif
   vec3 col = toonT(base, N, vWPos, jit, paint, rim, soft, shT) + emis;
   if ((HAS(1) && mt == 1)) {

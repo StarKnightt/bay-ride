@@ -220,10 +220,11 @@ void main(){
   vec3 Le = mix(Lgt, vec3(Lm), 0.35) * 0.95 + 0.05 * uSunColor;
   vec3 fp = vF;
   // Under the moon the face is painted with a lit and a shaded side (its normals are near flat):
-  // a soft gradient across it, the far cheek about a third darker than the near one.
+  // a soft cel step across it just past the middle, the lit side catching cool moonlight and the
+  // shaded side keeping the skin's warmth (lit about 1.7x the shade).
   float ks = dot(vRight, uSunDir) > 0.0 ? 1.0 : -1.0;
-  float kg = smoothstep(-0.035, 0.045, fp.x * ks);
-  col *= mix(1.0, mix(0.68, 1.06, kg), uNight);
+  float kg = smoothstep(-0.006, 0.010, fp.x * ks - 0.004);
+  col *= mix(vec3(1.0), mix(vec3(0.6, 0.54, 0.5), vec3(1.08, 1.16, 1.28), kg), uNight);
   vec3 shade = toonT(base, -normalize(uSunDir), vWPos, 0.34, 0.0, 0.0, 0.065, shT);
   // Hat brim: a soft painted shade over the upper face, lower when the sun is high.
   float line = 0.058 - 0.07 * clamp(uSunDir.y, 0.0, 1.0) + 0.003 * sin(fp.x * 180.0);
@@ -237,7 +238,10 @@ void main(){
   float drop = 0.008 + 0.022 * clamp(uSunDir.y, 0.0, 1.0) + 0.003 * sin(fp.x * 140.0);
   float neckSh = smoothstep(jaw - drop - 0.004, jaw - drop + 0.003, fp.y) * (1.0 - smoothstep(jaw - 0.0005, jaw + 0.0035, fp.y));
   neckSh *= smoothstep(-0.04, 0.0, fp.z) * (1.0 - smoothstep(0.06, 0.085, ax));
-  col = mix(col, mix(shade, col * vec3(0.84, 0.76, 0.76), 0.55), neckSh * 0.85 * (1.0 - 0.6 * uNight));
+  col = mix(col, mix(shade, col * vec3(0.8, 0.77, 0.76), 0.4), neckSh * 0.9 * (1.0 - 0.6 * uNight));
+  // By day the far cheek turns into one soft side-plane shade.
+  float farC = smoothstep(0.03, 0.058, -fp.x * ks) * (1.0 - neckSh);
+  col = mix(col, col * vec3(0.9, 0.86, 0.86), farC * 0.8 * (1.0 - uNight));
   float pw = length(fwidth(fp.xy)) * 0.7 + 1e-6;
   if (fp.z > 0.035) {
     vec2 p = fp.xy;
