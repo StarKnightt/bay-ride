@@ -253,6 +253,8 @@ class Foot {
   gOff = 0;
   /** Lift that puts a planted sole on the ground (m). */
   cY = 0;
+  /** On the stair, planted: how far its sole is over the tread (m). */
+  hov = 0;
   restep = -1;
   kind = "wood";
   swingT = 0;
@@ -901,6 +903,7 @@ export class Rider {
             }
         T.y += need;
       }
+      ft.hov = onStair && contact && Number.isFinite(ft.gS) ? Math.min(_ch.y, _cb.y) + T.y - ank.y - ft.gS : 0;
       if (free && f.busy && !airborne) {
         // Sitting down or getting up on a scripted move: the blend never pushes a sole through the floor.
         const g = this.groundAt(T.x, T.z, wy);
@@ -936,7 +939,9 @@ export class Rider {
 
     // Standing: re-step the foot that has been dragged or twisted furthest from where the clip wants it.
     if (idle && !free && !airborne && this.feet[0].restep < 0 && this.feet[1].restep < 0) {
-      const err = (ft: Foot) => Math.max(ft.s.length() / 0.1, Math.abs(ft.psi) / 0.35, Math.abs(ft.fxI - ft.fx) / 0.015);
+      // (on the stair a sole still landing, over 3 cm up its tread, finishes its step rather than standing)
+      const err = (ft: Foot) =>
+        Math.max(ft.s.length() / 0.1, Math.abs(ft.psi) / 0.35, Math.abs(ft.fxI - ft.fx) / 0.015, ft.hov / 0.03);
       const e0 = err(this.feet[0]), e1 = err(this.feet[1]);
       const i = e0 >= e1 ? 0 : 1;
       if (Math.max(e0, e1) > 1 && dt > 0) {
@@ -946,6 +951,7 @@ export class Rider {
         ft.psi0 = ft.psi;
         ft.fx0 = ft.fx;
         ft.fxT = ft.fxI;
+        this.contact[i] = false;
       }
     }
 
