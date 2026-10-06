@@ -253,7 +253,12 @@ function house(c: Ctx, s: HouseSpec, boxes: Box[]): void {
   y -= 0.4;
   // Plaster walls on a darker stone plinth.
   out.push(xf(boxM(w, h, d, s.wall, M.plaster), x, y + h / 2, z));
-  out.push(xf(box(w + 0.12, 0.75, d + 0.12, "#a39d90", M.stone), x, y + 0.37, z));
+  // The plinth stands proud of the plaster and sits a hand's width into the ground, so the house is
+  // footed rather than a box set on the lawn.
+  out.push(xf(box(w + 0.32, 1.05, d + 0.32, "#8f8a80", M.stone), x, y + 0.42, z));
+  out.push(xf(box(w + 0.42, 0.12, d + 0.42, "#b5ad9c", M.stone), x, y + 0.98, z));
+  // The eave's shadow on the wall: a band of the wall colour in shade under the roof edge.
+  out.push(xf(box(w + 0.03, 0.42, d + 0.03, new THREE.Color(s.wall).multiplyScalar(0.62).getStyle(), M.plaster), x, y + h - 0.21, z));
   // Roof: two tiled slabs, ridge cap, gutters and barge boards.
   const pitch = 0.5;
   const span = s.ridgeZ ? w : d, len = s.ridgeZ ? d : w;
