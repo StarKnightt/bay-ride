@@ -553,9 +553,10 @@ vec3 pierLampLight(vec3 p, vec3 N){
     float d2 = dot(d, d);
     if (Lp.w < 0.5 || d2 > 100.0) continue;
     float ndl = clamp((dot(N, d) * inversesqrt(max(d2, 1e-4)) + 0.35) / 1.35, 0.0, 1.0);
-    L += ndl * (1.0 - smoothstep(16.0, 100.0, d2)) / (1.0 + d2 * 0.09);
+    L += ndl * (1.0 - smoothstep(16.0, 100.0, d2)) / (1.0 + d2 * 0.07);
   }
-  return vec3(1.0, 0.62, 0.3) * L * 0.95 * smoothstep(0.35, 0.7, uNight);
+  // From sunset (uNight 0.3, when the lamp heads are already lit) a faint pool, full by dusk.
+  return vec3(1.0, 0.62, 0.3) * L * 1.2 * smoothstep(0.2, 0.6, uNight);
 }
 
 vec2 cellular(vec2 p){
@@ -838,7 +839,7 @@ void main(){
     return;
   }
 #ifndef RIDER
-  if (uNight > 0.35) gLamp = pierLampLight(vWPos, N);
+  if (uNight > 0.2) gLamp = pierLampLight(vWPos, N);
 #endif
 
   // Skin shades warm (peach/rose) instead of the cool environment shadow.
