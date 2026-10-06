@@ -108,7 +108,7 @@ function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
       else if (up > -0.1) c.copy(stone).lerp(warm, 0.5 + 0.5 * Math.sin(px * 3.1 + pz * 2.3 + n));
       else c.copy(cool);
       c.lerp(dark, r() * 0.22 + (py < -0.2 ? 0.2 : 0));
-      if (shore) c.lerp(wet, 0.55 + (py < 0 ? 0.2 : 0));
+      if (shore) c.lerp(wet, 0.25 + (py < 0 ? 0.15 : 0));
       else {
         c.lerp(moss, Math.max(0, Math.min(1, (up - 0.5 + (mot - 0.5) * 0.6) * 2.2)) * 0.75);
         const lp = Math.sin(px * 7.1 - n) * Math.sin(pz * 6.3 + n * 0.7) * Math.sin(py * 5.9 + n);
@@ -146,6 +146,8 @@ function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
     let rs = 12;
     while (rs < 80 && islandH(ISLAND.x + ca * rs, ISLAND.z + sa * rs) > SEA_Y + 0.1) rs += 0.5;
     if (rs >= 80) continue;
+    // Irregular: long bare stretches between outcrops (an even ring read as beads from the beach).
+    if (r() < 0.45) continue;
     const lift = range(r, 0.05, 1.1);
     let rr = rs;
     while (rr > 8 && islandH(ISLAND.x + ca * rr, ISLAND.z + sa * rr) < SEA_Y + lift) rr -= 0.4;
@@ -154,7 +156,7 @@ function boulders(layout: Layout, colliders: Collider[]): THREE.Mesh {
       const x = ISLAND.x + ca * rr + range(r, -1.6, 1.6) * j, z = ISLAND.z + sa * rr + range(r, -1.6, 1.6) * j;
       const s = j === 0 ? range(r, 1.1, 2.6) : range(r, 0.6, 1.3);
       n++;
-      stoneAt(x, z, s, islandH(x, z), true);
+      stoneAt(x, z, s, islandH(x, z) - s * 0.22, true);
       if (j === 0 && r() < 0.35) layout.perches.push([x, islandH(x, z) + s * 0.7, z, r() * 6.28]);
     }
   }

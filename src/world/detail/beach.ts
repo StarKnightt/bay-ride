@@ -306,16 +306,16 @@ export function buildBeach(layout: Layout, colliders: Collider[]): THREE.Group {
     }
     // Near-third interest: a sandcastle with bucket and spade, a footprint trail across the frame,
     // bigger dune grass drifts at the frame edges.
-    const [cx, cz] = p(4.6, -1.4);
-    if (dry(cx, cz, 0.15)) {
+    const [cx, cz] = p(4.4, 1.3);
+    if (dry(cx, cz, 0.1)) {
       sandcastle(props, colliders, cx, cz);
       layout.rect(cx - 1, cx + 1.3, cz - 1, cz + 1);
     }
     const [f0x, f0z] = p(1.6, 2.2), [f1x, f1z] = p(10, -0.6);
     footprints(props, f0x, f0z, f1x, f1z);
-    for (const [d, s] of [[3.2, 4.3], [2.8, -3.6], [6, 4.8]] as const) {
+    for (const [d, s] of [[2.6, 3.9], [3.6, 2.6], [6.5, 4.4]] as const) {
       const [x, z] = p(d, s);
-      if (dry(x, z, 0.12)) layout.spot(x, z, 1.1, 16, ["weed", "weed", "thrift", "weed"]);
+      if (dry(x, z, 0.08)) layout.spot(x, z, 1.1, 16, ["weed", "weed", "thrift", "weed"]);
     }
     for (let i = 0; i < 90; i++) {
       const [x, z] = p(range(r, 3.2, 8), range(r, -1.5, 5));

@@ -109,15 +109,21 @@ function openingCorners(c: Ctx): void {
   bucket(c, -83.9, y, N + 0.05);
   c.colliders.push({ x: -83.5, z: N, r: 0.5, top: y + 0.32 });
   const rx = -84.9, rz = Z + PIER.half - 0.12;
-  c.out.push(beam(V(rx + 0.5, y + 0.02, N + 0.05), V(rx - 0.25, y + 2.6, rz + 0.25), 0.018, "#3a2e26", M.planks, 5));
-  c.out.push(xf(cyl(0.05, 0.05, 0.05, "#2c3135", M.metal, 8), rx + 0.38, y + 0.42, N + 0.08, Math.PI / 2, 0, 0));
-  c.out.push(beam(V(rx - 0.25, y + 2.6, rz + 0.25), V(rx + 0.38, y + 0.42, N + 0.12), 0.003, "#e8e4da", M.plain, 3));
+  // Resting low along the rail top (standing up, it crossed the island in the opening view).
+  c.out.push(beam(V(rx + 1.3, y + 0.03, N + 0.02), V(rx - 1.6, y + 1.06, rz), 0.016, "#7a5636", M.planks, 5));
+  c.out.push(xf(cyl(0.05, 0.05, 0.05, "#2c3135", M.metal, 8), rx + 0.95, y + 0.2, N + 0.05, Math.PI / 2, 0, 0));
   // Lower right: a small crate with a lantern on it and fish boxes, by the south rail.
   crate(c, -83.6, y, S + 0.04, 0.5, 0.2);
   c.out.push(xf(box(0.2, 0.26, 0.2, "#f2d796", M.glass), -83.6, y + 0.63, S + 0.04));
   c.out.push(xf(cyl(0.02, 0.15, 0.1, "#2c3135", M.metal, 8), -83.6, y + 0.81, S + 0.04));
   fishBoxes(c, -82.9, y, S + 0.02, 2, -0.15);
   c.colliders.push({ x: -83.25, z: S, r: 0.6, top: y + 0.85 });
+  // A hanging flower basket under the pier-end lamp's arm (overhead: no collider).
+  const lx = PIER.x1 + 1.0, lz = Z + PIER.half - 0.16 - 0.24, by = y + 3.3 - 0.75;
+  c.out.push(beam(V(lx, y + 3.3, lz), V(lx, by + 0.2, lz), 0.006, "#2c3135", M.metal, 3));
+  const bowl = new THREE.SphereGeometry(0.2, 10, 5, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2);
+  c.out.push(xf(prep(bowl, "#6d5946", M.planks), lx, by + 0.2, lz));
+  c.layout.spot(lx, lz, 0.16, 5, ["pink", "poppy", "yellow", "pink"], by + 0.18, 0.75);
 }
 
 function pierClutter(c: Ctx): void {

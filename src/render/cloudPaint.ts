@@ -124,6 +124,8 @@ export function paintedCloudMaterial(lobes: THREE.DataTexture): THREE.ShaderMate
         float alpha = 1.0 - smoothstep(-aa * 1.5, aa * 1.5, sd + brushN * 0.007);
         // The flat base thins out softly over the last few metres.
         alpha *= smoothstep(-0.015, 0.04, p.y + brushN * 0.025 - 0.012 * sin(p.x * 9.0 + vSeed * 3.0));
+        // Never a straight cut at the card's edge: fade out just inside it.
+        alpha *= smoothstep(1.45, 1.3, abs(vP.x)) * smoothstep(top + 0.4, top + 0.28, vP.y);
         if (alpha < 0.004) discard;
 
         vec2 n2 = hit.n2;

@@ -174,6 +174,9 @@ function cloudField(r: () => number): THREE.Mesh {
     const { lobes, top } = cloudLobes(r, kind);
     const halfA = Math.atan((hw * 1.05) / d);
     const elLo = Math.atan(y / d), elHi = Math.atan((y + top * hw * sy) / d);
+    // The low play cameras' frame top sits ~15-25 deg up: no cloud may cross it (a flat-bottomed
+    // cloud sliced by the frame edge reads as a cut card). Towering cumulus get a little more.
+    if (elHi > (kind === "cumulus" ? 0.3 : kind === "heap" ? 0.25 : 0.4)) return false;
     if (suns.some(([sa, se]) => angDiff(az, sa) < halfA + 0.12 && se > elLo - 0.06 && se < elHi + 0.08)) return false;
     for (const c of clouds) {
       if (angDiff(az, c.az) > halfA + c.halfA + 0.015) continue;
@@ -186,19 +189,19 @@ function cloudField(r: () => number): THREE.Mesh {
 
   // Big towering cumulus: toward the harbour, either side of the island view, over the hill.
   for (const az0 of [-160, -66, 74, 158]) {
-    for (let k = 0; k < 10; k++) {
-      if (tryAdd("cumulus", (az0 + range(r, -8, 8)) * DEG, range(r, 950, 1250), range(r, 120, 180), range(r, 250, 360), range(r, 0.95, 1.1), 0.02)) break;
+    for (let k = 0; k < 30; k++) {
+      if (tryAdd("cumulus", (az0 + range(r, -8, 8)) * DEG, range(r, 1000, 1300), range(r, 70, 110), range(r, 200, 290), range(r, 0.9, 1.05), 0.02)) break;
     }
   }
   // [count, dist min, max, base height min, max, half width min, max, kind, squash min, max, haze]
   const bands: [number, number, number, number, number, number, number, CloudKind, number, number, number][] = [
-    [8, 450, 800, 150, 230, 40, 110, "heap", 0.75, 1.0, 0.0],
-    [20, 800, 1750, 130, 260, 55, 200, "heap", 0.7, 1.0, 0.06],
+    [8, 450, 800, 55, 110, 40, 100, "heap", 0.75, 1.0, 0.0],
+    [20, 800, 1750, 90, 200, 55, 190, "heap", 0.7, 1.0, 0.06],
     [16, 1800, 2700, 115, 190, 140, 380, "strata", 0.45, 0.7, 0.14],
   ];
   for (const [count, d0, d1, y0, y1, w0, w1, kind, s0, s1, haze] of bands) {
     for (let i = 0; i < count; i++) {
-      for (let k = 0; k < 12; k++) {
+      for (let k = 0; k < 30; k++) {
         // Skewed toward the small end: many medium and small clouds, a few large ones.
         const hw = w0 + (w1 - w0) * Math.pow(r(), 1.6);
         if (tryAdd(kind, r() * Math.PI * 2, range(r, d0, d1), range(r, y0, y1), hw, range(r, s0, s1), haze)) break;
@@ -216,7 +219,9 @@ function cloudField(r: () => number): THREE.Mesh {
     table.set([c.top, 0, 0, 0], (row * CLOUD_LOBES + CLOUD_LOBES - 1) * 4);
     const seed = r();
     const v0 = pos.length / 3;
-    for (const [cx, cy] of [[-1.15, -0.1], [1.15, -0.1], [1.15, c.top + 0.15], [-1.15, c.top + 0.15]]) {
+    // The lobes' smooth union swells the outline past the lobe circles (up to ~0.2 cloud units with
+    // many lobes), so the card keeps a wide margin: a tighter one sliced the outline straight.
+    for (const [cx, cy] of [[-1.45, -0.1], [1.45, -0.1], [1.45, c.top + 0.4], [-1.45, c.top + 0.4]]) {
       pos.push(c.x, c.y, c.z);
       corner.push(cx, cy);
       size.push(c.hw, c.sy);
