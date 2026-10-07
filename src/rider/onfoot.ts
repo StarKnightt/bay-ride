@@ -815,12 +815,12 @@ export class Explore {
   }
 
   private locomotion(dt: number, input: Input): void {
-    let fwd = (input.up ? 1 : 0) - (input.down ? 1 : 0);
-    let str = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+    let fwd = input.fwd;
+    let str = input.str;
     const sy = Math.sin(this.oYaw), cy = Math.cos(this.oYaw);
     let wx = -sy * fwd + cy * str;
     let wz = -cy * fwd - sy * str;
-    let runKey = input.shift;
+    let runKey = input.run;
     if (this.autoWalk) {
       wx = this.autoWalk.dx;
       wz = this.autoWalk.dz;
@@ -889,6 +889,12 @@ export class Explore {
     }
     this.look = damp(this.look, this.lookTarget, 2.4, dt);
     this.lookUp = damp(this.lookUp, this.lookTarget !== 0 ? -0.08 + 0.05 * Math.sin(this.idleT * 0.7) : 0, 1.5, dt);
+  }
+
+  /** Look around by (mx, my) screen pixels as a mouse would: the orbit on foot, the boat camera aboard (touch look). */
+  lookBy(mx: number, my: number): void {
+    if (this.onFoot) this.orbitBy(mx, my);
+    else this.chase.lookBy(mx, my);
   }
 
   private orbitBy(mx: number, my: number): void {

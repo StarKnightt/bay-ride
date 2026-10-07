@@ -188,12 +188,13 @@ export class Boat {
 
   private physics(dt: number, input: Input | null): void {
     if (dt <= 0) return;
-    const up = input?.up ?? false, down = input?.down ?? false;
-    const want = up && !down ? (input?.shift ? BOOST : 1) : down && !up ? -1 : 0;
+    // The keys give -1, 0 or 1 (Shift past full); the touch stick anything between, past full at its rim.
+    const f = input?.fwd ?? 0;
+    const want = f > 0 ? (input!.run && f > 0.8 ? BOOST : f) : f;
     // The throttle eases up (more slowly past full), comes off quicker.
     const rate = want > this.throttle ? (this.throttle >= 1 ? 0.6 : 0.9) : 2.2;
     this.throttle += clamp(want - this.throttle, -rate * dt, rate * dt);
-    const steerIn = input ? (input.right ? 1 : 0) - (input.left ? 1 : 0) : 0;
+    const steerIn = input?.str ?? 0;
     this.steer += (steerIn - this.steer) * (1 - Math.exp(-5 * dt));
 
     // Forward push: ahead, astern (slowly), or the prop reversed against forward way.
