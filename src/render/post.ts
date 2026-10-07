@@ -13,6 +13,23 @@ import type { Profiler } from "./profiler";
 const RES_FLOOR = 0.75;
 const RES_STEP = 0.05;
 
+/**
+ * Post options. The phone tier (platform.ts) also sets the adaptive range and frame budgets, the
+ * bloom's share of the output and, on a GPU that can't render to half floats, 8-bit colour targets;
+ * left out, they are the desktop game's own.
+ */
+export interface PostOptions {
+  kuwahara: boolean;
+  msaa?: number;
+  /** Adaptive resolution: starting scale, floor and ceiling. */
+  res?: [number, number, number];
+  /** GPU timer high/low marks, frame interval high/low marks (ms). */
+  budget?: [number, number, number, number];
+  /** Bloom resolution as a share of the output (0.5 by default). */
+  bloom?: number;
+  colorType?: THREE.TextureDataType;
+}
+
 const FS_VS = /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 
 /**
@@ -60,6 +77,9 @@ export class Post {
   /** Consecutive frames clearly over budget. */
   private hot = 0;
   private changed = -1e9;
+  private floor = RES_FLOOR;
+  private ceil = 1;
+  private budget: [number, number, number, number] = [14.5, 12, 18, 13];
   /** Scale changes as [ms since page load, new scale, frame ms that triggered it] (checks and captures). */
   readonly scaleLog: [number, number, number][] = [];
 
@@ -75,7 +95,7 @@ export class Post {
     this.smaa.enabled = n === 0;
   }
 
-  constructor(private renderer: THREE.WebGLRenderer, w: number, h: number, opts: { kuwahara: boolean; msaa?: number }) {
+  constructor(private renderer: THREE.WebGLRenderer, w: number, h: number, opts: PostOptions) {
     const pr = renderer.getPixelRatio();
     const W = Math.floor(w * pr), H = Math.floor(h * pr);
     this.W = W;
@@ -83,10 +103,13 @@ export class Post {
     const res = new URLSearchParams(location.search).get("res");
     const fixed = res !== null && res !== "" && Number.isFinite(Number(res)) ? THREE.MathUtils.clamp(Number(res), 0.5, 1) : null;
     this.adaptive = fixed === null;
+    if (opts.res) [, this.floor, this.ceil] = opts.res;
+    if (opts.budget) this.budget = opts.budget;
+    const colorType = opts.colorType ?? THREE.HalfFloatType;
     this.timer = renderer.getContext().getExtension("EXT_disjoint_timer_query_webgl2");
     this.mrt = new THREE.WebGLRenderTarget(W, H, {
       count: 2,
-      type: THREE.HalfFloatType,
+      type: colorType,
       depthTexture: new THREE.DepthTexture(W, H, THREE.UnsignedIntType),
       // MSAA on the scene pass: thin blades, wires and lattice resolve without sub-pixel crawl.
       samples: opts.msaa ?? 4,
@@ -94,7 +117,7 @@ export class Post {
     this.mrt.textures[0].name = "color";
     this.mrt.textures[1].name = "normal";
 
-    this.composer = new EffectComposer(renderer);
+    this.composer = colorType === THREE.HalfFloatType ? new EffectComposer(renderer) : new EffectComposer(renderer, new THREE.WebGLRenderTarget(W, H, { type: colorType }));
     this.composer.setPixelRatio(pr);
     this.composer.setSize(w, h);
 
@@ -213,7 +236,7 @@ export class Post {
     this.ink.uniforms.tDepth.value = this.mrt.depthTexture;
     this.composer.addPass(this.ink);
     // The paint filter replaces the ink pass's own small Kuwahara; ?paint=0..1 sets its strength.
-    this.paint = opts.kuwahara ? new Paint(W, H, this.mrt) : null;
+    this.paint = opts.kuwahara ? new Paint(W, H, this.mrt, colorType) : null;
     if (this.paint) {
       const ps = new URLSearchParams(location.search).get("paint");
       if (ps !== null && Number.isFinite(Number(ps))) this.paint.strength = Number(ps);
@@ -223,6 +246,15 @@ export class Post {
     }
 
     this.bloom = new UnrealBloomPass(new THREE.Vector2(w / 2, h / 2), 0.28, 0.5, 1.0);
+    if (opts.bloom !== undefined && opts.bloom !== 0.5) {
+      // The pass halves the size it is given: hand it the share wanted, doubled.
+      const set = this.bloom.setSize.bind(this.bloom), k = opts.bloom * 2;
+      this.bloom.setSize = (bw: number, bh: number) => set(Math.max(2, Math.round(bw * k)), Math.max(2, Math.round(bh * k)));
+    }
+    if (colorType !== THREE.HalfFloatType) {
+      const b = this.bloom as unknown as { renderTargetBright: THREE.WebGLRenderTarget; renderTargetsHorizontal: THREE.WebGLRenderTarget[]; renderTargetsVertical: THREE.WebGLRenderTarget[] };
+      for (const t of [b.renderTargetBright, ...b.renderTargetsHorizontal, ...b.renderTargetsVertical]) t.texture.type = colorType;
+    }
     this.composer.addPass(this.bloom);
 
     this.grade = new ShaderPass({
@@ -267,6 +299,10 @@ export class Post {
 
     // SMAA keeps thin lines (wires, lattice, blades) crisp where FXAA smeared them.
     this.smaa = new SMAAPass();
+    if (colorType !== THREE.HalfFloatType) {
+      const s = this.smaa as unknown as { _edgesRT: THREE.WebGLRenderTarget; _weightsRT: THREE.WebGLRenderTarget };
+      for (const t of [s._edgesRT, s._weightsRT]) t.texture.type = colorType;
+    }
     // With MSAA on the scene pass, SMAA only re-softens already resolved edges.
     this.smaa.enabled = !(opts.msaa ?? 4);
     this.composer.addPass(this.smaa);
@@ -292,7 +328,15 @@ export class Post {
         }`,
     });
     this.composer.addPass(this.sharpen);
-    this.setScale(fixed ?? 1);
+    this.setScale(fixed ?? opts.res?.[0] ?? 1);
+  }
+
+  /** Adapt afresh from scale `s` (phones, as play starts: the loader's compile stalls read as slow frames). */
+  restartAdaptive(s: number): void {
+    if (!this.adaptive) return;
+    this.setScale(s);
+    this.ema = this.over = this.under = this.hot = 0;
+    this.hold = performance.now() + 1500;
   }
 
   /** Draw the scene at `s` of the output resolution (viewports and uniforms only). */
@@ -326,19 +370,21 @@ export class Post {
     this.ema = this.ema > 0 ? this.ema + (ms - this.ema) * 0.15 : ms;
     // The timer misses the shadow and reflection passes (~1 ms at 1080p). Without it, a 60 Hz
     // vsync'd frame reads 16.7 ms however light it is, so only a missed vsync counts as over.
-    const hi = gpu ? 14.5 : 18, lo = gpu ? 12 : 13;
+    const [hg, lg, hf, lf] = this.budget;
+    const hi = gpu ? hg : hf, lo = gpu ? lg : lf;
+    const floor = this.floor, ceil = this.ceil;
     this.hot = ms > hi * 1.12 ? this.hot + 1 : 0;
     if (this.ema > hi) { this.over += dt; this.under = 0; }
     else if (this.ema < lo) { this.under += dt; this.over = 0; }
     else { this.over = 0; this.under = 0; }
     let next = this.scale;
-    if (this.hot >= 3 && this.scale > RES_FLOOR) {
+    if (this.hot >= 3 && this.scale > floor) {
       const want = this.scale * Math.sqrt((hi * 0.95) / ms);
-      next = Math.max(RES_FLOOR, Math.min(this.scale - RES_STEP, Math.round(want * 20) / 20));
-    } else if (this.over >= 0.5 && this.scale > RES_FLOOR) {
-      next = Math.max(RES_FLOOR, Math.round((this.scale - RES_STEP) * 20) / 20);
-    } else if (this.under >= 2 && this.scale < 1 && now >= this.raiseBlock && now - this.changed >= 3000) {
-      next = Math.min(1, Math.round((this.scale + RES_STEP) * 20) / 20);
+      next = Math.max(floor, Math.min(this.scale - RES_STEP, Math.round(want * 20) / 20));
+    } else if (this.over >= 0.5 && this.scale > floor) {
+      next = Math.max(floor, Math.round((this.scale - RES_STEP) * 20) / 20);
+    } else if (this.under >= 2 && this.scale < ceil && now >= this.raiseBlock && now - this.changed >= 3000) {
+      next = Math.min(ceil, Math.round((this.scale + RES_STEP) * 20) / 20);
       this.lastRaise = now;
     }
     if (next < this.scale && now - this.lastRaise < 3000) {

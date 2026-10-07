@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import type { Post } from "./post";
 import { restoreMaterials, useTwins } from "./mrtSplit";
+import { TIER } from "../platform";
+import { REFL } from "./materials";
 
 /** A depth pass that draws its layer with one override material (sun shadow, her shadow). */
 export interface ShadowPass {
@@ -51,9 +53,12 @@ export async function precompile(
       const n = programs().length;
       renderer.setRenderTarget(post.mrt);
       renderer.compile(o, camera, scene);
-      useTwins(o);
-      renderer.compile(o, camera, scene);
-      restoreMaterials();
+      // The phone tier draws the scene in one two-target pass: its normal-pass twins never draw.
+      if (!TIER.singlePass) {
+        useTwins(o);
+        renderer.compile(o, camera, scene);
+        restoreMaterials();
+      }
       renderer.setRenderTarget(prev);
       if (programs().length > n) await nextFrame();
     }
@@ -165,7 +170,12 @@ export async function warmDraws(
     parts.forEach((p, j) => (p.visible = j === i));
     post.renderScene(scene, camera);
     renderer.setRenderTarget(reflection);
+    // A single-sampled mirror (the phone tier) is drawn straight into the texture the sea reads:
+    // unbound for this warm draw, which includes the sea, or the draw is a feedback loop.
+    const mirror = reflection.samples === 0 ? REFL.uRefl.value : null;
+    if (mirror) REFL.uRefl.value = null;
     renderer.render(scene, camera);
+    if (mirror) REFL.uRefl.value = mirror;
     const po = scene.overrideMaterial;
     for (const sp of shadows) {
       scene.overrideMaterial = sp.mat;

@@ -209,8 +209,9 @@ void main(){
 }
 `;
 
+let rtType: THREE.TextureDataType = THREE.HalfFloatType;
 const rt = (w: number, h: number) =>
-  new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+  new THREE.WebGLRenderTarget(w, h, { type: rtType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
 
 function quad(fs: string, uniforms: Record<string, THREE.IUniform>): FullScreenQuad {
   const m = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, uniforms, vertexShader: VS, fragmentShader: fs, depthTest: false, depthWrite: false });
@@ -238,7 +239,9 @@ export class Paint {
   private readonly uMaxF = { value: new THREE.Vector2(1, 1) };
   private readonly uMaxH = { value: new THREE.Vector2(1, 1) };
 
-  constructor(W: number, H: number, mrt: THREE.WebGLRenderTarget) {
+  /** `type`: the colour targets' texel type (8-bit where the GPU can't render to half floats). */
+  constructor(W: number, H: number, mrt: THREE.WebGLRenderTarget, type: THREE.TextureDataType = THREE.HalfFloatType) {
+    rtType = type;
     const hw = Math.max(1, Math.floor(W / 2)), hh = Math.max(1, Math.floor(H / 2));
     this.tA = rt(hw, hh);
     this.tB = rt(hw, hh);

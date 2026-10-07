@@ -155,11 +155,12 @@ export class PlanarReflection {
   private tex = new THREE.Matrix4();
   private readonly normal = new THREE.Vector3(0, 1, 0);
 
-  constructor(w: number, h: number) {
+  /** `samples` and `type`: the phone tier draws it without MSAA, and in 8 bits where half floats can't be rendered. */
+  constructor(w: number, h: number, samples = 4, type: THREE.TextureDataType = THREE.HalfFloatType) {
     // Multisampled: at half resolution unresolved edges step in blocks once magnified on the water.
     // Colour only: the scene materials' second output (normal/id) has no target here, which keeps
     // their link-time pixel shaders valid for this pass (see mrtSplit.ts).
-    this.rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 4 });
+    this.rt = new THREE.WebGLRenderTarget(w, h, { type, samples });
     this.cam.layers.set(LAYER_REFLECT);
     REFL.uRefl.value = this.rt.textures[0];
     REFL.uReflOn.value = 1;
