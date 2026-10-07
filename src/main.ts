@@ -5,7 +5,7 @@ import { CharShadow, LAYER_CHAR, LAYER_CHAR_HAT, LAYER_REFLECT, PlanarReflection
 import { precompile, warmDraws } from "./render/precompile";
 import { restoreMaterials, useTwins } from "./render/mrtSplit";
 import { leafAtlas } from "./render/leafAtlas";
-import { Profiler } from "./render/profiler";
+import { FrameTimer, Profiler } from "./render/profiler";
 import { Bay } from "./world/bay";
 import { MooringLines } from "./world/bay/pier";
 import { SEA_Y, roadX } from "./world/bay/road";
@@ -13,6 +13,7 @@ import { Sky } from "./world/sky";
 import { PRESETS, TimeOfDay, parsePreset, type Preset } from "./world/timeofday";
 import { bakeDepth } from "./water/depthMap";
 import { buildSea, followSea } from "./water/sea";
+import { fallbackSeaMaterial } from "./water/fallback";
 import { Buoys } from "./water/buoys";
 import { seaHeight, seaNormal, waterSample, type WaterSample } from "./water/query";
 import { ShoreEvents, waterAt, waveEta, type WaterAt } from "./water/waves";
@@ -32,8 +33,11 @@ import { Hud } from "./ui/hud";
 import { captureParams, poseCamera } from "./capture/shots";
 import { CharDirector, charMode } from "./capture/charcam";
 import { Trail } from "./rider/prints";
-import { Hints } from "./ui/hints";
+import { Hints, type HintState } from "./ui/hints";
 import type { LifeTime } from "./life";
+import { PLATFORM, TIER, goFullscreen, isPortrait, onFirstTap, onTouch, probeGpu, touchLoaderText, watchViewport } from "./platform";
+import { PortraitPrompt, TouchControls, safeAreas } from "./ui/touch";
+import { gpuMemory, programLimits } from "./capture/gpucheck";
 
 const params = new URLSearchParams(location.search);
 const CAP = captureParams(params);
@@ -60,6 +64,10 @@ const HINTS = params.get("hints") === "1" ||
   (!SKIP_INTRO && !AUTOPLAY && !BOAT_RUN && CAP.time === null && !navigator.webdriver && !params.has("cam") && !params.has("shot"));
 let hints: Hints | null = null;
 let hintAcc = 0;
+/** Touch controls (ui/touch.ts) for interactive play only, never under a capture hook or the boat course. */
+const TOUCH_OK = !SHOT && !CHAR && !BOAT_RUN && !AUTOPLAY;
+let touch: TouchControls | null = null;
+let hintsTouch = false;
 const W_BOOT = 0.04, W_BUILD = 0.2, W_COMPILE = 0.2, W_DRAW = 0.5, W_WARM = 0.06;
 
 if (!document.createElement("canvas").getContext("webgl2")) {
@@ -83,7 +91,12 @@ if (params.has("gpu")) {
   const dbg = gl.getExtension("WEBGL_debug_renderer_info");
   console.info("[gpu]", dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : "unknown");
 }
-renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+/** Half-float colour targets where the GPU renders to them, 8 bits where it can't; MSAA as each format allows. */
+const caps = probeGpu(renderer.getContext() as WebGL2RenderingContext);
+const COLOR_TYPE = caps.halfFloat ? THREE.HalfFloatType : THREE.UnsignedByteType;
+const maxSamples = caps.halfFloat ? caps.samplesHalf : caps.samples8;
+const samples = (want: number) => (maxSamples > 0 ? Math.min(want, maxSamples) : want);
+renderer.setPixelRatio(Math.min(devicePixelRatio, TIER.dpr));
 renderer.setSize(innerWidth, innerHeight);
 renderer.autoClear = true;
 renderer.info.autoReset = false;
@@ -99,6 +112,8 @@ G.uLeafTex.value = leafAtlas(renderer);
 
 const loader = new Loader(SKIP_INTRO);
 loader.advance(W_BOOT);
+if (PLATFORM.touch) touchLoaderText();
+const portrait = PLATFORM.phone ? new PortraitPrompt() : null;
 const bootLog: [string, number][] = [];
 const bootT0 = performance.now();
 const yieldToPaint = () =>
@@ -119,14 +134,17 @@ await yieldToPaint();
 // The sea's program takes by far the longest to compile (tens of seconds on D3D): start it, and its
 // normal-pass twin, before anything else is built. Nothing it compiles against is baked yet.
 const sea = buildSea();
+if (params.has("seafail")) for (const m of sea.children as THREE.Mesh[]) (m.material as THREE.ShaderMaterial).fragmentShader += "\n#error forced sea failure (?seafail)\n";
 {
-  const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType });
+  const rt = new THREE.WebGLRenderTarget(1, 1, { type: COLOR_TYPE });
   const cam = new THREE.PerspectiveCamera();
   renderer.setRenderTarget(rt);
   renderer.compile(sea, cam);
-  useTwins(sea);
-  renderer.compile(sea, cam);
-  restoreMaterials();
+  if (!TIER.singlePass) {
+    useTwins(sea);
+    renderer.compile(sea, cam);
+    restoreMaterials();
+  }
   renderer.setRenderTarget(null);
   rt.dispose();
 }
@@ -186,17 +204,27 @@ if (BOAT_RUN) boat.mode = "scripted";
 boat.update(0, CAP.time ?? 0, null);
 if (!params.has("nospec")) for (const o of [bay.root, rider.walker, boat.root, moor.group]) specializeUber(o);
 
-const shadow = new SunShadow(2048, 55);
-const charShadow = new CharShadow(shadow.mat);
+const shadow = new SunShadow(TIER.shadow, 55);
+const charShadow = new CharShadow(shadow.mat, TIER.charShadow);
 charShadow.hatMat = hatShadowMaterial;
 const _charC = new THREE.Vector3();
-const reflection = new PlanarReflection(Math.floor(innerWidth * 0.5), Math.floor(innerHeight * 0.5));
+const REFL = TIER.refl[0];
+const reflection = new PlanarReflection(Math.floor(innerWidth * REFL), Math.floor(innerHeight * REFL), samples(TIER.refl[2]), COLOR_TYPE);
 const chase = new ChaseCam(innerWidth / innerHeight);
 const camParam = params.get("cam");
 if (camParam === "fpp") chase.fpp = 1;
 else if (camParam === "boat") chase.mode = "chase";
 else if (camParam && !CHAR) chase.mode = camParam as CamMode;
-const post = new Post(renderer, innerWidth, innerHeight, { kuwahara: params.get("kuwahara") !== "0", msaa: Number(params.get("msaa") ?? 4) });
+const post = new Post(renderer, innerWidth, innerHeight, {
+  kuwahara: params.get("kuwahara") !== "0" && TIER.paint > 0,
+  msaa: samples(Number(params.get("msaa") ?? TIER.msaa)),
+  res: TIER.res,
+  budget: TIER.budget,
+  bloom: TIER.bloom,
+  colorType: COLOR_TYPE,
+});
+if (TIER.singlePass) post.singlePass = true;
+if (post.paint && !params.has("paint")) post.paint.strength = TIER.paint;
 const prof = new Profiler(renderer, params.has("prof"));
 post.prof = prof;
 
@@ -227,9 +255,32 @@ if (SHOT) {
     tp = n;
     loader.advance(W_DRAW / parts.length);
   }, yieldToPaint);
+  // A sea program this GPU couldn't build (a phone's compiler or limits) draws nothing, which reads
+  // as a black bay: plain painted water instead (water/fallback.ts). ?seafail forces it.
+  const seaMeshes = sea.children as THREE.Mesh[];
+  const broken = (m: THREE.Material) =>
+    (renderer.properties.get(m) as { currentProgram?: { diagnostics?: { runnable: boolean } } }).currentProgram?.diagnostics?.runnable === false;
+  if (seaMeshes.some((m) => broken(m.material as THREE.Material))) {
+    console.warn("[sea] the sea's shader failed on this GPU: plain painted water instead");
+    for (const m of seaMeshes) m.material = fallbackSeaMaterial(m.material as THREE.ShaderMaterial);
+    renderer.setRenderTarget(post.mrt);
+    renderer.compile(sea, chase.cam, scene);
+    if (!TIER.singlePass) {
+      useTwins(sea);
+      renderer.compile(sea, chase.cam, scene);
+      restoreMaterials();
+    }
+    renderer.setRenderTarget(null);
+  }
 }
 
 const audio = new RideAudio();
+// Phones only allow sound (and fullscreen) inside a tap's activation, which a touch's pointerdown isn't.
+if (PLATFORM.touch || navigator.maxTouchPoints > 0)
+  onFirstTap(() => {
+    if (PLATFORM.phone) goFullscreen();
+    return audio.unlock();
+  });
 const input = new Input(
   () => audio.start(),
   () => {
@@ -287,13 +338,25 @@ addEventListener("pointermove", (e) => {
   if (document.pointerLockElement === canvasEl && !explore.onFoot) chase.lookBy(e.movementX, e.movementY);
 });
 
-addEventListener("resize", () => {
-  renderer.setSize(innerWidth, innerHeight);
-  chase.cam.aspect = innerWidth / innerHeight;
+/** The renderer, the post chain, the mirror and the camera's aspect, always changed together. */
+function resize(w = innerWidth, h = innerHeight): void {
+  renderer.setSize(w, h);
+  chase.cam.aspect = w / h;
   chase.cam.updateProjectionMatrix();
-  post.setSize(innerWidth, innerHeight);
-  reflection.setSize(Math.floor(innerWidth * 0.5), Math.floor(innerHeight * 0.5));
-});
+  post.setSize(w, h);
+  reflection.setSize(Math.floor(w * REFL), Math.floor(h * REFL));
+}
+// On a phone a rotation, the URL bar or fullscreen settle first (platform.ts); held upright the
+// game waits behind the landscape prompt at its landscape size.
+let sizedW = innerWidth, sizedH = innerHeight;
+if (PLATFORM.phone)
+  watchViewport((w, h) => {
+    if (isPortrait() || (w === sizedW && h === sizedH)) return;
+    sizedW = w;
+    sizedH = h;
+    resize(w, h);
+  });
+else addEventListener("resize", () => resize());
 
 let frames = 0;
 let fpsT = 0;
@@ -317,8 +380,34 @@ let fadeT = 0;
 let waiting = false;
 let started = false;
 
+/** Play starts: the first-time hints, and the touch controls on a touch device (or from a laptop's first touch). */
+function beginPlay(): void {
+  if (PLATFORM.phone) post.restartAdaptive(TIER.res[0]);
+  if (HINTS) {
+    hints = new Hints(PLATFORM.touch);
+    hintsTouch = PLATFORM.touch;
+  }
+  if (!TOUCH_OK) return;
+  onTouch(() => {
+    if (hints && !hintsTouch) {
+      hints.dispose();
+      hints = new Hints(true);
+      hintsTouch = true;
+    }
+    touch ??= new TouchControls({ input, explore, chase, tod, audio });
+    touch.enabled = true;
+  });
+}
+
+/** Frames drawn, for the phone tier's every-other-frame sun shadow. */
+let shadowTick = 0;
+
+/** ?gpums with a fixed ?res=: the whole frame's GPU time and the frame's main-thread time (the phone proxy). */
+const gpuT = params.has("gpums") && !post.adaptive && !prof.on ? new FrameTimer(renderer) : null;
+
 /** Shadows, reflection, scene and post for the current camera (also the warm-up frames). */
 function drawScene(px: number, pz: number): void {
+  const q = gpuT?.begin() ?? null;
   // Sun shadow frustum centred where the camera looks, ~25-30 m ahead.
   chase.cam.getWorldDirection(_dir);
   const l = Math.hypot(_dir.x, _dir.z) || 1;
@@ -327,9 +416,14 @@ function drawScene(px: number, pz: number): void {
     shadowCenter.set(SHOT.eye.x + (_dir.x / l) * reach, 0, SHOT.eye.z + (_dir.z / l) * reach);
   } else shadowCenter.set(px + (_dir.x / l) * 22, 0, pz + (_dir.z / l) * 22);
   renderer.info.reset();
-  shadow.update(renderer, scene, shadowCenter);
+  const pf = prof.on ? prof : null;
+  pf?.begin("shadow", renderer);
+  if (shadowTick++ % TIER.shadowEvery === 0) shadow.update(renderer, scene, shadowCenter);
+  pf?.end("shadow", renderer);
   _charC.copy(rider.walker.position).y += 0.85;
+  pf?.begin("charShadow", renderer);
   charShadow.update(renderer, scene, _charC, shadow.dir ?? G.uSunDir.value, rider.walker.visible);
+  pf?.end("charShadow", renderer);
   bay.beam.update(t, chase.cam.position);
   // Stars stay in the sky: mirrored as sharp dots they read as specks painted on the sea.
   // So is the painted moon: its mirrored disc would sit on the near water as a solid plate (the
@@ -341,11 +435,14 @@ function drawScene(px: number, pz: number): void {
   // Near the boat the mirror sits at the water under her, so her reflection starts at her
   // waterline even on a swell crest; far off it is the mean sea level.
   const nearBoat = 1 - THREE.MathUtils.smoothstep(chase.cam.position.distanceTo(boat.root.position), 40, 100);
+  pf?.begin("reflection", renderer);
   reflection.update(renderer, scene, chase.cam, SEA_Y + nearBoat * (boat.waterH - SEA_Y));
+  pf?.end("reflection", renderer);
   G.uStars.value = stars;
   G.uMoonCol.value.copy(_moon);
   post.setNear(chase.cam.near);
   post.render(scene, chase.cam, t);
+  gpuT?.end(q);
 }
 
 /**
@@ -369,6 +466,13 @@ function watch(interval: number): void {
 }
 
 function frame(now: number) {
+  // A phone held upright during play: the landscape prompt shows and the bay waits behind it.
+  if (started && !waiting && isPortrait()) {
+    last = now;
+    requestAnimationFrame(frame);
+    return;
+  }
+  const c0 = performance.now();
   const interval = now - last;
   // The first frame after the loader can carry a timestamp from before `last` was reset.
   let dt = Math.max(0, interval / 1000);
@@ -401,18 +505,20 @@ function frame(now: number) {
   else if (!SHOT) explore.update(simDt, input, t);
   const px = explore.playerX, pz = explore.playerZ;
   const onFoot = explore.onFoot;
-  if (hints) {
+  if (hints || touch) {
     hintAcc += simDt;
     // The shore test walks the hull's sides: a few times a second is plenty.
     if (hintAcc > 0.2) {
       const b = explore.boat;
-      hints.update(hintAcc, {
+      const s: HintState = {
         walking: onFoot && Math.abs(explore.speed) > 0.4,
         nearBoat: explore.nearBoat,
         aboard: explore.inBoat,
         driving: explore.inBoat && !!b && Math.abs(b.throttle) > 0.2,
         canAshore: explore.canStepAshore,
-      });
+      };
+      hints?.update(hintAcc, s);
+      touch?.update(hintAcc, s);
       hintAcc = 0;
     }
   }
@@ -485,6 +591,7 @@ function frame(now: number) {
 
   drawScene(px, pz);
   prof.poll();
+  if (gpuT && started) gpuT.cpu(performance.now() - c0);
   if (WATCH && started) watch(interval);
 
   frames++;
@@ -506,19 +613,20 @@ function frame(now: number) {
     bootLog.push(["total", Math.round(performance.now() - bootT0)]);
     if (SKIP_INTRO) {
       loader.remove();
-      if (HINTS) hints = new Hints();
+      beginPlay();
     }
     else {
       // The gesture that dismisses the loader also starts the audio (autoplay policy).
       fadeEl.style.display = "none";
       waiting = true;
+      if (PLATFORM.phone) post.restartAdaptive(TIER.res[0]);
       loader.ready((viaPointer) => {
         audio.start();
-        if (!AUTOPLAY && viaPointer) lockPointer();
+        if (!AUTOPLAY && viaPointer && !PLATFORM.touch) lockPointer();
         waiting = false;
         last = performance.now();
         loader.dissolve();
-        if (HINTS) hints = new Hints();
+        beginPlay();
         requestAnimationFrame(frame);
       });
       return;
@@ -542,7 +650,7 @@ if (params.get("timelapse") !== "1") {
     drawScene(explore.playerX, explore.playerZ);
     await yieldToPaint();
   }
-  reflection.every = 2;
+  reflection.every = TIER.refl[1];
   tod.set(startPreset, true);
   tod.update(0);
   bootLog.push(["presets", Math.round(performance.now() - s)]);
@@ -692,4 +800,88 @@ window.__ride = {
       setTier: (q: "low" | "med" | "high") => bay.detail.setTier(q),
     };
   },
+  /** Phones and touch (platform.ts, ui/touch.ts): what was decided, the screen layout, the frame timer. */
+  mobile: {
+    platform: PLATFORM,
+    tier: TIER,
+    caps,
+    get touchOn() {
+      return !!touch;
+    },
+    /** Every control's and hint's box, where she and the boat are on screen, the viewport (CSS px). */
+    layout() {
+      const c = renderer.domElement;
+      return {
+        viewport: { w: innerWidth, h: innerHeight, dpr: devicePixelRatio, vv: visualViewport ? { w: visualViewport.width, h: visualViewport.height } : null },
+        safeArea: safeAreas(),
+        canvas: { cssW: c.clientWidth, cssH: c.clientHeight, w: c.width, h: c.height, pixelRatio: renderer.getPixelRatio(), aspect: +chase.cam.aspect.toFixed(4), scale: post.scale },
+        portrait: portrait?.shown ?? false,
+        fullscreen: !!document.fullscreenElement,
+        controls: touch?.layout() ?? null,
+        stick: { ...input.stick },
+        hints: hints?.layout() ?? null,
+        her: screenBox(rider.walker),
+        boat: screenBox(boat.root),
+        mode: explore.mode,
+        camMode: chase.mode,
+        fpp: chase.fpp,
+        tod: tod.preset,
+        fps: Math.round(fps),
+        audio: audio.state,
+        music: audio.music,
+      };
+    },
+    timer: gpuT ? { stats: () => gpuT.stats(), reset: () => gpuT.reset() } : null,
+    /** Every linked program against the WebGL 2 minimum limits (capture/gpucheck.ts). */
+    limits: () => programLimits(renderer),
+    /** The largest texture and the GPU memory of the targets, textures and geometry. */
+    memory() {
+      type RT = THREE.WebGLRenderTarget;
+      const pp = post as unknown as { paint: Record<string, RT> | null; bloom: Record<string, RT | RT[]>; smaa: Record<string, RT | THREE.Texture> };
+      const rts: RT[] = [post.mrt, reflection.rt, shadow.rt, charShadow.rt, post.composer.renderTarget1, post.composer.renderTarget2];
+      if (pp.paint) rts.push(pp.paint.tA, pp.paint.tB, pp.paint.kw, pp.paint.output);
+      rts.push(pp.bloom.renderTargetBright as RT, ...(pp.bloom.renderTargetsHorizontal as RT[]), ...(pp.bloom.renderTargetsVertical as RT[]));
+      rts.push(pp.smaa._edgesRT as RT, pp.smaa._weightsRT as RT);
+      return gpuMemory(scene, rts.filter(Boolean), [G.uLeafTex.value, G.uSignTex.value, pp.smaa._areaTexture as THREE.Texture, pp.smaa._searchTexture as THREE.Texture]);
+    },
+  },
 };
+
+const _sv = new THREE.Vector3(), _vv = new THREE.Vector3();
+/**
+ * On-screen box (CSS px) of what `root` draws in the main view, from its vertices (skinned where
+ * they are), so it is her or the boat's silhouette and not a loose 3D box; null when none of it is
+ * in front of the camera.
+ */
+function screenBox(root: THREE.Object3D): { x: number; y: number; w: number; h: number } | null {
+  const cam = chase.cam;
+  root.updateWorldMatrix(true, true);
+  cam.updateMatrixWorld();
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  root.traverseVisible((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.layers.test(cam.layers) || o.userData.noCast || o.userData.shadowProxy) return;
+    const mat = m.material as THREE.Material;
+    if (!mat || !mat.visible || !mat.colorWrite) return;
+    const pos = m.geometry.attributes.position;
+    if (!pos) return;
+    const sk = m as THREE.SkinnedMesh;
+    const step = Math.max(1, Math.floor(pos.count / 3000));
+    for (let i = 0; i < pos.count; i += step) {
+      if (sk.isSkinnedMesh) sk.getVertexPosition(i, _sv);
+      else _sv.fromBufferAttribute(pos, i);
+      _sv.applyMatrix4(m.matrixWorld);
+      if (_vv.copy(_sv).applyMatrix4(cam.matrixWorldInverse).z > -cam.near) continue;
+      _sv.project(cam);
+      const x = (_sv.x * 0.5 + 0.5) * innerWidth, y = (0.5 - _sv.y * 0.5) * innerHeight;
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      y0 = Math.min(y0, y);
+      y1 = Math.max(y1, y);
+    }
+  });
+  if (x0 === Infinity) return null;
+  const cx0 = Math.max(0, x0), cy0 = Math.max(0, y0), cx1 = Math.min(innerWidth, x1), cy1 = Math.min(innerHeight, y1);
+  if (cx1 <= cx0 || cy1 <= cy0) return null;
+  return { x: +cx0.toFixed(1), y: +cy0.toFixed(1), w: +(cx1 - cx0).toFixed(1), h: +(cy1 - cy0).toFixed(1) };
+}
