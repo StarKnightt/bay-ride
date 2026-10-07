@@ -292,21 +292,45 @@ export class RideAudio {
     this.applyVolume(0.13);
   }
 
+  /** The M key (`shift`: Shift+M, mute everything); the touch music button presses it too. */
+  musicKey(shift: boolean): void {
+    this.start();
+    if (shift) this.toggleMute();
+    else if (this.mute) {
+      // Muted, M brings the sound back with the music playing (not silently switched off).
+      this.setMuted(false);
+      if (!this.musicOn) this.setMusic(true);
+    } else this.toggleMusic();
+  }
+
+  /**
+   * Inside a tap's user activation (touchend): phones refuse sound before one, and a touch's
+   * pointerdown doesn't count. Starts or resumes the context and plays one silent sample (older iOS
+   * only unlocks on a sound started in the gesture). True once it runs.
+   */
+  unlock(): boolean {
+    this.start();
+    const ctx = this.ctx;
+    if (!ctx) return false;
+    if (ctx.state !== "running" && !document.hidden) void ctx.resume();
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      /* closed */
+    }
+    return ctx.state === "running";
+  }
+
   /** M = music on/off, Shift+M = mute everything. Returns a function that removes the listener. */
   bindKeys(target: Window = window): () => void {
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
-      if (e.code === "KeyM") {
-        this.start();
-        if (e.shiftKey) this.toggleMute();
-        else if (this.mute) {
-          // Muted, M brings the sound back with the music playing (not silently switched off).
-          this.setMuted(false);
-          if (!this.musicOn) this.setMusic(true);
-        } else this.toggleMusic();
-      }
+      if (e.code === "KeyM") this.musicKey(e.shiftKey);
     };
     target.addEventListener("keydown", onKey);
     return () => target.removeEventListener("keydown", onKey);
