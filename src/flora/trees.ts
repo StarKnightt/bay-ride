@@ -142,7 +142,7 @@ function crown(b: Builder, r: Rng, cl: Cluster[], centre: V3, colors: readonly s
     // any distance; outer clumps' masses sit deeper inside so their cards still scallop the edge.
     // Near trees (full card count) keep the mass well inside the cards, else it shows as a bare ball.
     const inner = k.c.distanceTo(centre) < coreReach, mk = CARD_N < 1 ? 1 : 0.74;
-    const mass = prep(blob(k.r * (inner ? 0.82 : 0.68) * mk, 1, 0.18, r() * 50), _c.set(colors[Math.floor(r() * colors.length)]).multiplyScalar(inner ? 0.78 : 0.88), M.foliage, 0);
+    const mass = prep(blob(k.r * (inner ? 0.82 : 0.68) * mk, TIER.treeMass, 0.18, r() * 50), _c.set(colors[Math.floor(r() * colors.length)]).multiplyScalar(inner ? 0.78 : 0.88), M.foliage, 0);
     mass.scale(1, squash, 1);
     mass.translate(k.c.x, k.c.y, k.c.z);
     spherize(mass, centre, 0.55, squash < 1 ? 1 / 0.6 : 1);

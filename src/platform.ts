@@ -62,6 +62,8 @@ export interface Tier {
   /** Leaf cards per tree crown (drawn larger to cover the same crown), and the dune grass kept. */
   treeCards: number;
   dune: number;
+  /** Icosphere detail of each leaf clump's solid mass: 1 is 80 triangles, 0 is 20 (most of a tree's triangles). */
+  treeMass: number;
 }
 
 export const DESKTOP: Tier = {
@@ -80,6 +82,7 @@ export const DESKTOP: Tier = {
   shadowEvery: 1,
   treeCards: 1,
   dune: 1,
+  treeMass: 1,
 };
 
 export const PHONE: Tier = {
@@ -98,6 +101,7 @@ export const PHONE: Tier = {
   shadowEvery: 2,
   treeCards: 0.45,
   dune: 0.5,
+  treeMass: 0,
 };
 
 /** `?tier=key:value,...` overrides single settings (tuning runs), e.g. `?tier=msaa:0,shadow:512,res:0.7/0.6/1`. */
