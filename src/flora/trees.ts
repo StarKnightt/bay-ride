@@ -6,6 +6,7 @@ import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../render/lightpasses";
 import type { Collider } from "../world/bay";
 import { foliageMaterial } from "./glsl";
 import { groundY, type Layout } from "./place";
+import { TIER } from "../platform";
 
 /**
  * Trees and shrubs as painted volumes: each crown is a few lopsided clusters, every cluster a dark
@@ -187,6 +188,11 @@ function plant(b: Builder, s: TreeSpot, y: number): { trunk: number; h: number }
   const k = s.scale;
   CARD_N = s.far ? 0.32 : 1;
   CARD_S = s.far ? 1.35 : 1;
+  if (TIER.treeCards < 1) {
+    // Phone tier: fewer, larger cards over the same crown masses (the far trees' own trade).
+    CARD_N *= TIER.treeCards;
+    CARD_S *= Math.min(1.5, 1 / Math.sqrt(TIER.treeCards));
+  }
   const yaw = r() * Math.PI * 2;
   const m = new THREE.Matrix4().compose(V(s.x, y, s.z), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), yaw), V(k, k, k));
   // Local builder: geometry in tree space, moved into place at the end.

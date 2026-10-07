@@ -15,6 +15,7 @@ import { buildTown } from "../bay/houses";
 import { buildStreet } from "./street";
 import { buildHarbour } from "./harbour";
 import { buildBeach } from "./beach";
+import { TIER } from "../../platform";
 
 /**
  * Everything that dresses the bay beyond its landform and water: the town, the coast road's
@@ -37,7 +38,7 @@ export class WorldDetail {
       s = performance.now();
     };
     d.group.name = "world detail";
-    const q = new URLSearchParams(location.search).get("detail");
+    const q = new URLSearchParams(location.search).get("detail") ?? TIER.flora;
     setTier(q === "low" || q === "med" ? (q as Tier) : "high");
     const shrubs: TreeSpot[] = [];
     const c0 = colliders.length;

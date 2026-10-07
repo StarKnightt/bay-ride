@@ -8,6 +8,7 @@ import { PIER } from "./pier";
 import { rampH } from "./slipway";
 import type { Collider } from "./index";
 import type { Layout } from "../../flora/place";
+import { TIER } from "../../platform";
 
 /**
  * Seaside grasses that move in the wind and part around her: salt-meadow grass with sun-bleached
@@ -90,6 +91,7 @@ function thrift(seed: number): Geo {
 }
 
 const CHUNK = 50;
+const _grow = new THREE.Vector3(1.15, 1.1, 1.15);
 
 /**
  * Plant the grasses (call after every collider is registered: none grow through a house). `layout`
@@ -148,7 +150,9 @@ export function buildDuneGrass(colliders: readonly Collider[], layout?: Layout):
         else put(r() < 0.1 ? 2 : 1, x, zz, range(r, 0.85, 1.3) * (0.8 + 0.5 * hum));
       }
     }
-    lists.forEach((list, k) => {
+    lists.forEach((all, k) => {
+      // Phone tier: an even share of each stretch (golden-ratio thinning), drawn a little larger.
+      const list = TIER.dune < 1 ? all.filter((_, i) => (i * 0.6180339887) % 1 < TIER.dune).map((mm) => mm.scale(_grow)) : all;
       if (!list.length) return;
       const im = new THREE.InstancedMesh(kinds[k], mat, list.length);
       list.forEach((mm, i) => im.setMatrixAt(i, mm));

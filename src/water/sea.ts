@@ -10,6 +10,7 @@ import { SKIRT_MAX, rockSkirts } from "./rocks";
 import { BUOY_MAX, BUOY_U } from "./buoys";
 import { WAKE_FS_GLSL, WAKE_GLSL, WAKE_U } from "./wake";
 import { WATER_TOD } from "./look";
+import { TIER } from "../platform";
 
 const OUT = /* glsl */ `
 layout(location = 0) out vec4 gColor;
@@ -1272,10 +1273,11 @@ function steps(a: number, b: number, d: number): number[] {
   return out;
 }
 
-/** The surf band mesh: rows along the beach, fine across the surf zone, coarser out to sea. */
+/** The surf band mesh: rows along the beach, fine across the surf zone, coarser out to sea (TIER.seaMesh times coarser on a phone). */
 function buildBand(): THREE.Mesh {
-  const offs = [...steps(BAND.outer, -80, 3), ...steps(-80, -45, 0.8), ...steps(-45, BAND.inner, 0.3), BAND.inner];
-  const zs = [...steps(BAND.z0, BAND.z1, 0.8), BAND.z1];
+  const k = TIER.seaMesh;
+  const offs = [...steps(BAND.outer, -80, 3 * k), ...steps(-80, -45, 0.8 * k), ...steps(-45, BAND.inner, 0.3 * k), BAND.inner];
+  const zs = [...steps(BAND.z0, BAND.z1, 0.8 * k), BAND.z1];
   const no = offs.length, nz = zs.length;
   const pos = new Float32Array(no * nz * 3);
   for (let j = 0; j < nz; j++) {
@@ -1309,11 +1311,12 @@ function buildBand(): THREE.Mesh {
  * the camera in whole snap steps so the displaced surface never swims.
  */
 function buildOpenGrid(): THREE.Mesh {
-  const seg = 192;
+  const coarse = TIER.seaMesh > 1;
+  const seg = coarse ? 128 : 192;
   const rings: number[] = [0];
   // Rings tighten only where the swell moves the mesh; past the displacement fade the sea is flat,
   // and thin far rings would cost quad overshading at grazing angles.
-  for (let r = 0.5; r < 4000; r *= r < 280 ? 1.045 : r < 650 ? 1.09 : 1.6) rings.push(r);
+  for (let r = 0.5; r < 4000; r *= r < 280 ? (coarse ? 1.07 : 1.045) : r < 650 ? 1.09 : 1.6) rings.push(r);
   rings.push(4000);
   const nr = rings.length;
   const pos = new Float32Array(nr * seg * 3);
