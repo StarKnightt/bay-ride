@@ -54,9 +54,11 @@ const DPRS = arg("dpr", "1").split(",").filter(Boolean).map(Number);
 await fs.mkdir(OUT, { recursive: true });
 let URL = arg("url", "");
 if (!URL) {
-  if (SERVE === "preview") await fs.access(path.join(ROOT, "dist", "index.html")).catch(() => bye(1, "dist/ missing: run `pnpm build` first, or pass --serve=dev"));
-  URL = await serve(ROOT, SERVE);
-  console.log(`[serve] ${SERVE} ${URL}`);
+  // --dist=<dir> serves another build (e.g. a saved copy of master's) instead of dist/.
+  const DIST = arg("dist", "dist");
+  if (SERVE === "preview") await fs.access(path.join(ROOT, DIST, "index.html")).catch(() => bye(1, `${DIST}/ missing: run \`pnpm build\` first, or pass --serve=dev`));
+  URL = await serve(ROOT, SERVE, 5440, DIST);
+  console.log(`[serve] ${SERVE} ${DIST === "dist" ? "" : DIST + " "}${URL}`);
 }
 const browser = await launchBrowser(["--hide-scrollbars", "--mute-audio"]);
 const errors = [];

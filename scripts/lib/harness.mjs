@@ -90,12 +90,13 @@ export function fatalShaderErrors(page, tag = "page") {
 
 /**
  * Serve the game in this process (attached; stopped by teardown). mode "dev" serves the current
- * sources, "preview" serves dist/ (run `pnpm build` first). Returns the base URL.
+ * sources, "preview" serves dist/ (run `pnpm build` first), or `outDir` (another build, e.g. a saved
+ * copy of master's for before/after captures). Returns the base URL.
  */
-export async function serve(root, mode = "dev", port = 5440) {
+export async function serve(root, mode = "dev", port = 5440, outDir = "dist") {
   const vite = await import("vite");
   if (mode === "preview") {
-    const srv = own(await vite.preview({ root, logLevel: "error", preview: { port, strictPort: false } }));
+    const srv = own(await vite.preview({ root, logLevel: "error", build: { outDir }, preview: { port, strictPort: false } }));
     return srv.resolvedUrls.local[0];
   }
   const srv = own(await vite.createServer({ root, logLevel: "error", server: { port, strictPort: false } }));

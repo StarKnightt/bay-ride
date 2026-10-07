@@ -19,15 +19,20 @@ const out = path.resolve(arg("out", "sheet.jpg"));
 const cols = Number(arg("cols", "4"));
 const w = Number(arg("w", "480"));
 const crop = arg("crop", "0,0,1920,1080").split(",").map(Number);
-const h = Math.round((w * crop[3]) / crop[2]);
+// --fit: images of any size (phone captures), each scaled whole into a cell of --aspect (width / height).
+const FIT = argv.includes("--fit");
+const h = FIT ? Math.round(w / Number(arg("aspect", "2.2"))) : Math.round((w * crop[3]) / crop[2]);
 const s = w / crop[2];
 
 const cells = await Promise.all(
   files.map(async (f) => {
     const b64 = (await fs.readFile(f)).toString("base64");
     const label = path.basename(f).replace(/\.png$/, "");
+    const img = FIT
+      ? `<img src="data:image/png;base64,${b64}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain">`
+      : `<img src="data:image/png;base64,${b64}" style="position:absolute;left:${-crop[0] * s}px;top:${-crop[1] * s}px;width:${1920 * s}px">`;
     return `<div style="position:relative;width:${w}px;height:${h}px;overflow:hidden">
-      <img src="data:image/png;base64,${b64}" style="position:absolute;left:${-crop[0] * s}px;top:${-crop[1] * s}px;width:${1920 * s}px">
+      ${img}
       <span style="position:absolute;left:3px;top:2px;font:12px sans-serif;color:#fff;text-shadow:0 0 2px #000">${label}</span></div>`;
   }),
 );
