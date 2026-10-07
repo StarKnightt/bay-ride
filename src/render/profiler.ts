@@ -104,3 +104,67 @@ export class Profiler {
     return { gpuMs: avg(this.gpu), cpuMs: avg(this.cpu), calls: avg(this.calls), tris: avg(this.tris) };
   }
 }
+
+/**
+ * One timer query round the whole frame (shadow maps, mirror, scene, post) and the frame's
+ * main-thread time, as running lists (?gpums, for the phone estimate). Only one timer query may be
+ * open at a time: the caller keeps the adaptive resolution and the profiler off.
+ */
+export class FrameTimer {
+  private gl: WebGL2RenderingContext | null;
+  private ext: { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null;
+  private pending: WebGLQuery[] = [];
+  private free: WebGLQuery[] = [];
+  readonly gpuMs: number[] = [];
+  readonly cpuMs: number[] = [];
+
+  constructor(renderer: THREE.WebGLRenderer) {
+    const gl = renderer.getContext() as WebGL2RenderingContext;
+    this.ext = gl.getExtension("EXT_disjoint_timer_query_webgl2");
+    this.gl = this.ext ? gl : null;
+  }
+
+  begin(): WebGLQuery | null {
+    const gl = this.gl;
+    if (!gl || !this.ext) return null;
+    const disjoint = gl.getParameter(this.ext.GPU_DISJOINT_EXT);
+    while (this.pending.length && gl.getQueryParameter(this.pending[0], gl.QUERY_RESULT_AVAILABLE)) {
+      const q = this.pending.shift()!;
+      if (!disjoint) push(this.gpuMs, (gl.getQueryParameter(q, gl.QUERY_RESULT) as number) / 1e6);
+      this.free.push(q);
+    }
+    if (this.pending.length > 6) return null;
+    const q = this.free.pop() ?? gl.createQuery()!;
+    gl.beginQuery(this.ext.TIME_ELAPSED_EXT, q);
+    return q;
+  }
+
+  end(q: WebGLQuery | null): void {
+    if (!q || !this.gl) return;
+    this.gl.endQuery(this.ext!.TIME_ELAPSED_EXT);
+    this.pending.push(q);
+  }
+
+  cpu(ms: number): void {
+    push(this.cpuMs, ms);
+  }
+
+  reset(): void {
+    this.gpuMs.length = this.cpuMs.length = 0;
+  }
+
+  /** Median, 90th percentile and mean of each list. */
+  stats(): Record<string, { n: number; median: number; p90: number; mean: number }> {
+    const s = (a: number[]) => {
+      const b = [...a].sort((x, y) => x - y), n = b.length;
+      const at = (f: number) => (n ? b[Math.min(n - 1, Math.floor(f * n))] : NaN);
+      return { n, median: +at(0.5).toFixed(3), p90: +at(0.9).toFixed(3), mean: n ? +(b.reduce((x, y) => x + y, 0) / n).toFixed(3) : NaN };
+    };
+    return { gpu: s(this.gpuMs), cpu: s(this.cpuMs) };
+  }
+}
+
+const push = (a: number[], v: number) => {
+  a.push(v);
+  if (a.length > 600) a.splice(0, a.length - 600);
+};
