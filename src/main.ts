@@ -225,7 +225,7 @@ const post = new Post(renderer, innerWidth, innerHeight, {
 });
 if (TIER.singlePass) post.singlePass = true;
 if (post.paint && !params.has("paint")) post.paint.strength = TIER.paint;
-const prof = new Profiler(renderer, params.has("prof"));
+const prof = new Profiler(renderer, params.has("prof"), params.get("prof") === "fill");
 post.prof = prof;
 
 // Time of day: ?tod=morning|noon|golden|sunset|dusk|night (also ?time=); T cycles it.
@@ -403,10 +403,11 @@ function beginPlay(): void {
 let shadowTick = 0;
 
 /** ?gpums with a fixed ?res=: the whole frame's GPU time and the frame's main-thread time (the phone proxy). */
-const gpuT = params.has("gpums") && !post.adaptive && !prof.on ? new FrameTimer(renderer) : null;
+const gpuT = params.has("gpums") && !post.adaptive && !prof.on ? new FrameTimer(renderer, params.get("gpums") !== "raw") : null;
 
 /** Shadows, reflection, scene and post for the current camera (also the warm-up frames). */
 function drawScene(px: number, pz: number): void {
+  if (prof.on) prof.frameStart();
   const q = gpuT?.begin() ?? null;
   // Sun shadow frustum centred where the camera looks, ~25-30 m ahead.
   chase.cam.getWorldDirection(_dir);
@@ -418,7 +419,9 @@ function drawScene(px: number, pz: number): void {
   renderer.info.reset();
   const pf = prof.on ? prof : null;
   pf?.begin("shadow", renderer);
-  if (shadowTick++ % TIER.shadowEvery === 0) shadow.update(renderer, scene, shadowCenter);
+  // On the phone tier this map and the mirror both refresh every other frame: they take turns (the
+  // mirror's own count is one ahead), so no frame carries both.
+  if (++shadowTick % TIER.shadowEvery === 0) shadow.update(renderer, scene, shadowCenter);
   pf?.end("shadow", renderer);
   _charC.copy(rider.walker.position).y += 0.85;
   pf?.begin("charShadow", renderer);
@@ -831,7 +834,7 @@ window.__ride = {
         music: audio.music,
       };
     },
-    timer: gpuT ? { stats: () => gpuT.stats(), reset: () => gpuT.reset() } : null,
+    timer: gpuT ? { stats: () => gpuT.stats(), reset: () => gpuT.reset(), frames: () => [...gpuT.gpuMs] } : null,
     /** Every linked program against the WebGL 2 minimum limits (capture/gpucheck.ts). */
     limits: () => programLimits(renderer),
     /** The largest texture and the GPU memory of the targets, textures and geometry. */
