@@ -11,9 +11,10 @@ her in Blender. No textures, models, fonts or sounds were downloaded.
 
 **Play it: https://starknightt.github.io/bay-ride/**
 
-You need a desktop GPU, a keyboard and a mouse. It was built and measured in Chrome on an RTX 4060.
-**The first visit takes up to a minute on Windows Chrome** while the sea's shader compiles. The
-loading screen says so and keeps moving, and after that it starts almost at once.
+On a computer you need a keyboard and a mouse; it was built and measured in Chrome on an RTX 4060.
+Phones and tablets get touch controls and a lighter quality tier (see below), so far tested only
+in browser emulation. **The first visit takes up to a minute on Windows Chrome** while the sea's
+shader compiles. The loading screen says so and keeps moving, and after that it starts almost at once.
 
 ## Running it locally
 
@@ -50,6 +51,25 @@ sub-path. Every push to `master` builds the site and deploys it to GitHub Pages 
 The screen stays clean while you play. The loading screen shows the title and the controls, and
 after that the controls card only appears when you press H.
 
+### Touch
+
+On a phone or tablet, hold it sideways (it asks you to). Tap to start; that tap also starts the
+sound, and on Android it goes fullscreen.
+
+| Touch | Action |
+|---|---|
+| Left thumb, anywhere on the left | A stick appears under it: walk; push it to the rim to run. In the boat, up and down are the throttle (the rim is full speed) and left and right steer |
+| Right thumb, drag | Look around (the same camera as the mouse) |
+| Tap on the right | Jump |
+| Boat or footprints button (right) | Board the skiff, or step ashore. It only appears when you can |
+| Camera button (lower right, in the boat) | Chase, her eyes, the front shot, the side shot, then back |
+| Sun button (top right) | Next time of day |
+| Note button (top right) | Music on or off |
+
+The stick, a look drag and the buttons work at the same time. The controls fade back when you
+leave them alone. On a touchscreen laptop they appear after your first touch, and the keyboard
+and mouse keep working.
+
 | URL option | Effect |
 |---|---|
 | `tod=sunset` | Starts at `morning`, `noon`, `golden` (default), `sunset`, `dusk` or `night` |
@@ -58,6 +78,7 @@ after that the controls card only appears when you press H.
 | `skipintro=1` | Starts as soon as the world is built instead of waiting for a click |
 | `kuwahara=0` | Turns the paint filter off, for comparison |
 | `msaa=0\|2\|4` | Sets the anti-aliasing level (4 by default) |
+| `mobile=1` | Touch controls and the phone quality tier on a desktop; `mobile=0` forces the desktop game on a phone |
 
 ## What is in it
 
@@ -129,6 +150,16 @@ Every shader program is compiled behind the loader, so nothing stalls once you a
 Windows, Chrome translates WebGL to Direct3D, and the sea's shader takes most of the first visit's
 wait. The browser caches the compiled shaders, so later visits start almost at once.
 
+On phones and tablets the game draws at a pixel ratio of 1 and an adaptive 60 to 100 per cent of
+that, aiming for 30 fps. The scene goes in one pass instead of two, with smaller shadow maps (the
+sun's refreshed every other frame), no MSAA, a lower-resolution water mirror, a coarser sea mesh,
+and thinner grass, woods and dune grass. The paint filter, ink, bloom and grade stay. There was no
+phone to measure on. The estimate below comes from the RTX 4060 at the phone's own resolution,
+scaled by the gap between it and a phone GPU in 3DMark Wild Life Extreme (about 33 times a
+Mali-G68 MC4, 25 times a Snapdragon 7 Gen 1). By that estimate, on the pier and out in the boat it
+runs at about 20 to 26 fps on the Mali and 25 to 34 on the Snapdragon. Walking toward the wooded
+hill, about 9 to 17.
+
 ## Project structure
 
 ```
@@ -141,7 +172,8 @@ src/
   life/       gulls, butterflies, fish, drift and fireflies
   render/     toon materials, paint and ink, post, shader precompile
   sound/      the synthesized sound engine and score
-  ui/         loader intro, first-time hints, help card
+  ui/         loader intro, first-time hints, help card, touch controls
+  platform.ts touch and phone detection, the phone quality tier
 tools/character/   the Blender build script for the heroine
 public/models/     heroine.glb, built by that script
 ```
@@ -149,7 +181,16 @@ public/models/     heroine.glb, built by that script
 ## Limitations
 
 - **Browsers.** Built and tested in Chrome on Windows. Other browsers are untested.
-- **Hardware.** It needs a desktop-class GPU. There is no mobile or touch mode.
+- **Phones are untested on real devices.** The touch controls and the phone tier were tested only in
+  Chrome's mobile emulation (iPhone 15 and Pixel 4a profiles, landscape), drawn by a desktop GPU.
+  Safari's WebKit engine, real phone GPUs, drivers and memory limits, and real fingers have not
+  been tried. The frame rates above are estimates, not measurements.
+- **Phone frame rate.** By that estimate a mid-range phone stays under 30 fps walking toward the
+  wooded hill, and a Mali-G68-class phone stays under 30 everywhere. A phone's first visit may also
+  wait much longer than a desktop while the sea's shader compiles.
+- **Touch.** No volume control on touch (music on or off only), and no help card button; the
+  controls card at the start lists the gestures. Fullscreen and the landscape lock are Android
+  only, since an iPhone browser can't do either.
 - **First visit.** The shader compile takes up to a minute in Windows Chrome before the first play.
 
 ## How it was built
