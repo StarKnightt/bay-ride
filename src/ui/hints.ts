@@ -6,6 +6,8 @@
  * Never shown under a capture: the caller only constructs it for a real, interactive start.
  */
 
+import { ICON, svg } from "./touch";
+
 const CSS = `
 .bh-card, .bh-hint { position: fixed; z-index: 4; pointer-events: none; user-select: none;
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif; color: #3d342b;
@@ -25,6 +27,25 @@ const CSS = `
 `;
 
 const k = (s: string) => `<kbd>${s}</kbd>`;
+
+/**
+ * Touch: the card top left, clear of the stick; the F and helm lines top centre, over the sky, never
+ * over the moored boat beside the pier end (low right in the opening view).
+ */
+const TOUCH_CSS = `
+.bh-touch.bh-card { left: calc(env(safe-area-inset-left) + 14px); top: calc(env(safe-area-inset-top) + 12px); bottom: auto; padding: 10px 16px 9px;
+  font-size: 12px; line-height: 1.6; transform: translateY(-8px); }
+.bh-touch.bh-card.on { transform: none; }
+.bh-touch.bh-card .cols { gap: 0 18px; }
+.bh-touch.bh-hint { font-size: 12.5px; }
+.bh-touch.bh-act, .bh-touch.bh-helm { top: calc(env(safe-area-inset-top) + 14px); bottom: auto; transform: translate(-50%, -6px); }
+.bh-touch.bh-act.on, .bh-touch.bh-helm.on { transform: translate(-50%, 0); }
+.bh-ico { display: inline-grid; place-items: center; width: 19px; height: 19px; margin-right: 7px; border-radius: 50%; vertical-align: -5px;
+  border: 1px solid rgba(61, 52, 43, 0.4); background: rgba(255, 252, 244, 0.7); }
+.bh-hint .bh-ico { margin: 0 3px; }
+.bh-ico svg { width: 13px; height: 13px; fill: none; stroke: #3d342b; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+`;
+const ic = (paths: string) => `<span class="bh-ico">${svg(paths)}</span>`;
 
 class Note {
   readonly el: HTMLElement;
@@ -62,9 +83,9 @@ class Note {
 class Prompt {
   readonly el: HTMLElement;
   private on = false;
-  constructor(html: string) {
+  constructor(html: string, cls = "bh-hint") {
     this.el = document.createElement("div");
-    this.el.className = "bh-hint";
+    this.el.className = cls;
     this.el.innerHTML = html;
     document.body.append(this.el);
   }
@@ -100,10 +121,24 @@ export class Hints {
   private walked = 0;
   private drove = 0;
 
-  constructor() {
+  /** `touch`: the touch words (ui/touch.ts), placed beside the controls instead of at the bottom. */
+  constructor(private readonly touch = false) {
     const st = document.createElement("style");
-    st.textContent = CSS;
+    st.textContent = touch ? CSS + TOUCH_CSS : CSS;
     document.head.append(st);
+    if (touch) {
+      this.card = new Note(
+        "bh-card bh-touch",
+        `<h3>On foot</h3><div class="cols"><div>` +
+          `<div>${ic(ICON.stick)}left thumb, walk</div><div>${ic(ICON.stick)}to the rim, run</div><div>${ic(ICON.drag)}right thumb, look</div>` +
+          `</div><div><div>${ic(ICON.tap)}tap, hop</div><div>${ic(ICON.board)}board, by the boat</div><div>${ic(ICON.time)}time of day</div></div></div>`,
+        14,
+      );
+      this.board = new Prompt(`tap ${ic(ICON.board)} to board the boat`, "bh-hint bh-touch bh-act");
+      this.helm = new Note("bh-hint bh-touch bh-helm", `left thumb: up to go &middot; sideways to steer &middot; the rim for full speed`, 8);
+      this.ashore = new Prompt(`tap ${ic(ICON.ashore)} to step ashore`, "bh-hint bh-touch bh-act");
+      return;
+    }
     this.card = new Note(
       "bh-card",
       `<h3>On foot</h3><div class="cols"><div>` +
@@ -120,6 +155,30 @@ export class Hints {
     });
   }
 
+  /** Fade everything out for good (a touchscreen laptop switching to the touch words). */
+  dispose(): void {
+    this.card.hide();
+    this.helm.hide();
+    this.board.set(false);
+    this.ashore.set(false);
+    for (const p of [this.board, this.ashore]) setTimeout(() => p.el.remove(), 1300);
+    this.update = () => {};
+  }
+
+  /** Bounding boxes of what is showing (capture tooling). */
+  layout(): Record<string, { x: number; y: number; w: number; h: number; shown: boolean }> {
+    const out: Record<string, { x: number; y: number; w: number; h: number; shown: boolean }> = {};
+    const box = (key: string, el: HTMLElement, shown: boolean) => {
+      const r = el.getBoundingClientRect();
+      out[key] = { x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1), shown };
+    };
+    box("card", this.card.el, this.card.shown);
+    box("boardHint", this.board.el, this.board.shown);
+    box("ashoreHint", this.ashore.el, this.ashore.shown);
+    box("helmHint", this.helm.el, this.helm.shown);
+    return out;
+  }
+
   update(dt: number, s: HintState): void {
     this.t += dt;
     if (this.t > 0.8) this.card.show();
@@ -129,7 +188,8 @@ export class Hints {
     this.card.tick(dt);
     // One line at a time, so they never stack: the F prompts (every time she is in range) over the
     // first-time helm hint, which only shows once she is under way from the berth.
-    this.board.set(s.nearBoat && !s.aboard);
+    // On touch the card shares the top with the F line: the card already shows F's icon, and the button pulses.
+    this.board.set(s.nearBoat && !s.aboard && !(this.touch && this.card.shown));
     this.ashore.set(s.aboard && s.canAshore);
     if (s.aboard && s.driving && !this.ashore.shown) this.helm.show();
     if (this.helm.shown) {
