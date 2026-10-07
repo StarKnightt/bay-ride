@@ -586,6 +586,17 @@ export class Rider {
   }
 
   /**
+   * Set down somewhere new: both feet stand where the next frame puts them, with nothing carried
+   * over from before (foot locks, pelvis drop, springs, her measured motion).
+   */
+  reset(): void {
+    for (const ft of this.feet) Object.assign(ft, new Foot(), { planted: true });
+    this.simInit = false;
+    this.phLast = NaN;
+    this.drop = this.sDrop = 0;
+  }
+
+  /**
    * One frame. With dt = 0 (frozen captures) the secondary motion is first run up to `f.time`
    * from a few seconds before, with her moving the way `f` says, so a frame is a pure function of t.
    */

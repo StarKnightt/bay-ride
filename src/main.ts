@@ -24,6 +24,7 @@ import { Spray } from "./boat/spray";
 import { BERTH, SPAWN } from "./boat/berth";
 import { STEM_Z, TRANSOM_Z } from "./boat/model";
 import { Explore } from "./rider/onfoot";
+import { Places } from "./rider/places";
 import { Input } from "./core/input";
 import { RideAudio } from "./audio";
 import { coastCues } from "./sound/listener";
@@ -244,6 +245,7 @@ chase.clear = explore;
 chase.mouseLook = !AUTOPLAY && !SHOT && !BOAT_RUN;
 explore.lockAboard = !AUTOPLAY && !SHOT && !BOAT_RUN;
 explore.boat = boat;
+new Places(explore, tod, renderer.domElement);
 // The opening: standing near the pier end, the skiff tied up beside her, looking out to sea.
 {
   // Test hooks: ?spawn=x,z,yaw and ?orbit=rel,pitch,dist override the opening.
