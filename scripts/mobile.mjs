@@ -22,7 +22,10 @@ import { assertGpu, bye, fatalShaderErrors, launchBrowser, serve } from "./lib/h
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const arg = (n, d) => argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3) ?? d;
-const OUT = path.join(ROOT, arg("out", "shots/mobile/latest"));
+const FINAL = path.join(ROOT, arg("out", "shots/mobile/latest"));
+// The run fills a sibling folder that replaces --out only when it completes: an interrupted run
+// never leaves half a set where a whole one was.
+const OUT = `${FINAL}.partial`;
 
 /**
  * The two phones, landscape, with the insets their browsers report there. The iPhone keeps the
@@ -35,6 +38,7 @@ const DEVICES = {
 };
 const WANT = arg("devices", "iphone15,pixel4a").split(",").filter(Boolean);
 
+await fs.rm(OUT, { recursive: true, force: true });
 await fs.mkdir(OUT, { recursive: true });
 let URL = arg("url", "");
 if (!URL) {
@@ -73,7 +77,11 @@ for (const key of WANT) {
   await page.waitForFunction(() => window.__ride?.waiting === true, null, { timeout: 400_000, polling: 200 });
   console.log(`[${key}] ready in ${((Date.now() - T0) / 1000).toFixed(1)} s`);
   const vp = d.viewport;
-  layout[key] = { device: dev.desc, viewport: vp, dpr: d.deviceScaleFactor, safeArea: dev.safe, query: `?progwarn&hints=1&tod=golden${dev.q}`, shots: {} };
+  layout[key] = {
+    device: dev.desc, viewport: vp, dpr: d.deviceScaleFactor, safeArea: dev.safe, query: `?progwarn&hints=1&tod=golden${dev.q}`,
+    fpsNote: "fps is this desktop GPU (RTX 4060) drawing the emulated phone, not a phone; the phone estimates are in shots/mobile/perf.json",
+    shots: {},
+  };
 
   // ------------------------------------------------------------------ touch helpers
   const touches = new Map();
@@ -127,6 +135,7 @@ for (const key of WANT) {
     const lay = await L();
     const entry = { file, ...lay, consoleErrors: [...errors], lateCompiles: [...late], ...extra };
     layout[key].shots[name] = entry;
+    await fs.writeFile(path.join(OUT, "layout.json"), JSON.stringify(layout, null, 1));
     check(key, name, entry);
     console.log(`[${key}] ${name.padEnd(12)} mode=${lay.mode} tod=${lay.tod} fps=${lay.fps} scale=${lay.canvas.scale} canvas=${lay.canvas.w}x${lay.canvas.h} her=${JSON.stringify(lay.her)} boat=${JSON.stringify(lay.boat)}`);
     return entry;
@@ -268,7 +277,9 @@ function check(key, name, e) {
 }
 
 await fs.writeFile(path.join(OUT, "layout.json"), JSON.stringify(layout, null, 1));
-console.log(`layout: ${path.join(OUT, "layout.json")}`);
+await fs.rm(FINAL, { recursive: true, force: true });
+await fs.rename(OUT, FINAL);
+console.log(`layout: ${path.join(FINAL, "layout.json")}`);
 if (failures.length) {
   console.error("\nCHECKS FAILED:");
   for (const f of [...new Set(failures)]) console.error("  " + f);

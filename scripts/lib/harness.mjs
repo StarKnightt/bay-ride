@@ -5,9 +5,16 @@
  *   closes the browser and any server; servers run in-process, so nothing is spawned or detached;
  * - headless installed Chrome (bundled Chromium fallback) on the discrete GPU (ANGLE/D3D11), with the WebGL renderer string printed on
  *   every run and a loud failure on a software rasteriser (opt out with --allow-software);
- * - shader compile/link errors are fatal.
+ * - shader compile/link errors are fatal;
+ * - no browser starts while .gauntlet/GPU_PAUSE exists, and one running when it appears is closed
+ *   (exit 3).
  */
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+
+/** While this file exists (the user is gaming or recording) no browser may run on the GPU. */
+const GPU_PAUSE = fileURLToPath(new URL("../../.gauntlet/GPU_PAUSE", import.meta.url));
 
 export const GPU_ARGS = [
   "--use-angle=d3d11",
@@ -54,6 +61,9 @@ export function own(server) {
  * fails to launch. Logs which one is used; closed by teardown.
  */
 export async function launchBrowser(extraArgs = []) {
+  if (existsSync(GPU_PAUSE)) await bye(3, `GPU paused (${GPU_PAUSE} exists): no browser started`);
+  // A pause that starts mid-run closes the browser within a second.
+  setInterval(() => existsSync(GPU_PAUSE) && bye(3, "GPU pause signalled: browser closed"), 1000).unref();
   const opts = { headless: true, args: [...GPU_ARGS, ...extraArgs] };
   try {
     owned.browser = await chromium.launch({ ...opts, channel: "chrome" });
