@@ -89,6 +89,48 @@ export function fatalShaderErrors(page, tag = "page") {
 }
 
 /**
+ * The open sea in a screenshot: the game's probe points whose view ray reaches open water
+ * unoccluded (`__ride.seaProbe()`), each sampled 3x3 in the PNG. `median` of the means, `dark` the
+ * share under luma 18, `nan` the share with a pure-black (NaN) pixel; `n` points (under 8: too
+ * little sea in frame to judge).
+ */
+export async function seaLuma(page, png) {
+  const pts = await page.evaluate(() => window.__ride.seaProbe?.() ?? []);
+  if (pts.length < 8) return { n: pts.length };
+  const lum = await page.evaluate(async ({ b64, pts }) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const c = document.createElement("canvas");
+    c.width = img.width;
+    c.height = img.height;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    g.drawImage(img, 0, 0);
+    const out = [];
+    for (const [u, v] of pts) {
+      const x = Math.min(img.width - 2, Math.max(1, Math.round(u * img.width)));
+      const y = Math.min(img.height - 2, Math.max(1, Math.round(v * img.height)));
+      const d = g.getImageData(x - 1, y - 1, 3, 3).data;
+      let s = 0, mn = 255;
+      for (let i = 0; i < 36; i += 4) {
+        const l = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+        s += l;
+        mn = Math.min(mn, l);
+      }
+      out.push([s / 9, mn]);
+    }
+    return out;
+  }, { b64: png.toString("base64"), pts });
+  const mean = lum.map((l) => l[0]).sort((a, b) => a - b);
+  return {
+    n: lum.length,
+    median: mean[mean.length >> 1],
+    dark: mean.filter((l) => l < 18).length / mean.length,
+    nan: lum.filter((l) => l[1] < 2).length / lum.length,
+  };
+}
+
+/**
  * Serve the game in this process (attached; stopped by teardown). mode "dev" serves the current
  * sources, "preview" serves dist/ (run `pnpm build` first), or `outDir` (another build, e.g. a saved
  * copy of master's for before/after captures). Returns the base URL.

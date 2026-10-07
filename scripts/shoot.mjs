@@ -28,7 +28,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertGpu, bye, fatalShaderErrors, launchBrowser, serve } from "./lib/harness.mjs";
+import { assertGpu, bye, fatalShaderErrors, launchBrowser, seaLuma, serve } from "./lib/harness.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
@@ -80,39 +80,11 @@ const watch = (page, tag) => {
  * near-black in daylight, or that has pure-black specks or patches (NaN) at any preset.
  */
 async function seaGuard(page, png, tag, tod) {
-  const pts = await page.evaluate(() => window.__ride.seaProbe?.() ?? []);
-  if (pts.length < 8) return `${tag}: sea ${pts.length} probe points (not enough sea in frame to check)`;
-  const lum = await page.evaluate(async ({ b64, pts }) => {
-    const img = new Image();
-    img.src = `data:image/png;base64,${b64}`;
-    await img.decode();
-    const c = document.createElement("canvas");
-    c.width = img.width;
-    c.height = img.height;
-    const g = c.getContext("2d", { willReadFrequently: true });
-    g.drawImage(img, 0, 0);
-    const out = [];
-    for (const [u, v] of pts) {
-      const x = Math.min(img.width - 2, Math.max(1, Math.round(u * img.width)));
-      const y = Math.min(img.height - 2, Math.max(1, Math.round(v * img.height)));
-      const d = g.getImageData(x - 1, y - 1, 3, 3).data;
-      let s = 0, mn = 255;
-      for (let i = 0; i < 36; i += 4) {
-        const l = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
-        s += l;
-        mn = Math.min(mn, l);
-      }
-      out.push([s / 9, mn]);
-    }
-    return out;
-  }, { b64: png.toString("base64"), pts });
-  const mean = lum.map((l) => l[0]).sort((a, b) => a - b);
-  const med = mean[mean.length >> 1];
-  const nan = lum.filter((l) => l[1] < 2).length / lum.length;
-  const dark = mean.filter((l) => l < 18).length / mean.length;
+  const s = await seaLuma(page, png);
+  if (s.n < 8) return `${tag}: sea ${s.n} probe points (not enough sea in frame to check)`;
   const night = tod === "night";
-  const msg = `${tag}: sea median luma ${med.toFixed(0)}, near-black ${(dark * 100).toFixed(0)}%, pure-black ${(nan * 100).toFixed(1)}% (${lum.length} pts)`;
-  if (nan > 0.01 || (!night && (med < 40 || dark > 0.05)) || (night && med < 6)) return `FAIL ${msg}`;
+  const msg = `${tag}: sea median luma ${s.median.toFixed(0)}, near-black ${(s.dark * 100).toFixed(0)}%, pure-black ${(s.nan * 100).toFixed(1)}% (${s.n} pts)`;
+  if (s.nan > 0.01 || (!night && (s.median < 40 || s.dark > 0.05)) || (night && s.median < 6)) return `FAIL ${msg}`;
   return msg;
 }
 
