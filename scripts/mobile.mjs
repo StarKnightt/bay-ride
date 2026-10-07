@@ -24,10 +24,14 @@ const argv = process.argv.slice(2);
 const arg = (n, d) => argv.find((a) => a.startsWith(`--${n}=`))?.slice(n.length + 3) ?? d;
 const OUT = path.join(ROOT, arg("out", "shots/mobile/latest"));
 
-/** The two phones, landscape, with the insets their browsers report there. */
+/**
+ * The two phones, landscape, with the insets their browsers report there. The iPhone keeps the
+ * adaptive scale (an A16 holds full scale, as this GPU does); the Pixel draws at the scale a
+ * mid-range Android's scaler settles at by the phone estimate (DECISIONS.md, "Mobile").
+ */
 const DEVICES = {
-  iphone15: { desc: "iPhone 15 landscape", safe: { top: 0, right: 59, bottom: 21, left: 59 } },
-  pixel4a: { desc: "Pixel 4a (5G) landscape", safe: { top: 0, right: 0, bottom: 0, left: 26 } },
+  iphone15: { desc: "iPhone 15 landscape", safe: { top: 0, right: 59, bottom: 21, left: 59 }, q: "" },
+  pixel4a: { desc: "Pixel 4a (5G) landscape", safe: { top: 0, right: 0, bottom: 0, left: 26 }, q: "&res=0.6" },
 };
 const WANT = arg("devices", "iphone15,pixel4a").split(",").filter(Boolean);
 
@@ -61,7 +65,7 @@ for (const key of WANT) {
   const cdp = await ctx.newCDPSession(page);
   await cdp.send("Emulation.setSafeAreaInsetsOverride", { insets: dev.safe });
   const T0 = Date.now();
-  await page.goto(`${URL}?progwarn&hints=1&tod=golden`, { waitUntil: "load" });
+  await page.goto(`${URL}?progwarn&hints=1&tod=golden${dev.q}`, { waitUntil: "load" });
   if (!gpuChecked) {
     await assertGpu(page);
     gpuChecked = true;
@@ -69,7 +73,7 @@ for (const key of WANT) {
   await page.waitForFunction(() => window.__ride?.waiting === true, null, { timeout: 400_000, polling: 200 });
   console.log(`[${key}] ready in ${((Date.now() - T0) / 1000).toFixed(1)} s`);
   const vp = d.viewport;
-  layout[key] = { device: dev.desc, viewport: vp, dpr: d.deviceScaleFactor, safeArea: dev.safe, shots: {} };
+  layout[key] = { device: dev.desc, viewport: vp, dpr: d.deviceScaleFactor, safeArea: dev.safe, query: `?progwarn&hints=1&tod=golden${dev.q}`, shots: {} };
 
   // ------------------------------------------------------------------ touch helpers
   const touches = new Map();
