@@ -152,13 +152,14 @@ wait. The browser caches the compiled shaders, so later visits start almost at o
 
 On phones and tablets the game draws at a pixel ratio of 1 and an adaptive 60 to 100 per cent of
 that, aiming for 30 fps. The scene goes in one pass instead of two, with smaller shadow maps (the
-sun's refreshed every other frame), no MSAA, a lower-resolution water mirror, a coarser sea mesh,
-and thinner grass, woods and dune grass. The paint filter, ink, bloom and grade stay. There was no
-phone to measure on. The estimate below comes from the RTX 4060 at the phone's own resolution,
-scaled by the gap between it and a phone GPU in 3DMark Wild Life Extreme (about 33 times a
-Mali-G68 MC4, 25 times a Snapdragon 7 Gen 1). By that estimate, on the pier and out in the boat it
-runs at about 20 to 26 fps on the Mali and 25 to 34 on the Snapdragon. Walking toward the wooded
-hill, about 9 to 17.
+sun's and the water mirror's refreshed on alternate frames), no MSAA, a lower-resolution mirror, a
+coarser sea mesh, and lighter woods, grass and dune grass. The sea's shader, the paint filter, ink,
+bloom and grade stay as they are. There was no phone to measure on. The estimate comes from the
+RTX 4060's own GPU time per frame at the phone's resolution, scaled by the gap between it and a
+phone GPU in 3DMark Wild Life Extreme (about 33 times a Mali-G68 MC4, 25 times a Snapdragon 7 Gen
+1). By that estimate, once the resolution settles near its floor, the pier, the boat at sunset and
+at night run at about 30 to 33 fps on the Snapdragon and 23 to 25 on the Mali. Among the hill
+woods it's about 17 to 19 and 13 to 14. An iPhone 15 holds full resolution at about 45 to 75.
 
 ## Project structure
 
@@ -185,8 +186,9 @@ public/models/     heroine.glb, built by that script
   Chrome's mobile emulation (iPhone 15 and Pixel 4a profiles, landscape), drawn by a desktop GPU.
   Safari's WebKit engine, real phone GPUs, drivers and memory limits, and real fingers have not
   been tried. The frame rates above are estimates, not measurements.
-- **Phone frame rate.** By that estimate a mid-range phone stays under 30 fps walking toward the
-  wooded hill, and a Mali-G68-class phone stays under 30 everywhere. A phone's first visit may also
+- **Phone frame rate.** By that estimate a Snapdragon 7-class phone holds 30 fps on the pier and
+  the water but not among the hill woods, and a Mali-G68-class phone stays under 30 everywhere. At
+  its lowest resolution the water's painted chop looks blockier. A phone's first visit may also
   wait much longer than a desktop while the sea's shader compiles.
 - **Touch.** No volume control on touch (music on or off only), and no help card button; the
   controls card at the start lists the gestures. Fullscreen and the landscape lock are Android
