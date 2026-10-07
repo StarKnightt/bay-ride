@@ -89,7 +89,8 @@ function fragInputs(raw: string): { decl: string; name: string; rows: number }[]
   const src = preprocess(raw);
   const out: { decl: string; name: string; rows: number }[] = [];
   const seen = new Set<string>();
-  const re = /(?:^|[;{}])\s*((?:(?:flat|smooth|centroid|noperspective)\s+)*)(?:in|varying)\s+((?:lowp|mediump|highp)\s+)?(\w+)\s+(\w+)\s*(\[\s*\d+\s*\])?\s*;/gm;
+  // A lookbehind, not a consumed `;`: several declarations often share a line (`in vec2 vUv; flat in int vMat;`).
+  const re = /(?<=^|[;{}])\s*((?:(?:flat|smooth|centroid|noperspective)\s+)*)(?:in|varying)\s+((?:lowp|mediump|highp)\s+)?(\w+)\s+(\w+)\s*(\[\s*\d+\s*\])?\s*;/gm;
   for (const m of src.matchAll(re)) {
     const [, qual = "", , type, name, arr] = m;
     if (seen.has(name)) continue;
