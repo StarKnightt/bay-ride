@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { TIER } from "../platform";
 
 /**
  * The boat's wake, drawn by the sea shader from a short trail of past bow positions (a ring buffer
@@ -76,6 +77,12 @@ export function setWake(
 }
 
 const MAX_AGE = ((WAKE_N - 1) * WAKE_DT).toFixed(2);
+/**
+ * Phone tier: a phone's pixel covers several times the water a desktop pixel does, so the lace hits
+ * its far, solid fill much closer and its thresholds step into hard shards. Softer edges, less of the
+ * far density boost and a softer outer arm edge keep it lace that fades out (desktop: the same text).
+ */
+const SOFT = TIER.softWake;
 
 /** Shared by the sea's vertex and fragment shaders (needs vnoise; the fragment part needs wLace). */
 export const WAKE_GLSL = /* glsl */ `
@@ -233,7 +240,7 @@ float wakeLace(vec2 p, float dens, float seed, float px, float threads, float ho
   // holes open inside the thicker clumps: a solid flat-edged blob reads as a paper cut-out.
   float hn = vnoise(vec2(q.x * 9.0, q.y * 3.2) + seed * 3.1 + 17.0);
   float th = mix(0.76, 0.32, d) + 0.09 * (hn - 0.5) * fine;
-  float aa = 0.012 + px * 5.0;
+  float aa = 0.012 + px * ${SOFT ? "10.0" : "5.0"};
   float aaP = aa + 0.05 * (1.0 - smoothstep(0.004, 0.02, px));
   float patchM = smoothstep(th - aaP, th + aaP, c);
   patchM *= 1.0 - 0.85 * holes * smoothstep(0.6, 0.72, hn) * smoothstep(th, th + 0.22, c) * fine;
@@ -286,7 +293,7 @@ Wake wakeShade(vec2 q, float px, float pxm){
     // A crisp outer edge and a long ragged tail inward where the broken crest spills back. The
     // edge itself wanders in and out along the arm, so it never draws a ruled line.
     float daR = da + (vnoise(vec2(w.odo * 0.45, sd * 4.0)) - 0.5) * 1.4 + (vnoise(vec2(w.odo * 1.7, ay * 0.8)) - 0.5) * 0.7;
-    float prof = daR > 0.0 ? exp(-daR * daR * 3.0) : exp(-daR * daR * 0.8);
+    float prof = daR > 0.0 ? exp(-daR * daR * ${SOFT ? "1.4" : "3.0"}) : exp(-daR * daR * 0.8);
     float amp = S * exp(-x / 34.0) * exp(-w.age / 9.0) * smoothstep(-0.1, 0.5, x) * fade;
     // Feathers: the diverging crests cross the arm as short chevrons; once they are only a few
     // pixels apart they average out into an even band.
@@ -295,7 +302,7 @@ Wake wakeShade(vec2 q, float px, float pxm){
     fe = mix(fe, 0.6, 1.0 - smoothstep(4.0, 9.0, lamD / pxm));
     // Where the bow wave climbs into the arm, it is a dense crest of white.
     float feed = 1.0 + 0.5 * exp(-x / 2.2);
-    float dens = amp * prof * feed * mix(sqrt(wA / wE), 1.0, keep) * mix(0.5, 1.0, fe) * (1.0 + 1.8 * smoothstep(0.05, 0.4, pxL));
+    float dens = amp * prof * feed * mix(sqrt(wA / wE), 1.0, keep) * mix(0.5, 1.0, fe) * (1.0 + ${SOFT ? "0.7" : "1.8"} * smoothstep(0.05, 0.4, pxL));
     // Its outer edge breaks harder than its core.
     dens *= mix(1.0, 0.7 + 0.3 * vnoise(vec2(w.odo * 0.6, ay * 3.0) + sd * 3.0), smoothstep(0.0, 1.2, da));
     // White belongs to the inner arms by the boat: further out the arm is clear water carrying

@@ -223,6 +223,8 @@ export class Paint {
   strength = 0.85;
   /** Kernel radius in half-resolution texels at 1080p (scaled with the frame height). */
   radius = 3.0;
+  /** The radius follows the frame height all the way down (phones) instead of holding half its 1080p size. */
+  fine = false;
   readonly output: THREE.WebGLRenderTarget;
   private readonly tA: THREE.WebGLRenderTarget;
   private readonly tB: THREE.WebGLRenderTarget;
@@ -306,7 +308,7 @@ export class Paint {
   render(renderer: THREE.WebGLRenderer): boolean {
     if (this.strength <= 0) return false;
     const k = this.kuwa.material as THREE.ShaderMaterial;
-    k.uniforms.uRadius.value = Math.min(7, this.radius * Math.max(0.5, this.H / 1080) * this.uS.value.y);
+    k.uniforms.uRadius.value = Math.min(7, this.radius * (this.fine ? this.H / 1080 : Math.max(0.5, this.H / 1080)) * this.uS.value.y);
     (this.comp.material as THREE.ShaderMaterial).uniforms.uStrength.value = Math.min(1, this.strength);
     const prev = renderer.getRenderTarget();
     renderer.setRenderTarget(this.tA);

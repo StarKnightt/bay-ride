@@ -221,6 +221,7 @@ const post = new Post(renderer, innerWidth, innerHeight, {
   res: TIER.res,
   budget: TIER.budget,
   bloom: TIER.bloom,
+  fineLines: TIER.fineLines,
   colorType: COLOR_TYPE,
 });
 if (TIER.singlePass) post.singlePass = true;
@@ -399,7 +400,7 @@ function beginPlay(): void {
   });
 }
 
-/** Frames drawn, for the phone tier's every-other-frame sun shadow. */
+/** Frames drawn, for the phone tier's sun shadow refreshed every few frames. */
 let shadowTick = 0;
 
 /** ?gpums with a fixed ?res=: the whole frame's GPU time and the frame's main-thread time (the phone proxy). */
@@ -419,8 +420,8 @@ function drawScene(px: number, pz: number): void {
   renderer.info.reset();
   const pf = prof.on ? prof : null;
   pf?.begin("shadow", renderer);
-  // On the phone tier this map and the mirror both refresh every other frame: they take turns (the
-  // mirror's own count is one ahead), so no frame carries both.
+  // On the phone tier this map refreshes every fourth frame and the mirror every other frame, on the
+  // frames between (the mirror's own count is one ahead), so no frame carries both.
   if (++shadowTick % TIER.shadowEvery === 0) shadow.update(renderer, scene, shadowCenter);
   pf?.end("shadow", renderer);
   _charC.copy(rider.walker.position).y += 0.85;
@@ -519,6 +520,7 @@ function frame(now: number) {
         aboard: explore.inBoat,
         driving: explore.inBoat && !!b && Math.abs(b.throttle) > 0.2,
         canAshore: explore.canStepAshore,
+        looked: touch?.looked ?? false,
       };
       hints?.update(hintAcc, s);
       touch?.update(hintAcc, s);
@@ -829,7 +831,9 @@ window.__ride = {
         camMode: chase.mode,
         fpp: chase.fpp,
         tod: tod.preset,
-        fps: Math.round(fps),
+        // Behind the landscape prompt nothing is drawn: the last count would be stale.
+        fps: portrait?.shown ? 0 : Math.round(fps),
+        paused: portrait?.shown ?? false,
         audio: audio.state,
         music: audio.music,
       };

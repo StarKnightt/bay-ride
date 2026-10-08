@@ -29,6 +29,7 @@ export const ICON = {
   music: `<path d="M9.5 17.2V6.4l9-2v10.4"/><circle cx="7.4" cy="17.2" r="2.1"/><circle cx="16.4" cy="14.8" r="2.1"/>`,
   musicOff: `<path d="M9.5 17.2V6.4l9-2v10.4"/><circle cx="7.4" cy="17.2" r="2.1"/><circle cx="16.4" cy="14.8" r="2.1"/><path d="M4.5 4.5l15 15"/>`,
   stick: `<circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="10.4" r="3.4"/>`,
+  run: `<circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="4.6" r="3"/><path d="M8.6 11.6h6.8M9.8 14.8h4.4"/>`,
   drag: `<path d="M4.5 12h15M16.5 9l3 3-3 3M7.5 9l-3 3 3 3"/>`,
   tap: `<circle cx="12" cy="12" r="2.6"/><path d="M12 4.6v2M12 17.4v2M4.6 12h2M17.4 12h2"/>`,
 };
@@ -43,7 +44,7 @@ const CSS = `
 .tc-btn.big { width: 64px; height: 64px; }
 .tc-btn.big svg { width: 30px; height: 30px; }
 .tc-btn.down { transform: scale(0.9); background: rgba(255, 251, 241, 0.96); }
-.tc-btn.gone { opacity: 0; pointer-events: none; transform: scale(0.82); }
+.tc-btn.gone { opacity: 0; pointer-events: none; transform: scale(0.82); transition: opacity 0.12s ease, transform 0.12s ease; }
 .tc-btn.hello { animation: tc-hello 2.4s ease-in-out 2; }
 @keyframes tc-hello { 0%, 100% { box-shadow: 0 6px 20px rgba(40, 28, 18, 0.2), 0 0 0 0 rgba(255, 250, 236, 0.0); } 50% { box-shadow: 0 6px 20px rgba(40, 28, 18, 0.2), 0 0 0 9px rgba(255, 250, 236, 0.32); } }
 .tc-act { right: calc(env(safe-area-inset-right) + 18px); top: calc(50% - 32px + (env(safe-area-inset-top) - env(safe-area-inset-bottom)) / 2); }
@@ -58,15 +59,19 @@ const CSS = `
   background: rgba(248, 241, 226, 0.86); box-shadow: 0 4px 14px rgba(40, 28, 18, 0.22); display: grid; place-items: center; }
 .tc-knob svg { width: 20px; height: 20px; opacity: 0.55; }
 .tc-stick.rim .tc-knob { background: rgba(255, 246, 222, 0.96); }
+.tc.dim .tc-btn:not(.gone) { opacity: 0.55; }
+.tc.dim .tc-btn.down { opacity: 1; }
+.tc.dim .tc-stick:not(.held) { opacity: 0.38; }
 .tc.idle .tc-btn:not(.gone) { opacity: 0.42; }
 .tc.idle .tc-stick:not(.held) { opacity: 0.28; }
 .tc-port { position: fixed; inset: 0; z-index: 9; display: none; place-items: center; background: var(--boot, #efe6d2); touch-action: none; }
 .tc-port.on { display: grid; }
-.tc-port .card { display: grid; justify-items: center; gap: 10px; padding: 22px 30px 20px; border-radius: 16px; text-align: center; max-width: 76vw;
+.tc-portrait .tc { visibility: hidden; }
+.tc-port .card { display: grid; justify-items: center; gap: 10px; padding: 22px 24px 20px; border-radius: 16px; text-align: center; max-width: calc(100vw - 48px);
   background: rgba(248, 241, 226, 0.9); box-shadow: 0 8px 28px rgba(40, 28, 18, 0.22); color: #3d342b;
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif; }
 .tc-port .card b { font-weight: 400; font-style: italic; font-size: 19px; letter-spacing: 0.03em; }
-.tc-port .card span { font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #6a5a48; }
+.tc-port .card span { font-size: 10.5px; letter-spacing: 0.12em; white-space: nowrap; text-transform: uppercase; color: #6a5a48; }
 .tc-port svg { width: 58px; height: 58px; fill: none; stroke: #3d342b; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; animation: tc-turn 2.6s ease-in-out infinite; }
 @keyframes tc-turn { 0%, 18% { transform: rotate(0deg); } 52%, 82% { transform: rotate(-90deg); } 100% { transform: rotate(0deg); } }
 `;
@@ -102,6 +107,8 @@ type Btn = "act" | "cam" | "tod" | "mus";
 
 export class TouchControls {
   readonly root: HTMLElement;
+  /** A real look drag has happened (the touch card leaves once she has walked and looked). */
+  looked = false;
   private readonly stick: HTMLElement;
   private readonly knob: HTMLElement;
   private readonly btn: Record<Btn, HTMLElement>;
@@ -158,7 +165,7 @@ export class TouchControls {
   private restStick(): void {
     if (this.stickId >= 0) return;
     const sa = safeAreas();
-    this.place(sa.left + 30 + 58, innerHeight - sa.bottom - 26 - 58);
+    this.place(sa.left + 10 + 58, innerHeight - sa.bottom - 6 - 58);
   }
 
   private place(x: number, y: number): void {
@@ -208,6 +215,7 @@ export class TouchControls {
       this.lx = e.clientX;
       this.ly = e.clientY;
       this.lookMoved += Math.abs(dx) + Math.abs(dy);
+      if (this.lookMoved > 24) this.looked = true;
       if (this.enabled && (dx || dy)) this.d.explore.lookBy(dx * LOOK_K, dy * LOOK_K);
     } else return;
     this.wake();
@@ -293,6 +301,8 @@ export class TouchControls {
   update(dt: number, s: HintState): void {
     this.idle += dt;
     if (this.idle > IDLE_S && this.stickId < 0 && this.lookId < 0) this.root.classList.add("idle");
+    // At dusk and night the cream discs would outshine the stars and the lantern.
+    this.root.classList.toggle("dim", this.d.tod.preset === "dusk" || this.d.tod.preset === "night");
     const kind = s.nearBoat && !s.aboard ? "board" : s.aboard && s.canAshore ? "ashore" : "";
     if (kind !== this.actKind) {
       const a = this.btn.act;
@@ -321,8 +331,9 @@ export class TouchControls {
       const r = el.getBoundingClientRect();
       out[k] = { x: +r.x.toFixed(1), y: +r.y.toFixed(1), w: +r.width.toFixed(1), h: +r.height.toFixed(1), shown };
     };
-    box("stick", this.stick, true);
-    for (const [k, el] of Object.entries(this.btn)) box(k, el, !el.classList.contains("gone"));
+    const port = isPortrait();
+    box("stick", this.stick, !port);
+    for (const [k, el] of Object.entries(this.btn)) box(k, el, !el.classList.contains("gone") && !port);
     return out;
   }
 }
@@ -351,7 +362,11 @@ export class PortraitPrompt {
       `<div class="card"><svg viewBox="0 0 64 64" aria-hidden="true"><rect x="22" y="8" width="20" height="48" rx="4.5"/><path d="M29 13h6"/><circle cx="32" cy="50.5" r="1.6"/></svg>` +
       `<b>turn your phone sideways</b><span>the bay plays in landscape</span></div>`;
     document.body.append(this.el);
-    const check = () => this.el.classList.toggle("on", isPortrait());
+    const check = () => {
+      const on = isPortrait();
+      this.el.classList.toggle("on", on);
+      document.documentElement.classList.toggle("tc-portrait", on);
+    };
     check();
     addEventListener("resize", check);
     addEventListener("orientationchange", () => setTimeout(check, 60));
