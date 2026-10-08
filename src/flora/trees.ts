@@ -318,7 +318,7 @@ export async function buildTrees(regions: TreeRegion[], layout: Layout, collider
     mesh.name = `trees: ${reg.name}`;
     mesh.matrixAutoUpdate = false;
     // The hill woods stand well back from the water: the mirror shows the slope without them.
-    if (reg.name.startsWith("hill")) onLayers(mesh, LAYER_SHADOW);
+    if (reg.name.startsWith("hill") || (TIER.reflTrees < 1 && reg.name !== "island")) onLayers(mesh, LAYER_SHADOW);
     else onLayers(mesh, LAYER_SHADOW, LAYER_REFLECT);
     group.add(mesh);
   }
