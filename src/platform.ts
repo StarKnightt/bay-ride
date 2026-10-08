@@ -10,7 +10,8 @@
  * `?mobile=1` forces both on a desktop, `?mobile=0` forces the desktop game.
  */
 
-const params = new URLSearchParams(location.search);
+// Node tools (the CPU sims) import modules that read the tier: there it is the desktop's.
+const params = new URLSearchParams(typeof location === "undefined" ? "" : location.search);
 const forceQ = params.get("mobile");
 const FORCED: boolean | null = forceQ === "1" ? true : forceQ === "0" ? false : null;
 const mm = (q: string) => typeof matchMedia === "function" && matchMedia(q).matches;
@@ -54,7 +55,7 @@ export interface Tier {
   /** Water mirror: resolution as a share of the output, refresh every n frames, MSAA. */
   refl: [scale: number, every: number, msaa: number];
   /** Grass and flower density and reach (flora/index.ts TIERS). */
-  flora: "low" | "med" | "high";
+  flora: "xlow" | "low" | "med" | "high";
   /** Sea mesh spacing factor (1 = the desktop's; at a phone's resolution its vertex shader costs more than its pixels). */
   seaMesh: number;
   /** Sun shadow map refreshed every n frames. */
@@ -68,6 +69,8 @@ export interface Tier {
   fineLines: boolean;
   /** The wake's lace with softer edges and less far-off fill (a phone's coarse pixels otherwise turn it into flat, hard-edged scraps). */
   softWake: boolean;
+  /** A lighter sea: two glitter cell sizes of three, one ripple-dab size of two, three mirror taps of five, no thin far break lines, and lace detail computed only where it shows. */
+  seaLite: boolean;
 }
 
 export const DESKTOP: Tier = {
@@ -89,6 +92,7 @@ export const DESKTOP: Tier = {
   treeMass: 1,
   fineLines: false,
   softWake: false,
+  seaLite: false,
 };
 
 export const PHONE: Tier = {
@@ -110,6 +114,7 @@ export const PHONE: Tier = {
   treeMass: 0,
   fineLines: true,
   softWake: true,
+  seaLite: true,
 };
 
 /** `?tier=key:value,...` overrides single settings (tuning runs), e.g. `?tier=msaa:0,shadow:512,res:0.7/0.6/1`. */

@@ -83,6 +83,8 @@ const MAX_AGE = ((WAKE_N - 1) * WAKE_DT).toFixed(2);
  * far density boost and a softer outer arm edge keep it lace that fades out (desktop: the same text).
  */
 const SOFT = TIER.softWake;
+/** Phone tier (platform.ts `seaLite`): the lace's finest octave only where it shows (same result, less work). */
+const LITE = TIER.seaLite;
 
 /** Shared by the sea's vertex and fragment shaders (needs vnoise; the fragment part needs wLace). */
 export const WAKE_GLSL = /* glsl */ `
@@ -231,7 +233,7 @@ float wakeLace(vec2 p, float dens, float seed, float px, float threads, float ho
   float fine = 1.0 - smoothstep(0.012, 0.035, px);
   float c = vnoise(vec2(q.x * 3.8, q.y * 1.15)) * 0.5
           + vnoise(vec2(q.x * 8.0, q.y * 2.5) + 4.0) * 0.32
-          + (vnoise(vec2(q.x * 16.0, q.y * 5.0) + 9.0) - 0.5) * 0.18 * fine + 0.09;
+          ${LITE ? "+ 0.09; if (fine > 0.0) c += (vnoise(vec2(q.x * 16.0, q.y * 5.0) + 9.0) - 0.5) * 0.18 * fine;" : "+ (vnoise(vec2(q.x * 16.0, q.y * 5.0) + 9.0) - 0.5) * 0.18 * fine + 0.09;"}
   // Threads: ridges of a streamwise noise, thin filaments joining the cells.
   // Broken into short meandering pieces, so none runs on straight across many cells.
   float r = (1.0 - abs(vnoise(vec2(q.x * 6.0, q.y * 2.1) + 2.0) * 2.0 - 1.0)) * smoothstep(0.3, 0.55, vnoise(vec2(q.x * 2.2, q.y * 0.9) + 13.0));
