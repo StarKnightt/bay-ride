@@ -305,7 +305,8 @@ for (const key of WANT) {
     await page.goto(`${URL}?progwarn&hints=1&skipintro=1&tod=golden&${q}${dev.q}`, { waitUntil: "load" });
     await page.waitForFunction(() => window.__ride?.ready === true, null, { timeout: 400_000, polling: 200 });
     // The On foot card belongs to the pier start: these frames show the ground once it has gone.
-    await page.waitForFunction(() => !window.__ride.mobile.layout().hints?.card?.shown, null, { timeout: 20_000, polling: 250 }).catch(() => {});
+    await page.waitForFunction(() => window.__ride.mobile.layout().hints?.card?.shown, null, { timeout: 5_000, polling: 100 }).catch(() => {});
+    await page.waitForFunction(() => !window.__ride.mobile.layout().hints?.card?.shown, null, { timeout: 20_000, polling: 250 }).catch(() => failures.push(`${key} ${name}: the On foot card never left`));
     await page.waitForTimeout(1500);
     await shot(name);
   }
