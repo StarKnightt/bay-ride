@@ -33,7 +33,7 @@ const k = (s: string) => `<kbd>${s}</kbd>`;
  * over the moored boat beside the pier end (low right in the opening view).
  */
 const TOUCH_CSS = `
-.bh-touch.bh-card { left: 50%; top: auto; bottom: calc(env(safe-area-inset-bottom) + 12px); padding: 6px 15px 5px; border-radius: 14px;
+.bh-touch.bh-card { left: 50%; top: auto; bottom: calc(env(safe-area-inset-bottom) + 12px); padding: 6px 15px 5px; border-radius: 14px; box-sizing: border-box;
   max-width: calc(100vw - 2 * (env(safe-area-inset-left) + 140px)); font-size: 11.5px; line-height: 1.55; transform: translate(-50%, 8px); }
 .bh-touch.bh-card.on { transform: translate(-50%, 0); }
 .bh-touch.bh-card .row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px 13px; }
@@ -114,6 +114,8 @@ export interface HintState {
   canAshore: boolean;
   /** Touch: a look drag has happened. */
   looked?: boolean;
+  /** Touch: the boat's box on screen (CSS px), so a button can step out of its way. */
+  boatBox?: { x: number; y: number; w: number; h: number } | null;
 }
 
 export class Hints {

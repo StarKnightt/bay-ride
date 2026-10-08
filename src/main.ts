@@ -521,6 +521,7 @@ function frame(now: number) {
         driving: explore.inBoat && !!b && Math.abs(b.throttle) > 0.2,
         canAshore: explore.canStepAshore,
         looked: touch?.looked ?? false,
+        boatBox: touch ? screenBox(boat.root, 120) : null,
       };
       hints?.update(hintAcc, s);
       touch?.update(hintAcc, s);
@@ -860,7 +861,7 @@ const _sv = new THREE.Vector3(), _vv = new THREE.Vector3();
  * they are), so it is her or the boat's silhouette and not a loose 3D box; null when none of it is
  * in front of the camera.
  */
-function screenBox(root: THREE.Object3D): { x: number; y: number; w: number; h: number } | null {
+function screenBox(root: THREE.Object3D, maxVerts = 3000): { x: number; y: number; w: number; h: number } | null {
   const cam = chase.cam;
   root.updateWorldMatrix(true, true);
   cam.updateMatrixWorld();
@@ -873,7 +874,7 @@ function screenBox(root: THREE.Object3D): { x: number; y: number; w: number; h: 
     const pos = m.geometry.attributes.position;
     if (!pos) return;
     const sk = m as THREE.SkinnedMesh;
-    const step = Math.max(1, Math.floor(pos.count / 3000));
+    const step = Math.max(1, Math.floor(pos.count / maxVerts));
     for (let i = 0; i < pos.count; i += step) {
       if (sk.isSkinnedMesh) sk.getVertexPosition(i, _sv);
       else _sv.fromBufferAttribute(pos, i);

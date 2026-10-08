@@ -48,6 +48,7 @@ const CSS = `
 .tc-btn.hello { animation: tc-hello 2.4s ease-in-out 2; }
 @keyframes tc-hello { 0%, 100% { box-shadow: 0 6px 20px rgba(40, 28, 18, 0.2), 0 0 0 0 rgba(255, 250, 236, 0.0); } 50% { box-shadow: 0 6px 20px rgba(40, 28, 18, 0.2), 0 0 0 9px rgba(255, 250, 236, 0.32); } }
 .tc-act { right: calc(env(safe-area-inset-right) + 18px); top: calc(50% - 32px + (env(safe-area-inset-top) - env(safe-area-inset-bottom)) / 2); }
+.tc-act.high { top: calc(env(safe-area-inset-top) + 82px); }
 .tc-cam { right: calc(env(safe-area-inset-right) + 24px); bottom: calc(env(safe-area-inset-bottom) + 18px); }
 .tc-mus { right: calc(env(safe-area-inset-right) + 16px); top: calc(env(safe-area-inset-top) + 14px); }
 .tc-tod { right: calc(env(safe-area-inset-right) + 80px); top: calc(env(safe-area-inset-top) + 14px); }
@@ -316,6 +317,10 @@ export class TouchControls {
       a.classList.toggle("gone", !kind);
       this.actKind = kind;
     }
+    // Beside the boat (just ashore on a beach) its hull can fill the button's slot: the button goes up, under T and M.
+    const b = s.boatBox, sa = safeAreas();
+    const ax = innerWidth - sa.right - 18 - 64, ay = innerHeight / 2 - 32 + (sa.top - sa.bottom) / 2;
+    this.btn.act.classList.toggle("high", !!b && b.x < ax + 68 && ax - 4 < b.x + b.w && b.y < ay + 68 && ay - 4 < b.y + b.h);
     this.btn.cam.classList.toggle("gone", !s.aboard);
     const on = this.d.audio.music && !this.d.audio.muted;
     if (on !== this.musicOn) {

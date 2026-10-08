@@ -304,7 +304,9 @@ for (const key of WANT) {
   for (const [name, q] of [["hill", "spawn=40,-60,1.4&orbit=0,0.2,4"], ["beach", "spawn=34,-36,-1.5&orbit=0,0.06,4"]]) {
     await page.goto(`${URL}?progwarn&hints=1&skipintro=1&tod=golden&${q}${dev.q}`, { waitUntil: "load" });
     await page.waitForFunction(() => window.__ride?.ready === true, null, { timeout: 400_000, polling: 200 });
-    await page.waitForTimeout(2500);
+    // The On foot card belongs to the pier start: these frames show the ground once it has gone.
+    await page.waitForFunction(() => !window.__ride.mobile.layout().hints?.card?.shown, null, { timeout: 20_000, polling: 250 }).catch(() => {});
+    await page.waitForTimeout(1500);
     await shot(name);
   }
   if (errors.length) failures.push(`${key}: ${errors.length} console error(s): ${errors.slice(0, 3).join(" | ")}`);
@@ -325,7 +327,7 @@ for (const [key, w, h] of EMBEDS) {
     if (m.type() === "error") errors.push(m.text().slice(0, 300));
   });
   const query = `?progwarn&hints=1&tod=golden${DEVICES.pixel4a.q}`;
-  await page.setContent(`<!doctype html><body style="margin:0;background:#111"><iframe src="${URL}${query}" style="position:fixed;left:0;top:0;width:${w}px;height:${h}px;border:0" allow="autoplay; fullscreen"></iframe></body>`);
+  await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><body style="margin:0;background:#111"><iframe src="${URL}${query}" style="position:fixed;left:0;top:0;width:${w}px;height:${h}px;border:0" allow="autoplay; fullscreen"></iframe></body>`);
   let fr = null;
   for (let i = 0; i < 200 && !fr; i++) {
     fr = page.frames().find((f) => f !== page.mainFrame() && f.url().startsWith(URL)) ?? null;
