@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { TIER } from "../platform";
 import { TOD, TOD_GLSL } from "./todUniforms";
 
 /**
@@ -364,8 +365,8 @@ float gAlpha = 1.0;
 const float BAYER4[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 void writeOut(vec3 col, vec3 wN, float mask){
   if (uDither > 0.5 && gAlpha < 0.999) {
-    ivec2 q = ivec2(gl_FragCoord.xy) & 3;
-    if (gAlpha * 16.0 <= BAYER4[q.y * 4 + q.x] + 0.5) discard;
+    ${TIER.alphaCut ? "if (gAlpha < 0.5) discard;" : `ivec2 q = ivec2(gl_FragCoord.xy) & 3;
+    if (gAlpha * 16.0 <= BAYER4[q.y * 4 + q.x] + 0.5) discard;`}
     gAlpha = 1.0;
   }
   vec3 vn = normalize((viewMatrix * vec4(wN, 0.0)).xyz);

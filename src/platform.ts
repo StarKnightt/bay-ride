@@ -71,6 +71,8 @@ export interface Tier {
   softWake: boolean;
   /** A lighter sea: two glitter cell sizes of three, one ripple-dab size of two, three mirror taps of five, no thin far break lines, and lace detail computed only where it shows. */
   seaLite: boolean;
+  /** Without MSAA, alpha-cut cards (grass blades, leaf cards) cut cleanly at half coverage: the 4x4 ordered dither that stands in for MSAA stipples every blade edge into beads at a phone's pixel size. */
+  alphaCut: boolean;
 }
 
 export const DESKTOP: Tier = {
@@ -93,6 +95,7 @@ export const DESKTOP: Tier = {
   fineLines: false,
   softWake: false,
   seaLite: false,
+  alphaCut: false,
 };
 
 export const PHONE: Tier = {
@@ -115,6 +118,7 @@ export const PHONE: Tier = {
   fineLines: true,
   softWake: true,
   seaLite: true,
+  alphaCut: true,
 };
 
 /** `?tier=key:value,...` overrides single settings (tuning runs), e.g. `?tier=msaa:0,shadow:512,res:0.7/0.6/1`. */
