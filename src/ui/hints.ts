@@ -34,7 +34,7 @@ const k = (s: string) => `<kbd>${s}</kbd>`;
  */
 const TOUCH_CSS = `
 .bh-touch.bh-card { left: 50%; top: auto; bottom: calc(env(safe-area-inset-bottom) + 12px); padding: 6px 15px 5px; border-radius: 14px; box-sizing: border-box;
-  max-width: calc(100vw - 2 * (env(safe-area-inset-left) + 128px)); font-size: 11.5px; line-height: 1.55; transform: translate(-50%, 8px); }
+  width: max-content; max-width: calc(100vw - 2 * (env(safe-area-inset-left) + 140px)); font-size: 11.5px; line-height: 1.55; transform: translate(-50%, 8px); }
 .bh-touch.bh-card.on { transform: translate(-50%, 0); }
 .bh-touch.bh-card .row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px 13px; }
 .bh-touch.bh-card .row > * { white-space: nowrap; }
