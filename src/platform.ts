@@ -77,6 +77,8 @@ export interface Tier {
   horAspect: number;
   /** Sun shadow filter taps this many texels apart: the phone's half-size map needs a wider penumbra to hide its steps (1 = desktop). */
   shadowSpread: number;
+  /** Trees drawn in the water mirror: 1 every wood but the hill's (desktop), 0 only the island's (its reflection leads the opening view; the town and headland trees are a few pixels in a phone's small mirror). */
+  reflTrees: number;
 }
 
 export const DESKTOP: Tier = {
@@ -102,6 +104,7 @@ export const DESKTOP: Tier = {
   alphaCut: false,
   horAspect: 0,
   shadowSpread: 1,
+  reflTrees: 1,
 };
 
 export const PHONE: Tier = {
@@ -115,7 +118,7 @@ export const PHONE: Tier = {
   paint: 0.85,
   bloom: 0.25,
   refl: [0.35, 2, 0],
-  flora: "low",
+  flora: "xlow",
   seaMesh: 2,
   shadowEvery: 4,
   treeCards: 0.35,
@@ -127,6 +130,7 @@ export const PHONE: Tier = {
   alphaCut: true,
   horAspect: 1.6,
   shadowSpread: 1.75,
+  reflTrees: 0,
 };
 
 /** `?tier=key:value,...` overrides single settings (tuning runs), e.g. `?tier=msaa:0,shadow:512,res:0.7/0.6/1`. */

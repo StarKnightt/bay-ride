@@ -39,7 +39,7 @@ export class WorldDetail {
     };
     d.group.name = "world detail";
     const q = new URLSearchParams(location.search).get("detail") ?? TIER.flora;
-    setTier(q === "low" || q === "med" ? (q as Tier) : "high");
+    setTier(q === "xlow" || q === "low" || q === "med" ? (q as Tier) : "high");
     const shrubs: TreeSpot[] = [];
     const c0 = colliders.length;
     const town = buildTown(colliders, boxes, d.layout, shrubs);

@@ -17,6 +17,8 @@ import { buildTrees, type TreeKind, type TreeRegion, type TreeSpot } from "./tre
 
 /** Quality tiers: grass density multiplier, grass reach, flower reach. */
 export const TIERS = {
+  /** Phones: fewer blades, drawn less far (the woods and meadows are most of a hill frame's triangles). */
+  xlow: { grass: 0.4, far: [13, 30, 56, 75], flowers: [36, 48] },
   low: { grass: 0.55, far: [16, 38, 70, 95], flowers: [45, 60] },
   med: { grass: 0.8, far: [19, 44, 85, 120], flowers: [58, 78] },
   high: { grass: 1, far: [22, 50, 100, 140], flowers: [70, 95] },
