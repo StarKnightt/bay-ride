@@ -29,13 +29,15 @@ const OUT = `${FINAL}.partial`;
 
 /**
  * The two phones, landscape, with the insets their browsers report there. The iPhone keeps the
- * adaptive scale (an A16 holds full scale, as this GPU does); the Pixel draws at the scale a
- * mid-range Android's scaler settles at by the phone estimate (DECISIONS.md, "Mobile").
+ * adaptive scale (an A16 holds full scale, as this GPU does); the Pixel draws at the phone tier's
+ * resolution floor, where a mid-range Android's scaler settles (DECISIONS.md, "Mobile").
  */
 const DEVICES = {
   iphone15: { desc: "iPhone 15 landscape", safe: { top: 0, right: 59, bottom: 21, left: 59 }, q: "" },
-  pixel4a: { desc: "Pixel 4a (5G) landscape", safe: { top: 0, right: 0, bottom: 0, left: 26 }, q: "&res=0.6" },
+  pixel4a: { desc: "Pixel 4a (5G) landscape", safe: { top: 0, right: 0, bottom: 0, left: 26 }, q: "&res=0.8" },
 };
+/** X player cards: the game in a fixed iframe (480x480 square, 640x360 wide), on a phone too. */
+const EMBEDS = [["embed480", 480, 480], ["embed640", 640, 360]];
 const WANT = arg("devices", "iphone15,pixel4a").split(",").filter(Boolean);
 
 await fs.rm(OUT, { recursive: true, force: true });
@@ -129,6 +131,29 @@ for (const key of WANT) {
     return { sx, sy };
   }
 
+  /** Hold the stick as throttle and tiller toward world (x, z) until stepping ashore is possible (false after `ms`). */
+  async function driveToShore(tx, tz, ms) {
+    const lay = await L();
+    const [sx, sy] = centre(lay.controls.stick);
+    await down(1, sx, sy);
+    const t0 = Date.now();
+    let ok = false;
+    while (Date.now() - t0 < ms) {
+      const g = await page.evaluate(() => {
+        const r = window.__ride, c = r.camera.position, b = r.boat;
+        return { cx: c.x, cz: c.z, bx: b.x, bz: b.z, can: !!r.explore?.canStepAshore };
+      });
+      if (g.can) { ok = true; break; }
+      // Steer by the chase camera's forward: the signed angle to the target, right positive.
+      const fx = g.bx - g.cx, fz = g.bz - g.cz, dx = tx - g.bx, dz = tz - g.bz;
+      const ang = Math.atan2(fx * dz - fz * dx, fx * dx + fz * dz);
+      await move(1, sx + Math.max(-1, Math.min(1, ang * 1.4)) * 40, sy - 34);
+      await page.waitForTimeout(200);
+    }
+    await up(1);
+    return ok;
+  }
+
   async function shot(name, extra = {}) {
     const file = `${key}_${name}.png`;
     await page.screenshot({ path: path.join(OUT, file) });
@@ -180,6 +205,11 @@ for (const key of WANT) {
   await shot("boarding");
   await page.waitForFunction(() => window.__ride.player.mode === "boat", null, { timeout: 15_000 }).catch(() => failures.push(`${key} boarding: never seated`));
   await page.waitForTimeout(600);
+  // Seated at the berth: the step-ashore button, and the boat's one-line card.
+  await page.waitForTimeout(900);
+  const atBerth = await shot("leave_berth");
+  if (!atBerth.controls.act.shown) failures.push(`${key} leave at the berth: no step-ashore button`);
+  if (!atBerth.hints?.helmHint?.shown) failures.push(`${key} boat: no "In the boat" card after boarding`);
 
   // Riding at sunset: T once, then the stick up as throttle, a little steering.
   lay = await L();
@@ -255,6 +285,69 @@ for (const key of WANT) {
     if (e.canvas.cssW !== e.viewport.w || e.canvas.cssH !== e.viewport.h) failures.push(`${key} rotation ${n}: canvas ${e.canvas.cssW}x${e.canvas.cssH} vs viewport ${e.viewport.w}x${e.viewport.h}`);
     if (Math.abs(e.canvas.aspect - e.viewport.w / e.viewport.h) > 0.01) failures.push(`${key} rotation ${n}: camera aspect ${e.canvas.aspect} vs ${(e.viewport.w / e.viewport.h).toFixed(4)}`);
   }
+  // Back to day (night -> morning), drive to the beach by the stick and step ashore by the button.
+  lay = await L();
+  await tap(...centre(lay.controls.tod));
+  await page.waitForTimeout(400);
+  if (!(await driveToShore(40, -36, 60_000))) failures.push(`${key} beach: never reached water shallow enough to step ashore`);
+  await page.waitForTimeout(1500);
+  const atBeach = await shot("leave_beach");
+  if (!atBeach.controls.act.shown) failures.push(`${key} leave at the beach: no step-ashore button`);
+  else {
+    await tap(...centre(atBeach.controls.act));
+    await page.waitForFunction(() => window.__ride.player.mode === "walk", null, { timeout: 15_000 }).catch(() => failures.push(`${key} beach: the step-ashore button did not put her ashore`));
+    await page.waitForTimeout(1200);
+    await shot("ashore_beach");
+  }
+
+  // On foot at golden among the hill grass and woods, and on the beach.
+  for (const [name, q] of [["hill", "spawn=40,-60,1.4&orbit=0,0.2,4"], ["beach", "spawn=34,-36,-1.5&orbit=0,0.06,4"]]) {
+    await page.goto(`${URL}?progwarn&hints=1&skipintro=1&tod=golden&${q}${dev.q}`, { waitUntil: "load" });
+    await page.waitForFunction(() => window.__ride?.ready === true, null, { timeout: 400_000, polling: 200 });
+    await page.waitForTimeout(2500);
+    await shot(name);
+  }
+  if (errors.length) failures.push(`${key}: ${errors.length} console error(s): ${errors.slice(0, 3).join(" | ")}`);
+  if (late.length) failures.push(`${key}: shaders compiled during play: ${late.join(" | ")}`);
+  await ctx.close();
+}
+
+// X player cards: a local page holding the game in a fixed iframe, with a phone's touch and user agent.
+for (const [key, w, h] of EMBEDS) {
+  const { defaultBrowserType: _, ...d } = devices[DEVICES.pixel4a.desc];
+  const ctx = await browser.newContext({ ...d, viewport: { width: w, height: h } });
+  const page = await ctx.newPage();
+  const errors = [], late = [];
+  fatalShaderErrors(page, key);
+  page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+  page.on("console", (m) => {
+    if (/program\(s\) compiled during play/.test(m.text())) late.push(m.text());
+    if (m.type() === "error") errors.push(m.text().slice(0, 300));
+  });
+  const query = `?progwarn&hints=1&tod=golden${DEVICES.pixel4a.q}`;
+  await page.setContent(`<!doctype html><body style="margin:0;background:#111"><iframe src="${URL}${query}" style="position:fixed;left:0;top:0;width:${w}px;height:${h}px;border:0" allow="autoplay; fullscreen"></iframe></body>`);
+  let fr = null;
+  for (let i = 0; i < 200 && !fr; i++) {
+    fr = page.frames().find((f) => f !== page.mainFrame() && f.url().startsWith(URL)) ?? null;
+    if (!fr) await page.waitForTimeout(100);
+  }
+  if (!fr) await bye(1, `${key}: the game's frame never loaded`);
+  await fr.waitForFunction(() => window.__ride?.waiting === true, null, { timeout: 400_000, polling: 200 });
+  const embedded = await fr.evaluate(() => window.self !== window.top);
+  await page.waitForTimeout(2400);
+  await page.touchscreen.tap(w / 2, h / 2);
+  await fr.waitForFunction(() => window.__ride.waiting === false, null, { timeout: 10_000 }).catch(() => failures.push(`${key}: tap to start did not start (the rotate prompt?)`));
+  await page.waitForTimeout(2600);
+  const file = `${key}_pier.png`;
+  await page.screenshot({ path: path.join(OUT, file) });
+  const lay = await fr.evaluate(() => window.__ride.mobile.layout());
+  const entry = { file, ...lay, embedded, consoleErrors: [...errors], lateCompiles: [...late] };
+  layout[key] = { device: `${DEVICES.pixel4a.desc} holding the game in a ${w}x${h} iframe (an X player card)`, viewport: { width: w, height: h }, dpr: d.deviceScaleFactor, safeArea: lay.safeArea, query, shots: { pier: entry } };
+  await fs.writeFile(path.join(OUT, "layout.json"), JSON.stringify(layout, null, 1));
+  check(key, "pier", entry);
+  console.log(`[${key}] pier embedded=${embedded} portrait=${lay.portrait} mode=${lay.mode} canvas=${lay.canvas.w}x${lay.canvas.h} her=${JSON.stringify(lay.her)} boat=${JSON.stringify(lay.boat)}`);
+  if (!embedded) failures.push(`${key}: not detected as embedded`);
+  if (lay.portrait) failures.push(`${key}: the rotate prompt shows in a ${w}x${h} frame`);
   if (errors.length) failures.push(`${key}: ${errors.length} console error(s): ${errors.slice(0, 3).join(" | ")}`);
   if (late.length) failures.push(`${key}: shaders compiled during play: ${late.join(" | ")}`);
   await ctx.close();
