@@ -54,7 +54,8 @@ after that the controls card only appears when you press H.
 ### Touch
 
 On a phone or tablet, hold it sideways (it asks you to). Tap to start; that tap also starts the
-sound, and on Android it goes fullscreen.
+sound, and on Android it goes fullscreen. Inside an X post's player card, a fixed square or wide
+frame, it plays as it is and never asks you to turn the phone.
 
 | Touch | Action |
 |---|---|
@@ -150,17 +151,18 @@ Every shader program is compiled behind the loader, so nothing stalls once you a
 Windows, Chrome translates WebGL to Direct3D, and the sea's shader takes most of the first visit's
 wait. The browser caches the compiled shaders, so later visits start almost at once.
 
-On phones and tablets the game draws at a pixel ratio of 1 and an adaptive 60 to 100 per cent of
+On phones and tablets the game draws at a pixel ratio of 1 and an adaptive 80 to 100 per cent of
 that, aiming for 30 fps. The scene goes in one pass instead of two, with smaller shadow maps (the
-sun's and the water mirror's refreshed on alternate frames), no MSAA, a lower-resolution mirror, a
-coarser sea mesh, and lighter woods, grass and dune grass. The sea's shader, the paint filter, ink,
-bloom and grade stay as they are. There was no phone to measure on. The estimate comes from the
+sun's refreshed every fourth frame and the water mirror every other, never on the same frame), no
+MSAA, a lower-resolution mirror and bloom, a coarser sea mesh, and lighter woods, grass and dune
+grass. The ink lines and the paint filter shrink with the smaller frame, so they stay as fine as on
+a desktop, and the boat's wake keeps soft edges. The sea's shader, the paint filter, ink and grade
+otherwise stay as they are. There was no phone to measure on. The estimate comes from the
 RTX 4060's own GPU time per frame at the phone's resolution, scaled by the gap between it and a
 phone GPU in 3DMark Wild Life Extreme (about 33 times a Mali-G68 MC4, 25 times a Snapdragon 7 Gen
-1). By that estimate, once the resolution settles near its floor, the pier, the boat at sunset and
-at night run at about 23 to 33 fps on the Snapdragon and 17 to 25 on the Mali (the measurement
-moved by about a third between two nights, with whatever else the PC was drawing). Among the hill
-woods it's about 14 to 19 and 11 to 14. An iPhone 15 holds full resolution at about 42 to 75.
+1). By that estimate, at its 80 per cent floor, the pier, the boat at sunset and at night run at
+about 22 fps on the Snapdragon and 16 to 17 on the Mali; among the hill woods it's about 15 and 11.
+An iPhone 15 holds full resolution at about 66 to 73 fps on the water and 48 in the woods.
 
 ## Project structure
 
@@ -187,10 +189,11 @@ public/models/     heroine.glb, built by that script
   Chrome's mobile emulation (iPhone 15 and Pixel 4a profiles, landscape), drawn by a desktop GPU.
   Safari's WebKit engine, real phone GPUs, drivers and memory limits, and real fingers have not
   been tried. The frame rates above are estimates, not measurements.
-- **Phone frame rate.** By that estimate a Snapdragon 7-class phone is borderline for 30 fps on the
-  pier and the water and below it among the hill woods, and a Mali-G68-class phone stays under 30
-  everywhere. At its lowest resolution the water's painted chop looks blockier. A phone's first
-  visit may also wait much longer than a desktop while the sea's shader compiles.
+- **Phone frame rate.** By that estimate the game doesn't yet hold 30 fps on a mid-range phone:
+  about 22 on a Snapdragon 7-class phone on the water and 15 among the hill woods, less on a
+  Mali-G68. Most of a phone's frame is the sea's shader and, in the woods, the trees; a lighter
+  phone sea and simpler distant trees are the next steps. A phone's first visit may also wait much
+  longer than a desktop while the sea's shader compiles.
 - **Touch.** No volume control on touch (music on or off only), and no help card button; the
   controls card at the start lists the gestures. Fullscreen and the landscape lock are Android
   only, since an iPhone browser can't do either.
