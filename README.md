@@ -161,7 +161,8 @@ otherwise stay as they are. There was no phone to measure on. The estimate comes
 RTX 4060's own GPU time per frame at the phone's resolution, scaled by the gap between it and a
 phone GPU in 3DMark Wild Life Extreme (about 33 times a Mali-G68 MC4, 25 times a Snapdragon 7 Gen
 1). By that estimate, at its 80 per cent floor, the pier, the boat at sunset and at night run at
-about 22 fps on the Snapdragon and 16 to 17 on the Mali; among the hill woods it's about 15 and 11.
+about 22 to 23 fps on the Snapdragon and 17 on the Mali; among the hill woods it's about 15 to 17
+and 12 to 13.
 An iPhone 15 holds full resolution at about 66 to 73 fps on the water and 48 in the woods.
 
 ## Project structure
@@ -190,7 +191,7 @@ public/models/     heroine.glb, built by that script
   Safari's WebKit engine, real phone GPUs, drivers and memory limits, and real fingers have not
   been tried. The frame rates above are estimates, not measurements.
 - **Phone frame rate.** By that estimate the game doesn't yet hold 30 fps on a mid-range phone:
-  about 22 on a Snapdragon 7-class phone on the water and 15 among the hill woods, less on a
+  about 22 to 23 on a Snapdragon 7-class phone on the water and 15 to 17 among the hill woods, less on a
   Mali-G68. Most of a phone's frame is the sea's shader and, in the woods, the trees; a lighter
   phone sea and simpler distant trees are the next steps. A phone's first visit may also wait much
   longer than a desktop while the sea's shader compiles.
