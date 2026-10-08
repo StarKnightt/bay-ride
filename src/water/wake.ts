@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { TIER } from "../platform";
 
 /**
  * The boat's wake, drawn by the sea shader from a short trail of past bow positions (a ring buffer
@@ -76,6 +77,14 @@ export function setWake(
 }
 
 const MAX_AGE = ((WAKE_N - 1) * WAKE_DT).toFixed(2);
+/**
+ * Phone tier: a phone's pixel covers several times the water a desktop pixel does, so the lace hits
+ * its far, solid fill much closer and its thresholds step into hard shards. Softer edges, less of the
+ * far density boost and a softer outer arm edge keep it lace that fades out (desktop: the same text).
+ */
+const SOFT = TIER.softWake;
+/** Phone tier (platform.ts `seaLite`): the lace's finest octave only where it shows (same result, less work). */
+const LITE = TIER.seaLite;
 
 /** Shared by the sea's vertex and fragment shaders (needs vnoise; the fragment part needs wLace). */
 export const WAKE_GLSL = /* glsl */ `
@@ -224,7 +233,7 @@ float wakeLace(vec2 p, float dens, float seed, float px, float threads, float ho
   float fine = 1.0 - smoothstep(0.012, 0.035, px);
   float c = vnoise(vec2(q.x * 3.8, q.y * 1.15)) * 0.5
           + vnoise(vec2(q.x * 8.0, q.y * 2.5) + 4.0) * 0.32
-          + (vnoise(vec2(q.x * 16.0, q.y * 5.0) + 9.0) - 0.5) * 0.18 * fine + 0.09;
+          ${LITE ? "+ 0.09; if (fine > 0.0) c += (vnoise(vec2(q.x * 16.0, q.y * 5.0) + 9.0) - 0.5) * 0.18 * fine;" : "+ (vnoise(vec2(q.x * 16.0, q.y * 5.0) + 9.0) - 0.5) * 0.18 * fine + 0.09;"}
   // Threads: ridges of a streamwise noise, thin filaments joining the cells.
   // Broken into short meandering pieces, so none runs on straight across many cells.
   float r = (1.0 - abs(vnoise(vec2(q.x * 6.0, q.y * 2.1) + 2.0) * 2.0 - 1.0)) * smoothstep(0.3, 0.55, vnoise(vec2(q.x * 2.2, q.y * 0.9) + 13.0));
@@ -233,7 +242,7 @@ float wakeLace(vec2 p, float dens, float seed, float px, float threads, float ho
   // holes open inside the thicker clumps: a solid flat-edged blob reads as a paper cut-out.
   float hn = vnoise(vec2(q.x * 9.0, q.y * 3.2) + seed * 3.1 + 17.0);
   float th = mix(0.76, 0.32, d) + 0.09 * (hn - 0.5) * fine;
-  float aa = 0.012 + px * 5.0;
+  float aa = 0.012 + px * ${SOFT ? "10.0" : "5.0"};
   float aaP = aa + 0.05 * (1.0 - smoothstep(0.004, 0.02, px));
   float patchM = smoothstep(th - aaP, th + aaP, c);
   patchM *= 1.0 - 0.85 * holes * smoothstep(0.6, 0.72, hn) * smoothstep(th, th + 0.22, c) * fine;
@@ -286,7 +295,7 @@ Wake wakeShade(vec2 q, float px, float pxm){
     // A crisp outer edge and a long ragged tail inward where the broken crest spills back. The
     // edge itself wanders in and out along the arm, so it never draws a ruled line.
     float daR = da + (vnoise(vec2(w.odo * 0.45, sd * 4.0)) - 0.5) * 1.4 + (vnoise(vec2(w.odo * 1.7, ay * 0.8)) - 0.5) * 0.7;
-    float prof = daR > 0.0 ? exp(-daR * daR * 3.0) : exp(-daR * daR * 0.8);
+    float prof = daR > 0.0 ? exp(-daR * daR * ${SOFT ? "1.4" : "3.0"}) : exp(-daR * daR * 0.8);
     float amp = S * exp(-x / 34.0) * exp(-w.age / 9.0) * smoothstep(-0.1, 0.5, x) * fade;
     // Feathers: the diverging crests cross the arm as short chevrons; once they are only a few
     // pixels apart they average out into an even band.
@@ -295,7 +304,7 @@ Wake wakeShade(vec2 q, float px, float pxm){
     fe = mix(fe, 0.6, 1.0 - smoothstep(4.0, 9.0, lamD / pxm));
     // Where the bow wave climbs into the arm, it is a dense crest of white.
     float feed = 1.0 + 0.5 * exp(-x / 2.2);
-    float dens = amp * prof * feed * mix(sqrt(wA / wE), 1.0, keep) * mix(0.5, 1.0, fe) * (1.0 + 1.8 * smoothstep(0.05, 0.4, pxL));
+    float dens = amp * prof * feed * mix(sqrt(wA / wE), 1.0, keep) * mix(0.5, 1.0, fe) * (1.0 + ${SOFT ? "0.7" : "1.8"} * smoothstep(0.05, 0.4, pxL));
     // Its outer edge breaks harder than its core.
     dens *= mix(1.0, 0.7 + 0.3 * vnoise(vec2(w.odo * 0.6, ay * 3.0) + sd * 3.0), smoothstep(0.0, 1.2, da));
     // White belongs to the inner arms by the boat: further out the arm is clear water carrying
@@ -330,12 +339,12 @@ Wake wakeShade(vec2 q, float px, float pxm){
     float wPe = max(wP, pxW);
     float lat = ay / wPe;
     float stage = exp(-max(xs - 1.0, 0.0) / 2.6) * exp(-w.age / 6.0);
-    float boil = w.churn * behind * exp(-lat * lat * 1.6) * stage * mix(sqrt(wP / wPe), 1.0, keep) * (1.0 + 0.8 * smoothstep(0.05, 0.4, pxL));
+    float boil = w.churn * behind * exp(-lat * lat * 1.6) * stage * mix(sqrt(wP / wPe), 1.0, keep) * (1.0 + ${SOFT ? "0.25" : "0.8"} * smoothstep(0.05, 0.4, pxL));
     boil *= (0.6 + 0.6 * vnoise(vec2(w.odo * 0.3, w.y * 1.4))) * (1.0 + 0.9 * exp(-max(xs, 0.0) / 1.5));
     // Capped short of solid so holes of dark water stay open, densest only in the prop's own wash.
     // One churned mass: no bubble holes or thread loops (on lone clumps both draw rings), cells
     // drawn out along the track so the gaps between them are irregular streaks of dark water.
-    float boilF = wakeLace(vec2(w.y * 1.2, w.odo * 0.5) + vec2(0.0, w.age * 0.3), clamp(boil * 0.8, 0.0, mix(0.78, 0.94, exp(-max(xs, 0.0) / 1.5))), 5.0, pxL, 0.0, 0.0);
+    float boilF = wakeLace(vec2(w.y * 1.2, w.odo * 0.5) + vec2(0.0, w.age * 0.3), clamp(boil * 0.8, 0.0, mix(${SOFT ? "0.5, 0.7" : "0.78, 0.94"}, exp(-max(xs, 0.0) / 1.5))), 5.0, pxL, ${SOFT ? "1.0, 1.0" : "0.0, 0.0"});
     // Churned patches with dark water between, drifting as the water ages; whole in the prop wash,
     // and its mean where the pixel is too coarse to draw them.
     float chM = smoothstep(0.32, 0.62, vnoise(vec2(w.y * 2.4, w.odo * 0.9) + w.age * 0.7));
@@ -432,7 +441,7 @@ Wake wakeShade(vec2 q, float px, float pxm){
     // Laced in the boat's own frame: the hull distance has corners and creases that would draw
     // nested outlines of the hull across the water.
     vec2 cq = vec2(s * 1.6, f + uWakeInfo.y + uTime * 0.3);
-    o.foam = max(o.foam, wakeLace(cq, clamp(hf * 1.1, 0.0, 1.0), 11.0, px, 0.0, 1.0));
+    o.foam = max(o.foam, wakeLace(cq, clamp(hf * ${SOFT ? "0.8, 0.0, 0.8" : "1.1, 0.0, 1.0"}), 11.0, px, 0.0, 1.0));
     o.contact = (1.0 - smoothstep(0.0, 0.1 + 0.1 * spd, d)) * smoothstep(-0.08, -0.01, d) * sternK * (1.0 - smoothstep(0.1, 0.3, px));
   }
   return o;

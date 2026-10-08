@@ -1,5 +1,13 @@
 import * as THREE from "three";
+import { TIER } from "../platform";
 import type { Rider } from "./rider";
+
+/** Phone tier: a frame narrower than TIER.horAspect keeps that aspect's horizontal view (0 = off). */
+export function fitFov(fov: number, aspect: number): number {
+  const a = TIER.horAspect;
+  if (!a || aspect >= a) return fov;
+  return (Math.atan(Math.tan((fov * Math.PI) / 360) * (a / aspect)) * 360) / Math.PI;
+}
 import { damp } from "../core/rng";
 
 export type CamMode = "chase" | "front" | "flank" | "face" | "faceside" | "back" | "custom";
@@ -411,7 +419,7 @@ export class ChaseCam {
     // Never into the beach, a rock or the pier (in toward the shore or past the berth).
     if (this.clear && e < 0.5) this.cam.position.y = Math.max(this.cam.position.y, this.clear.landFloor(this.cam.position.x, this.cam.position.z));
     this.cam.quaternion.slerpQuaternions(this.qT, this.qF, e);
-    this.cam.fov = fov + (FPP_FOV - fov) * e;
+    this.cam.fov = fitFov(fov + (FPP_FOV - fov) * e, this.cam.aspect);
     this.cam.near = TPP_NEAR + (FPP_NEAR - TPP_NEAR) * e;
     this.cam.updateProjectionMatrix();
     this.cam.updateMatrixWorld();

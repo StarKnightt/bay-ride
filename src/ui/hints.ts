@@ -33,11 +33,13 @@ const k = (s: string) => `<kbd>${s}</kbd>`;
  * over the moored boat beside the pier end (low right in the opening view).
  */
 const TOUCH_CSS = `
-.bh-touch.bh-card { left: calc(env(safe-area-inset-left) + 14px); top: calc(env(safe-area-inset-top) + 12px); bottom: auto; padding: 10px 16px 9px;
-  font-size: 12px; line-height: 1.6; transform: translateY(-8px); }
-.bh-touch.bh-card.on { transform: none; }
-.bh-touch.bh-card .cols { gap: 0 18px; }
-.bh-touch.bh-hint { font-size: 12.5px; }
+.bh-touch.bh-card { left: 50%; top: auto; bottom: calc(env(safe-area-inset-bottom) + 12px); padding: 6px 15px 5px; border-radius: 14px; box-sizing: border-box;
+  width: max-content; max-width: calc(100vw - 2 * (env(safe-area-inset-left) + 140px)); font-size: 11.5px; line-height: 1.55; transform: translate(-50%, 8px); }
+.bh-touch.bh-card.on { transform: translate(-50%, 0); }
+.bh-touch.bh-card .row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px 13px; }
+.bh-touch.bh-card .row > * { white-space: nowrap; }
+.bh-touch.bh-card h3 { margin: 0; font-size: 1.04em; }
+.bh-touch.bh-hint { font-size: 11.5px; max-width: calc(100vw - 2 * (env(safe-area-inset-right) + 136px)); white-space: normal; text-align: center; }
 .bh-touch.bh-act, .bh-touch.bh-helm { top: calc(env(safe-area-inset-top) + 14px); bottom: auto; transform: translate(-50%, -6px); }
 .bh-touch.bh-act.on, .bh-touch.bh-helm.on { transform: translate(-50%, 0); }
 .bh-ico { display: inline-grid; place-items: center; width: 19px; height: 19px; margin-right: 7px; border-radius: 50%; vertical-align: -5px;
@@ -110,6 +112,10 @@ export interface HintState {
   driving: boolean;
   /** Aboard, away from the berth, F would step ashore. */
   canAshore: boolean;
+  /** Touch: a look drag has happened. */
+  looked?: boolean;
+  /** Touch: the boat's box on screen (CSS px), so a button can step out of its way. */
+  boatBox?: { x: number; y: number; w: number; h: number } | null;
 }
 
 export class Hints {
@@ -129,13 +135,12 @@ export class Hints {
     if (touch) {
       this.card = new Note(
         "bh-card bh-touch",
-        `<h3>On foot</h3><div class="cols"><div>` +
-          `<div>${ic(ICON.stick)}left thumb, walk</div><div>${ic(ICON.stick)}to the rim, run</div><div>${ic(ICON.drag)}right thumb, look</div>` +
-          `</div><div><div>${ic(ICON.tap)}tap, hop</div><div>${ic(ICON.board)}board, by the boat</div><div>${ic(ICON.time)}time of day</div></div></div>`,
-        14,
+        `<div class="row"><h3>On foot</h3><span>${ic(ICON.stick)}walk</span><span>${ic(ICON.run)}run</span>` +
+          `<span>${ic(ICON.drag)}look</span><span>${ic(ICON.tap)}hop</span></div>`,
+        8,
       );
       this.board = new Prompt(`tap ${ic(ICON.board)} to board the boat`, "bh-hint bh-touch bh-act");
-      this.helm = new Note("bh-hint bh-touch bh-helm", `left thumb: up to go &middot; sideways to steer &middot; the rim for full speed`, 8);
+      this.helm = new Note("bh-hint bh-touch bh-helm", `In the boat &middot; ${ic(ICON.stick)}drive &middot; ${ic(ICON.run)}full speed &middot; ${ic(ICON.camera)}views`, 9);
       this.ashore = new Prompt(`tap ${ic(ICON.ashore)} to step ashore`, "bh-hint bh-touch bh-act");
       return;
     }
@@ -180,6 +185,7 @@ export class Hints {
   }
 
   update(dt: number, s: HintState): void {
+    if (this.touch) return this.updateTouch(dt, s);
     this.t += dt;
     if (this.t > 0.8) this.card.show();
     if (s.walking && this.card.shown) this.walked += dt;
@@ -197,5 +203,27 @@ export class Hints {
       if (this.drove > 5 || !s.aboard || this.ashore.shown) this.helm.hide();
     }
     this.helm.tick(dt);
+  }
+
+  /**
+   * Touch: the card at the bottom leaves once she has walked and looked round (or after 12 s), and as
+   * she boards. Aboard, the boat line shows once; the step-ashore line waits until it has gone (the
+   * button itself shows whenever stepping ashore works).
+   */
+  private updateTouch(dt: number, s: HintState): void {
+    this.t += dt;
+    if (this.t > 0.8 && !s.aboard) this.card.show();
+    if (s.walking && this.card.shown) this.walked += dt;
+    if (this.walked > 1.5 && s.looked) this.card.max = Math.min(this.card.max, this.card.t + 1);
+    if (s.aboard && this.card.shown) this.card.hide();
+    this.card.tick(dt);
+    this.board.set(s.nearBoat && !s.aboard && !this.card.shown);
+    if (s.aboard) this.helm.show();
+    if (this.helm.shown) {
+      if (s.driving) this.drove += dt;
+      if (this.drove > 6 || !s.aboard) this.helm.hide();
+    }
+    this.helm.tick(dt);
+    this.ashore.set(s.aboard && s.canAshore && !this.helm.shown);
   }
 }

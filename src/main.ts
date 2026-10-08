@@ -222,6 +222,7 @@ const post = new Post(renderer, innerWidth, innerHeight, {
   res: TIER.res,
   budget: TIER.budget,
   bloom: TIER.bloom,
+  fineLines: TIER.fineLines,
   colorType: COLOR_TYPE,
 });
 if (TIER.singlePass) post.singlePass = true;
@@ -401,7 +402,7 @@ function beginPlay(): void {
   });
 }
 
-/** Frames drawn, for the phone tier's every-other-frame sun shadow. */
+/** Frames drawn, for the phone tier's sun shadow refreshed every few frames. */
 let shadowTick = 0;
 
 /** ?gpums with a fixed ?res=: the whole frame's GPU time and the frame's main-thread time (the phone proxy). */
@@ -421,8 +422,8 @@ function drawScene(px: number, pz: number): void {
   renderer.info.reset();
   const pf = prof.on ? prof : null;
   pf?.begin("shadow", renderer);
-  // On the phone tier this map and the mirror both refresh every other frame: they take turns (the
-  // mirror's own count is one ahead), so no frame carries both.
+  // On the phone tier this map refreshes every fourth frame and the mirror every other frame, on the
+  // frames between (the mirror's own count is one ahead), so no frame carries both.
   if (++shadowTick % TIER.shadowEvery === 0) shadow.update(renderer, scene, shadowCenter);
   pf?.end("shadow", renderer);
   _charC.copy(rider.walker.position).y += 0.85;
@@ -521,6 +522,8 @@ function frame(now: number) {
         aboard: explore.inBoat,
         driving: explore.inBoat && !!b && Math.abs(b.throttle) > 0.2,
         canAshore: explore.canStepAshore,
+        looked: touch?.looked ?? false,
+        boatBox: touch ? screenBox(boat.root, 120) : null,
       };
       hints?.update(hintAcc, s);
       touch?.update(hintAcc, s);
@@ -831,7 +834,9 @@ window.__ride = {
         camMode: chase.mode,
         fpp: chase.fpp,
         tod: tod.preset,
-        fps: Math.round(fps),
+        // Behind the landscape prompt nothing is drawn: the last count would be stale.
+        fps: portrait?.shown ? 0 : Math.round(fps),
+        paused: portrait?.shown ?? false,
         audio: audio.state,
         music: audio.music,
       };
@@ -858,7 +863,7 @@ const _sv = new THREE.Vector3(), _vv = new THREE.Vector3();
  * they are), so it is her or the boat's silhouette and not a loose 3D box; null when none of it is
  * in front of the camera.
  */
-function screenBox(root: THREE.Object3D): { x: number; y: number; w: number; h: number } | null {
+function screenBox(root: THREE.Object3D, maxVerts = 3000): { x: number; y: number; w: number; h: number } | null {
   const cam = chase.cam;
   root.updateWorldMatrix(true, true);
   cam.updateMatrixWorld();
@@ -871,7 +876,7 @@ function screenBox(root: THREE.Object3D): { x: number; y: number; w: number; h: 
     const pos = m.geometry.attributes.position;
     if (!pos) return;
     const sk = m as THREE.SkinnedMesh;
-    const step = Math.max(1, Math.floor(pos.count / 3000));
+    const step = Math.max(1, Math.floor(pos.count / maxVerts));
     for (let i = 0; i < pos.count; i += step) {
       if (sk.isSkinnedMesh) sk.getVertexPosition(i, _sv);
       else _sv.fromBufferAttribute(pos, i);

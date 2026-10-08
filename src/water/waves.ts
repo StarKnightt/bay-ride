@@ -1,5 +1,9 @@
+import { TIER } from "../platform";
 import { SEA_Y } from "../world/bay/road";
 import { OPEN_GLSL, chopEta, openDeep } from "./open";
+
+/** Phone tier (platform.ts `seaLite`): the lace's finest detail only where it shows; desktop gets the same text. */
+const LITE = TIER.seaLite;
 
 /**
  * Shoreline wave model, shared by the water surface, the swash on the sand and gameplay queries.
@@ -157,7 +161,7 @@ float wLace(vec2 p, float dens, float seed, float px){
   q += (vec2(vnoise(q * 0.3), vnoise(q * 0.3 + 7.0)) - 0.5) * 1.6;
   // Patch shapes ~1-2 m: large enough to be followed from frame to frame as they drift.
   float c = vnoise(q * 0.62) * 0.62 + vnoise(q * 1.5 + 4.0) * 0.28 + vnoise(q * 3.4 + 9.0) * 0.1;
-  c += (vnoise(q * 4.5 + seed) - 0.5) * 0.16 + (vnoise(q * 11.0 + seed * 2.0) - 0.5) * 0.07 * (1.0 - smoothstep(0.02, 0.06, px));
+  ${LITE ? "c += (vnoise(q * 4.5 + seed) - 0.5) * 0.16; if (px < 0.06) c += (vnoise(q * 11.0 + seed * 2.0) - 0.5) * 0.07 * (1.0 - smoothstep(0.02, 0.06, px));" : "c += (vnoise(q * 4.5 + seed) - 0.5) * 0.16 + (vnoise(q * 11.0 + seed * 2.0) - 0.5) * 0.07 * (1.0 - smoothstep(0.02, 0.06, px));"}
   float d = clamp(dens, 0.0, 1.0);
   float th = mix(0.8, 0.18, d);
   float aa = 0.025 + px * 0.9;
@@ -170,9 +174,14 @@ float wLace(vec2 p, float dens, float seed, float px){
   vec2 qs = vec2(q.x * 0.8, q.y * 1.25);
   float b = wBub(qs * F2, seed);
   float holes = 1.0 - smoothstep(hr - aa * F2, hr + aa * F2, b);
-  float hr2 = mix(0.55, 0.25, d) * smoothstep(0.35, 0.75, vnoise(q * 0.8 + 6.0));
+  ${LITE ? `float holes2 = 0.0;
+  if (px < 0.06) {
+    float hr2 = mix(0.55, 0.25, d) * smoothstep(0.35, 0.75, vnoise(q * 0.8 + 6.0));
+    float b2 = wBub(q * F2 * 2.4 + 3.1, seed + 1.7);
+    holes2 = (1.0 - smoothstep(hr2 - aa * F2 * 2.4, hr2 + aa * F2 * 2.4, b2)) * (1.0 - smoothstep(0.02, 0.06, px));
+  }` : `float hr2 = mix(0.55, 0.25, d) * smoothstep(0.35, 0.75, vnoise(q * 0.8 + 6.0));
   float b2 = wBub(q * F2 * 2.4 + 3.1, seed + 1.7);
-  float holes2 = (1.0 - smoothstep(hr2 - aa * F2 * 2.4, hr2 + aa * F2 * 2.4, b2)) * (1.0 - smoothstep(0.02, 0.06, px));
+  float holes2 = (1.0 - smoothstep(hr2 - aa * F2 * 2.4, hr2 + aa * F2 * 2.4, b2)) * (1.0 - smoothstep(0.02, 0.06, px));`}
   float l = patchM * (1.0 - max(holes * smoothstep(0.08, 0.22, hr), holes2));
   return mix(l, cov, far);
 }

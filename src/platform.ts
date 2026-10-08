@@ -10,7 +10,8 @@
  * `?mobile=1` forces both on a desktop, `?mobile=0` forces the desktop game.
  */
 
-const params = new URLSearchParams(location.search);
+// Node tools (the CPU sims) import modules that read the tier: there it is the desktop's.
+const params = new URLSearchParams(typeof location === "undefined" ? "" : location.search);
 const forceQ = params.get("mobile");
 const FORCED: boolean | null = forceQ === "1" ? true : forceQ === "0" ? false : null;
 const mm = (q: string) => typeof matchMedia === "function" && matchMedia(q).matches;
@@ -54,7 +55,7 @@ export interface Tier {
   /** Water mirror: resolution as a share of the output, refresh every n frames, MSAA. */
   refl: [scale: number, every: number, msaa: number];
   /** Grass and flower density and reach (flora/index.ts TIERS). */
-  flora: "low" | "med" | "high";
+  flora: "xlow" | "low" | "med" | "high";
   /** Sea mesh spacing factor (1 = the desktop's; at a phone's resolution its vertex shader costs more than its pixels). */
   seaMesh: number;
   /** Sun shadow map refreshed every n frames. */
@@ -64,6 +65,20 @@ export interface Tier {
   dune: number;
   /** Icosphere detail of each leaf clump's solid mass: 1 is 80 triangles, 0 is 20 (most of a tree's triangles). */
   treeMass: number;
+  /** Ink width and the paint filter's radius follow the frame height all the way down (a phone's small frame keeps desktop's thin lines, faded below half a pixel) instead of holding their 1080p size. */
+  fineLines: boolean;
+  /** The wake's lace with softer edges and less far-off fill (a phone's coarse pixels otherwise turn it into flat, hard-edged scraps). */
+  softWake: boolean;
+  /** A lighter sea: two glitter cell sizes of three, one ripple-dab size of two, three mirror taps of five, no thin far break lines, and lace detail computed only where it shows. */
+  seaLite: boolean;
+  /** Without MSAA, alpha-cut cards (grass blades, leaf cards) cut cleanly at half coverage: the 4x4 ordered dither that stands in for MSAA stipples every blade edge into beads at a phone's pixel size. */
+  alphaCut: boolean;
+  /** Frames narrower than this aspect keep its horizontal view (the field of view widens upward), so an X player card's square keeps her, the island and the boat in shot; 0 = off. */
+  horAspect: number;
+  /** Sun shadow filter taps this many texels apart: the phone's half-size map needs a wider penumbra to hide its steps (1 = desktop). */
+  shadowSpread: number;
+  /** Trees drawn in the water mirror: 1 every wood but the hill's (desktop), 0 only the island's (its reflection leads the opening view; the town and headland trees are a few pixels in a phone's small mirror). */
+  reflTrees: number;
 }
 
 export const DESKTOP: Tier = {
@@ -83,25 +98,39 @@ export const DESKTOP: Tier = {
   treeCards: 1,
   dune: 1,
   treeMass: 1,
+  fineLines: false,
+  softWake: false,
+  seaLite: false,
+  alphaCut: false,
+  horAspect: 0,
+  shadowSpread: 1,
+  reflTrees: 1,
 };
 
 export const PHONE: Tier = {
   dpr: 1,
-  res: [0.8, 0.6, 1],
+  res: [0.9, 0.8, 1],
   budget: [26, 18, 38, 22],
   singlePass: true,
   msaa: 0,
   shadow: 1024,
   charShadow: 512,
   paint: 0.85,
-  bloom: 0.5,
+  bloom: 0.25,
   refl: [0.35, 2, 0],
-  flora: "med",
+  flora: "xlow",
   seaMesh: 2,
-  shadowEvery: 2,
-  treeCards: 0.45,
+  shadowEvery: 4,
+  treeCards: 0.35,
   dune: 0.5,
   treeMass: 0,
+  fineLines: true,
+  softWake: true,
+  seaLite: true,
+  alphaCut: true,
+  horAspect: 1.6,
+  shadowSpread: 1.75,
+  reflTrees: 0,
 };
 
 /** `?tier=key:value,...` overrides single settings (tuning runs), e.g. `?tier=msaa:0,shadow:512,res:0.7/0.6/1`. */
@@ -223,8 +252,19 @@ if (PLATFORM.phone) {
 
 /** The loader's start line in touch words. */
 export function touchLoaderText(): void {
-  const s = document.querySelector("#loader .start");
-  if (s) s.textContent = "tap to start";
+  const s = document.querySelector<HTMLElement>("#loader .start");
+  if (s) {
+    s.textContent = "tap to start";
+    // Thin italic over the pale deck: a soft dark shadow keeps it legible.
+    s.style.textShadow = "0 1px 3px rgba(40, 26, 18, 0.6), 0 0 14px rgba(40, 26, 18, 0.5)";
+  }
+  // In a landscape phone frame the pier lamp's head stands in the title and its subtitle: lift the
+  // block and set it left of the lamp.
+  const t = document.querySelector<HTMLElement>("#loader .title");
+  if (t) {
+    t.style.top = "3vh";
+    t.style.transform = "translateX(-9vw)";
+  }
 }
 
 /**
@@ -245,7 +285,7 @@ export function onFirstTap(fn: () => boolean): void {
 
 /** Android: fullscreen with the navigation bar hidden, then hold landscape. Elsewhere nothing. */
 export function goFullscreen(): void {
-  if (!PLATFORM.android || PLATFORM.forced !== null) return;
+  if (!PLATFORM.android || PLATFORM.forced !== null || EMBEDDED) return;
   const el = document.documentElement;
   if (!el.requestFullscreen || document.fullscreenElement) return;
   el.requestFullscreen({ navigationUI: "hide" })
@@ -282,7 +322,19 @@ export function watchViewport(apply: (w: number, h: number) => void): void {
   document.addEventListener("fullscreenchange", settle);
 }
 
-/** Held in portrait (on a phone): the landscape prompt shows and play waits. */
+/** Inside another page's frame (an X player card is a fixed 480x480 or 640x360 iframe, even on an upright phone). */
+export const EMBEDDED = (() => {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+})();
+
+/**
+ * Held in portrait (on a phone): the landscape prompt shows and play waits. Measured on the page's
+ * own size: in a frame only a clearly upright one asks, never a square or wide card.
+ */
 export function isPortrait(): boolean {
-  return PLATFORM.phone && innerHeight > innerWidth * 1.05;
+  return PLATFORM.phone && innerHeight > innerWidth * (EMBEDDED ? 1.2 : 1.05);
 }

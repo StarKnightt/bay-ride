@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { TIER } from "../platform";
 import { COMMON, G } from "../render/materials";
 import { HULL, STEM_Z, waterlineHalf } from "./model";
 import { BOOST, type Boat, type BoatSnap } from "./boat";
@@ -140,7 +141,7 @@ export class Spray {
           } else {
             float rd = 0.7 * sqrt(life);
             float fw = max(fwidth(r), 1e-3) * 0.75;
-            a = 1.0 - smoothstep(rd - fw, rd + fw, r);
+            ${TIER.softWake ? "a = (1.0 - smoothstep(rd * 0.3, rd + fw, r)) * 0.75;" : "a = 1.0 - smoothstep(rd - fw, rd + fw, r);"}
           }
           a *= mix(1.0, 0.6, uNight);
           if (a < 0.01) discard;

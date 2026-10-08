@@ -27,10 +27,22 @@ export interface PostOptions {
   budget?: [number, number, number, number];
   /** Bloom resolution as a share of the output (0.5 by default). */
   bloom?: number;
+  /** Ink width and paint radius follow the frame height below 1080p (phones; platform.ts `fineLines`). */
+  fineLines?: boolean;
   colorType?: THREE.TextureDataType;
 }
 
 const FS_VS = /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+
+/**
+ * Ink line width in output pixels, and its strength: 1.35 px at 1080p and never thinner; or, `fine`,
+ * thinner with the frame, sampled at least half a pixel apart and fading below that.
+ */
+function inkWidth(H: number, fine: boolean): [width: number, strength: number] {
+  if (!fine) return [Math.max(1.0, H / 1080) * 1.35, 1];
+  const w = (H / 1080) * 1.35;
+  return [Math.max(w, 0.5), Math.min(1, w / 0.5)];
+}
 
 /**
  * Scene → MRT (colour, normal/id/mask, depth) → [paint filter + ink outlines] → bloom →
@@ -60,6 +72,8 @@ export class Post {
    */
   scale = 1;
   readonly adaptive: boolean;
+  /** Ink width and paint radius follow the frame height (phones; see inkWidth). */
+  private readonly fine: boolean;
   private W: number;
   private H: number;
   private timer: { TIME_ELAPSED_EXT: number; GPU_DISJOINT_EXT: number } | null;
@@ -100,6 +114,7 @@ export class Post {
     const W = Math.floor(w * pr), H = Math.floor(h * pr);
     this.W = W;
     this.H = H;
+    this.fine = !!opts.fineLines;
     const res = new URLSearchParams(location.search).get("res");
     const fixed = res !== null && res !== "" && Number.isFinite(Number(res)) ? THREE.MathUtils.clamp(Number(res), 0.5, 1) : null;
     this.adaptive = fixed === null;
@@ -130,7 +145,8 @@ export class Post {
         uRes: { value: new THREE.Vector2(W, H) },
         uNear: { value: 0.15 },
         uFar: { value: 4200 },
-        uWidth: { value: Math.max(1.0, H / 1080) * 1.35 },
+        uWidth: { value: inkWidth(H, this.fine)[0] },
+        ...(this.fine ? { uInkK: { value: inkWidth(H, true)[1] } } : {}),
         uKuwa: { value: opts.kuwahara ? 1 : 0 },
         uInk: { value: new THREE.Color("#1c1418") },
         uS: { value: new THREE.Vector2(1, 1) },
@@ -140,7 +156,7 @@ export class Post {
       fragmentShader: /* glsl */ `
         ${SAFE_GLSL}
         uniform sampler2D tColor, tNormal, tDepth;
-        uniform vec2 uRes; uniform float uNear, uFar, uWidth, uKuwa; uniform vec3 uInk;
+        uniform vec2 uRes; uniform float uNear, uFar, uWidth, uKuwa; uniform vec3 uInk;${this.fine ? " uniform float uInkK;" : ""}
         uniform vec2 uS, uMax;
         varying vec2 vUv;
         float linz(float d){ float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
@@ -227,7 +243,7 @@ export class Post {
           e *= mix(1.0, mix(1.0 - 0.45 * bFar, 1.0 - bFar, 1.0 - boatC), max(boatC, nBoat));
           vec3 inkCol = mix(mix(col * 0.22, uInk, 0.55), vec3(0.042, 0.023, 0.016), chr * 0.85);
           inkCol = mix(inkCol, col * 0.55, boatC * bFar * 0.7);
-          col = mix(col, inkCol, safe1(e) * 0.92);
+          col = mix(col, inkCol, safe1(e) * 0.92${this.fine ? " * uInkK" : ""});
           gl_FragColor = vec4(safe3(col), 1.0);
         }`,
     });
@@ -237,6 +253,7 @@ export class Post {
     this.composer.addPass(this.ink);
     // The paint filter replaces the ink pass's own small Kuwahara; ?paint=0..1 sets its strength.
     this.paint = opts.kuwahara ? new Paint(W, H, this.mrt, colorType) : null;
+    if (this.paint) this.paint.fine = this.fine;
     if (this.paint) {
       const ps = new URLSearchParams(location.search).get("paint");
       if (ps !== null && Number.isFinite(Number(ps))) this.paint.strength = Number(ps);
@@ -456,7 +473,9 @@ export class Post {
     this.paint?.setSize(W, H);
     this.composer.setSize(w, h);
     this.ink.uniforms.uRes.value.set(W, H);
-    this.ink.uniforms.uWidth.value = Math.max(1.0, H / 1080) * 1.35;
+    const [iw, ik] = inkWidth(H, this.fine);
+    this.ink.uniforms.uWidth.value = iw;
+    if (this.fine) this.ink.uniforms.uInkK.value = ik;
     this.grade.uniforms.uRes.value.set(W, H);
     this.sharpen.uniforms.uTexel.value.set(1 / W, 1 / H);
     this.setScale(this.scale);

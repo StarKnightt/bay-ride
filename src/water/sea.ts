@@ -12,6 +12,9 @@ import { WAKE_FS_GLSL, WAKE_GLSL, WAKE_U } from "./wake";
 import { WATER_TOD } from "./look";
 import { TIER } from "../platform";
 
+/** Phone tier: the lighter sea (platform.ts `seaLite`); desktop gets the same shader text. */
+const LITE = TIER.seaLite;
+
 const OUT = /* glsl */ `
 layout(location = 0) out vec4 gColor;
 layout(location = 1) out vec4 gNormal;
@@ -234,7 +237,7 @@ const FS = /* glsl */ `
   // the water body), a few lighter. Signed: + dark, - light.
   float oFanDabs(vec2 fd, float t, float gust){
     float s = 0.0;
-    for (int k = 0; k < 2; k++) {
+    for (int k = 0; k < ${LITE ? 1 : 2}; k++) {
       float fk = float(k);
       vec2 id;
       vec2 F = oFan(fd, k == 0 ? 0.034 : 0.021, k == 0 ? 0.5 : 0.32, 0.0, id);
@@ -257,7 +260,7 @@ const FS = /* glsl */ `
   // the mean slope g0), y = the lighthouse lamp (sH1, sig1 round g1). A needed slope of 100 is off.
   vec2 oFanGlint2(vec2 fd, float t, vec2 g0, vec2 sH, float sig, float rad, vec2 g1, vec2 sH1, float sig1, float rad1){
     vec2 best = vec2(0.0);
-    for (int k = 0; k < 3; k++) {
+    for (int k = 0; k < ${LITE ? 2 : 3}; k++) {
       vec2 id;
       vec2 F = oFan(fd, k == 0 ? 0.016 : k == 1 ? 0.0105 : 0.0072, k == 0 ? 0.17 : k == 1 ? 0.115 : 0.08, -t * (0.3 + 0.12 * float(k)), id);
       vec2 aa = vec2(fwidth(F.x), fwidth(F.y));
@@ -332,7 +335,7 @@ const FS = /* glsl */ `
     float bw = vnoise(vec2(az * 1.0 + 5.0, lr * 0.8 - t * 0.03));
     float bA = vnoise(vec2(az * 1.3 + bw * 1.2, lr * 2.3 + t * 0.07));
     float bB = vnoise(vec2(az * 1.6 + 2.0, lr * 6.5 + t * 0.16 + bw * 1.5));
-    float wide = smoothstep(0.56, 0.68, bA) * (1.0 - smoothstep(0.8, 0.92, bA) * 0.5);
+    float wide = smoothstep(0.56, 0.68, bA) * (1.0 - smoothstep(0.8, 0.92, bA) * 0.5);${LITE ? " return vec3(wide, 0.0, 0.0);" : ""}
     float lw = max(0.035 + 0.03 * bw, flr * 6.5 * 1.8);
     float line = (1.0 - smoothstep(0.0, lw, abs(bB - 0.62))) * smoothstep(0.3, 0.5, bw + 0.2) * min(1.0, 0.05 / lw);
     // The thin lines belong to the mirrored scene further out; near the eye the strokes take over.
@@ -622,9 +625,9 @@ const FS = /* glsl */ `
       // Taps jittered per pixel, so a wide blur is a smooth ramp and not five stacked steps.
       float tj = (fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) - 0.5) * 0.5 * smoothstep(0.002, 0.008, blurD);
       // Under about a texel of spread (steep views) one tap is the same image.
-      int nT = span > 0.0025 ? 2 : 0;
+      int nT = span > 0.0025 ? ${LITE ? 1 : 2} : 0;
       for (int i = -nT; i <= nT; i++) {
-        float fi = float(i) * 0.5 + tj;
+        float fi = float(i) * ${LITE ? "1.0" : "0.5"} + tj;
         float wob = sin(wph + fi * 2.7) * wam;
         vec2 tu = ruv + vec2(wob, fi * span);
         tu = vec2(1.0 - abs(1.0 - abs(tu.x)), min(tu.y, hy));
