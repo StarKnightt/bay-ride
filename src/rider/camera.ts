@@ -3,7 +3,7 @@ import { TIER } from "../platform";
 import type { Rider } from "./rider";
 
 /** Phone tier: a frame narrower than TIER.horAspect keeps that aspect's horizontal view (0 = off). */
-function fitFov(fov: number, aspect: number): number {
+export function fitFov(fov: number, aspect: number): number {
   const a = TIER.horAspect;
   if (!a || aspect >= a) return fov;
   return (Math.atan(Math.tan((fov * Math.PI) / 360) * (a / aspect)) * 360) / Math.PI;

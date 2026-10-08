@@ -5,7 +5,7 @@ import { roadX, roadYaw } from "../world/bay/road";
 import { gaitCycle, jumpClock, type FootState, type GroundFn, type Rider } from "./rider";
 import { Boarding, SHORE_FROM, SHORE_OFF, SHORE_STATIONS, type TransitKind } from "./boarding";
 import { gunwaleAt } from "../boat/model";
-import type { ChaseCam } from "./camera";
+import { fitFov, type ChaseCam } from "./camera";
 import type { Input } from "../core/input";
 import type { RideAudio, StepSurface } from "../audio";
 import { clamp, damp } from "../core/rng";
@@ -1014,7 +1014,7 @@ export class Explore {
     // ground just round it (on a hillside the slope above would fill the near view).
     const px = cam.position.x, pz = cam.position.z, F = this.bay;
     cam.position.y = Math.max(cam.position.y, F.camFloor(px, pz), F.camFloor(px + 0.6, pz), F.camFloor(px - 0.6, pz), F.camFloor(px, pz + 0.6), F.camFloor(px, pz - 0.6));
-    cam.fov = 45;
+    cam.fov = fitFov(45, cam.aspect);
     cam.near = 0.1;
     cam.updateProjectionMatrix();
     cam.lookAt(this.pivot.x, this.pivot.y + 0.05, this.pivot.z);
