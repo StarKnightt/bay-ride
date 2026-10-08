@@ -34,7 +34,7 @@ const k = (s: string) => `<kbd>${s}</kbd>`;
  */
 const TOUCH_CSS = `
 .bh-touch.bh-card { left: 50%; top: auto; bottom: calc(env(safe-area-inset-bottom) + 12px); padding: 6px 15px 5px; border-radius: 14px; box-sizing: border-box;
-  max-width: calc(100vw - 2 * (env(safe-area-inset-left) + 140px)); font-size: 11.5px; line-height: 1.55; transform: translate(-50%, 8px); }
+  max-width: calc(100vw - 2 * (env(safe-area-inset-left) + 128px)); font-size: 11.5px; line-height: 1.55; transform: translate(-50%, 8px); }
 .bh-touch.bh-card.on { transform: translate(-50%, 0); }
 .bh-touch.bh-card .row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px 13px; }
 .bh-touch.bh-card .row > * { white-space: nowrap; }
@@ -137,7 +137,7 @@ export class Hints {
         "bh-card bh-touch",
         `<div class="row"><h3>On foot</h3><span>${ic(ICON.stick)}walk</span><span>${ic(ICON.run)}run</span>` +
           `<span>${ic(ICON.drag)}look</span><span>${ic(ICON.tap)}hop</span></div>`,
-        12,
+        8,
       );
       this.board = new Prompt(`tap ${ic(ICON.board)} to board the boat`, "bh-hint bh-touch bh-act");
       this.helm = new Note("bh-hint bh-touch bh-helm", `In the boat &middot; ${ic(ICON.stick)}drive &middot; ${ic(ICON.run)}full speed &middot; ${ic(ICON.camera)}views`, 9);

@@ -73,6 +73,10 @@ export interface Tier {
   seaLite: boolean;
   /** Without MSAA, alpha-cut cards (grass blades, leaf cards) cut cleanly at half coverage: the 4x4 ordered dither that stands in for MSAA stipples every blade edge into beads at a phone's pixel size. */
   alphaCut: boolean;
+  /** Frames narrower than this aspect keep its horizontal view (the field of view widens upward), so an X player card's square keeps her, the island and the boat in shot; 0 = off. */
+  horAspect: number;
+  /** Sun shadow filter taps this many texels apart: the phone's half-size map needs a wider penumbra to hide its steps (1 = desktop). */
+  shadowSpread: number;
 }
 
 export const DESKTOP: Tier = {
@@ -96,6 +100,8 @@ export const DESKTOP: Tier = {
   softWake: false,
   seaLite: false,
   alphaCut: false,
+  horAspect: 0,
+  shadowSpread: 1,
 };
 
 export const PHONE: Tier = {
@@ -119,6 +125,8 @@ export const PHONE: Tier = {
   softWake: true,
   seaLite: true,
   alphaCut: true,
+  horAspect: 1.6,
+  shadowSpread: 1.75,
 };
 
 /** `?tier=key:value,...` overrides single settings (tuning runs), e.g. `?tier=msaa:0,shadow:512,res:0.7/0.6/1`. */
@@ -246,9 +254,13 @@ export function touchLoaderText(): void {
     // Thin italic over the pale deck: a soft dark shadow keeps it legible.
     s.style.textShadow = "0 1px 3px rgba(40, 26, 18, 0.6), 0 0 14px rgba(40, 26, 18, 0.5)";
   }
-  // In a landscape phone frame the pier lamp's head stands in the title: lift it clear.
+  // In a landscape phone frame the pier lamp's head stands in the title and its subtitle: lift the
+  // block and set it left of the lamp.
   const t = document.querySelector<HTMLElement>("#loader .title");
-  if (t) t.style.top = "4vh";
+  if (t) {
+    t.style.top = "3vh";
+    t.style.transform = "translateX(-9vw)";
+  }
 }
 
 /**

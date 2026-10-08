@@ -222,7 +222,7 @@ float shadowVis(vec3 wpos, vec3 N){
   float L[16];
   float bz = 0.0, bn = 0.0;
   for (int j = 0; j < 4; j++) for (int i = 0; i < 4; i++) {
-    float d = textureLod(uShadowMap, b0 + vec2(float(i - 1), float(j - 1)) * uShadowTexel, 0.0).r;
+    float d = textureLod(uShadowMap, b0 + vec2(float(i - 1), float(j - 1)) * uShadowTexel${TIER.shadowSpread !== 1 ? ` * ${TIER.shadowSpread.toFixed(2)}` : ""}, 0.0).r;
     float lit = step(s.z - 0.0008, d);
     L[j * 4 + i] = lit;
     bz += (1.0 - lit) * (s.z - d);
