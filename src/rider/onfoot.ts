@@ -291,6 +291,30 @@ export class Explore {
     this.rider.headWorld(this.pivot);
   }
 
+  /**
+   * Standing still at world (x, z) facing `yaw`, the orbit camera as in spawn and at rest from the
+   * next frame. Aboard the skiff, or stepping in or out of it, she leaves it and it lies at its
+   * berth again at rest; `home` puts it there anyway.
+   */
+  setDown(x: number, z: number, yaw: number, rel: number, pitch: number, dist: number, home = false): void {
+    const aboard = this.mode !== "walk";
+    if (aboard) this.chase.forceThirdPerson(this.rider);
+    this.spawn(x, z, yaw, rel, pitch, dist);
+    this.run = this.turn = this.grade = this.lift = 0;
+    this.look = this.lookUp = this.lookTarget = this.idleT = 0;
+    this.refuseT = 9;
+    this.jumpsStale = true;
+    this.snapCam = true;
+    this.rider.reset();
+    const b = this.boat;
+    if (b && (aboard || home)) b.reset();
+    else b?.setLoad(0, 0, 0);
+  }
+  /** Space presses so far are not for her (pressed in the boat, or before she was set down). */
+  private jumpsStale = false;
+  /** The next orbit update goes straight to its rest pose. */
+  private snapCam = false;
+
   /** The orbit camera picks up from wherever the current camera is. */
   private orbitFromCam(): void {
     const cam = this.chase.cam.position;
@@ -682,6 +706,10 @@ export class Explore {
 
   /** Space: a short anticipation crouch, then the take-off (on foot, ready, not aloft). */
   private jumpInput(dt: number, input: Input): void {
+    if (this.jumpsStale) {
+      this.jumpsStale = false;
+      this.jumpsSeen = input.jumps;
+    }
     if (input.jumps !== this.jumpsSeen) {
       this.jumpsSeen = input.jumps;
       if (this.enabled) this.jumpBuf = 0.15;
@@ -985,6 +1013,10 @@ export class Explore {
   private lift = 0;
 
   updateCamera(dt: number, cam: THREE.PerspectiveCamera): void {
+    if (this.snapCam) {
+      this.snapCam = false;
+      dt = 30;
+    }
     const head = this.rider.headWorld(_head);
     head.y -= PIVOT_DROP;
     this.pivot.x = damp(this.pivot.x, head.x, 9, dt);

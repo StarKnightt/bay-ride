@@ -36,7 +36,7 @@ interface Palette {
   lamp: boolean;
 }
 
-const PALETTES: Record<Preset, Palette> = {
+export const PALETTES: Record<Preset, Palette> = {
   morning: {
     sky: ["#2b98ad", "#5bb5c6", "#b6d8d6", "#f3dfc9"], sea: ["#9ccac8", "#4f9db0", "#2f7c9c", "#24688a"],
     glow: [0.84, 0.86, [255, 222, 186], 0.5, 0.5], headland: "#7fa5b0", island: "#6c94a4", haze: [243, 223, 201], ink: [10, 60, 90],

@@ -164,6 +164,15 @@ export class Boat {
     this.apply(0);
   }
 
+  /** On the berth at rest as at the start: nobody aboard, no wake or spray behind her, afloat afresh. */
+  reset(): void {
+    this.moor();
+    this.setLoad(0, 0, 0);
+    this.hHead = this.hLen = 0;
+    this.lastT = null;
+    this.bowVelMin = this.slapCool = 0;
+  }
+
   update(dt: number, t: number, input: Input | null): void {
     this.bumped = 0;
     if (this.mode === "scripted") this.runScript(t);
