@@ -60,10 +60,9 @@ const CSS = `
   background: rgba(248, 241, 226, 0.86); box-shadow: 0 4px 14px rgba(40, 28, 18, 0.22); display: grid; place-items: center; }
 .tc-knob svg { width: 20px; height: 20px; opacity: 0.55; }
 .tc-stick.rim .tc-knob { background: rgba(255, 246, 222, 0.96); }
-.tc.dim .tc-btn:not(.gone) { opacity: 0.55; }
+.tc.dim .tc-btn:not(.gone):not(.tc-act) { opacity: 0.55; }
 .tc.dim .tc-btn.down { opacity: 1; }
 .tc.dim .tc-stick:not(.held) { opacity: 0.38; }
-.tc.idle .tc-btn:not(.gone) { opacity: 0.42; }
 .tc.idle .tc-stick:not(.held) { opacity: 0.28; }
 .tc-port { position: fixed; inset: 0; z-index: 9; display: none; place-items: center; background: var(--boot, #efe6d2); touch-action: none; }
 .tc-port.on { display: grid; }
