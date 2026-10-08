@@ -339,12 +339,12 @@ Wake wakeShade(vec2 q, float px, float pxm){
     float wPe = max(wP, pxW);
     float lat = ay / wPe;
     float stage = exp(-max(xs - 1.0, 0.0) / 2.6) * exp(-w.age / 6.0);
-    float boil = w.churn * behind * exp(-lat * lat * 1.6) * stage * mix(sqrt(wP / wPe), 1.0, keep) * (1.0 + 0.8 * smoothstep(0.05, 0.4, pxL));
+    float boil = w.churn * behind * exp(-lat * lat * 1.6) * stage * mix(sqrt(wP / wPe), 1.0, keep) * (1.0 + ${SOFT ? "0.25" : "0.8"} * smoothstep(0.05, 0.4, pxL));
     boil *= (0.6 + 0.6 * vnoise(vec2(w.odo * 0.3, w.y * 1.4))) * (1.0 + 0.9 * exp(-max(xs, 0.0) / 1.5));
     // Capped short of solid so holes of dark water stay open, densest only in the prop's own wash.
     // One churned mass: no bubble holes or thread loops (on lone clumps both draw rings), cells
     // drawn out along the track so the gaps between them are irregular streaks of dark water.
-    float boilF = wakeLace(vec2(w.y * 1.2, w.odo * 0.5) + vec2(0.0, w.age * 0.3), clamp(boil * 0.8, 0.0, mix(0.78, 0.94, exp(-max(xs, 0.0) / 1.5))), 5.0, pxL, 0.0, 0.0);
+    float boilF = wakeLace(vec2(w.y * 1.2, w.odo * 0.5) + vec2(0.0, w.age * 0.3), clamp(boil * 0.8, 0.0, mix(${SOFT ? "0.5, 0.7" : "0.78, 0.94"}, exp(-max(xs, 0.0) / 1.5))), 5.0, pxL, ${SOFT ? "1.0, 1.0" : "0.0, 0.0"});
     // Churned patches with dark water between, drifting as the water ages; whole in the prop wash,
     // and its mean where the pixel is too coarse to draw them.
     float chM = smoothstep(0.32, 0.62, vnoise(vec2(w.y * 2.4, w.odo * 0.9) + w.age * 0.7));
@@ -441,7 +441,7 @@ Wake wakeShade(vec2 q, float px, float pxm){
     // Laced in the boat's own frame: the hull distance has corners and creases that would draw
     // nested outlines of the hull across the water.
     vec2 cq = vec2(s * 1.6, f + uWakeInfo.y + uTime * 0.3);
-    o.foam = max(o.foam, wakeLace(cq, clamp(hf * 1.1, 0.0, 1.0), 11.0, px, 0.0, 1.0));
+    o.foam = max(o.foam, wakeLace(cq, clamp(hf * ${SOFT ? "0.8, 0.0, 0.8" : "1.1, 0.0, 1.0"}), 11.0, px, 0.0, 1.0));
     o.contact = (1.0 - smoothstep(0.0, 0.1 + 0.1 * spd, d)) * smoothstep(-0.08, -0.01, d) * sternK * (1.0 - smoothstep(0.1, 0.3, px));
   }
   return o;
