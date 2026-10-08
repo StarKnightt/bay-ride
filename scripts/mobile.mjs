@@ -300,8 +300,9 @@ for (const key of WANT) {
     await shot("ashore_beach");
   }
 
-  // On foot at golden: the beach and shallows toward the island, and the dune grass under the hill woods.
-  for (const [name, q] of [["beach", "spawn=40,-60,1.4&orbit=0,0.2,4"], ["dunes_woods", "spawn=34,-36,-1.5&orbit=0,0.06,4"]]) {
+  // On foot at golden: the beach and shallows toward the island, the dune grass under the hill woods,
+  // and the hill crest above the town looking out over the bay.
+  for (const [name, q] of [["beach", "spawn=40,-60,1.4&orbit=0,0.2,4"], ["dunes_woods", "spawn=34,-36,-1.5&orbit=0,0.06,4"], ["hill", "spawn=223.8,-130,1.83&orbit=0,0.1,4.5"]]) {
     await page.goto(`${URL}?progwarn&hints=1&skipintro=1&tod=golden&${q}${dev.q}`, { waitUntil: "load" });
     await page.waitForFunction(() => window.__ride?.ready === true, null, { timeout: 400_000, polling: 200 });
     // The On foot card belongs to the pier start: these frames show the ground once it has gone.
