@@ -203,11 +203,15 @@ export class Post {
           offs[0] = vec2(1.0, 0.0); offs[1] = vec2(0.0, 1.0); offs[2] = vec2(0.7071, 0.7071); offs[3] = vec2(0.7071, -0.7071);
           for (int i = 0; i < 4; i++){
             vec2 o = offs[i] * px;
-            vec4 n1 = textureLod(tNormal, min(uv + o, uMax), 0.0), n2 = textureLod(tNormal, uv - o, 0.0);
+            ${this.fine ? `// Ids, masks and depths are per texel: a bilinear read between a grass texel (mask -1) and the
+            // sand beside it reads as neither, so the sand drew a ring round every blade. Nearest texel.
+            vec2 u1 = (floor(min(uv + o, uMax) * uRes) + 0.5) / uRes, u2 = (floor((uv - o) * uRes) + 0.5) / uRes;
+            vec4 n1 = textureLod(tNormal, u1, 0.0), n2 = textureLod(tNormal, u2, 0.0);` : `vec4 n1 = textureLod(tNormal, min(uv + o, uMax), 0.0), n2 = textureLod(tNormal, uv - o, 0.0);`}
             // Excluded surfaces (mask < 0: grass, leaf cards, motes) never ink or induce ink.
             if (n1.a < 0.0 || n2.a < 0.0) continue;
-            float i1 = 1.0 / linz(textureLod(tDepth, min(uv + o, uMax), 0.0).r);
-            float i2 = 1.0 / linz(textureLod(tDepth, uv - o, 0.0).r);
+            ${this.fine ? `float i1 = 1.0 / linz(textureLod(tDepth, u1, 0.0).r);
+            float i2 = 1.0 / linz(textureLod(tDepth, u2, 0.0).r);` : `float i1 = 1.0 / linz(textureLod(tDepth, min(uv + o, uMax), 0.0).r);
+            float i2 = 1.0 / linz(textureLod(tDepth, uv - o, 0.0).r);`}
             // Laplacian of 1/z is zero on planes: only creases and silhouettes light up.
             eD = max(eD, abs(i1 + i2 - 2.0 * iC) / iC);
             eN = max(eN, length(n1.xy - nC.xy) + length(n2.xy - nC.xy));
