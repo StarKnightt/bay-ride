@@ -77,6 +77,10 @@ export interface Tier {
   horAspect: number;
   /** Sun shadow filter taps this many texels apart: the phone's half-size map needs a wider penumbra to hide its steps (1 = desktop). */
   shadowSpread: number;
+  /** Dune grass may draw or induce ink. Under MSAA the faint outline the sand draws round each blade stays hair-thin; at a phone's pixel size it broke into chains of rings, so phones keep the blades out of the ink like the meadow grass. */
+  inkFoliage: boolean;
+  /** Power-line radius (m): a phone's pixel is several times a desktop's, and a 1.2 cm wire broke into dashes across the hill. */
+  wireR: number;
   /** Trees drawn in the water mirror: 1 every wood but the hill's (desktop), 0 only the island's (its reflection leads the opening view; the town and headland trees are a few pixels in a phone's small mirror). */
   reflTrees: number;
 }
@@ -104,6 +108,8 @@ export const DESKTOP: Tier = {
   alphaCut: false,
   horAspect: 0,
   shadowSpread: 1,
+  inkFoliage: true,
+  wireR: 0.012,
   reflTrees: 1,
 };
 
@@ -130,6 +136,8 @@ export const PHONE: Tier = {
   alphaCut: true,
   horAspect: 1.6,
   shadowSpread: 1.75,
+  inkFoliage: false,
+  wireR: 0.028,
   reflTrees: 0,
 };
 
@@ -258,12 +266,15 @@ export function touchLoaderText(): void {
     // Thin italic over the pale deck: a soft dark shadow keeps it legible.
     s.style.textShadow = "0 1px 3px rgba(40, 26, 18, 0.6), 0 0 14px rgba(40, 26, 18, 0.5)";
   }
-  // In a landscape phone frame the pier lamp's head stands in the title and its subtitle: lift the
-  // block and set it left of the lamp.
+  // In a landscape phone frame the pier lamp stands mid-screen with the lighthouse to its left: the
+  // title goes in the open sky right of the lamp, a little smaller.
   const t = document.querySelector<HTMLElement>("#loader .title");
   if (t) {
     t.style.top = "3vh";
-    t.style.transform = "translateX(-9vw)";
+    t.style.left = "60%";
+    t.style.right = "env(safe-area-inset-right)";
+    const h = t.querySelector<HTMLElement>("h1");
+    if (h) h.style.fontSize = "clamp(36px, 7vw, 96px)";
   }
 }
 

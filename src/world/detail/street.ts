@@ -6,6 +6,7 @@ import { LAYER_REFLECT, LAYER_SHADOW, onLayers } from "../../render/lightpasses"
 import { ROAD_Z1, roadDX, roadX } from "../bay/road";
 import { WALL_IN, meshH } from "../bay/terrain";
 import type { Collider } from "../bay";
+import { TIER } from "../../platform";
 import type { Layout } from "../../flora/place";
 import { PATHS, VIEW_BENCHES } from "./paths";
 
@@ -223,7 +224,7 @@ export function buildStreet(layout: Layout, colliders: Collider[]): THREE.Group 
   for (let i = 0; i + 1 < poles.length; i++)
     for (let k = 0; k < 5; k++) {
       const a = poles[i].tips[k], b = poles[i + 1].tips[k];
-      c.wires.push(...wire(a, b, range(c.r, 0.55, 0.85) * (k < 3 ? 1 : 1.15), 0.012, "#2a2a2a", 10));
+      c.wires.push(...wire(a, b, range(c.r, 0.55, 0.85) * (k < 3 ? 1 : 1.15), TIER.wireR, "#2a2a2a", 10));
     }
   // Service drops from the harbour poles to the waterfront houses' eaves, and up the main lane.
   const drop = (a: V3, b: V3) => c.wires.push(...wire(a, b, 0.35 + a.distanceTo(b) * 0.012, 0.01, "#2a2a2a", 8));

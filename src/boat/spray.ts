@@ -128,7 +128,7 @@ export class Spray {
           vec2 p = vUv * 2.0 - 1.0;
           float r = length(p);
           float a, life = clamp(vF.x, 0.0, 1.0);
-          if (vF.w > 0.5) {
+          ${TIER.softWake ? "if (vF.w > 1.5) { a = (1.0 - smoothstep(0.1, 0.8, r + (vnoise(p * 2.6 + vF.y * 23.0) - 0.5) * 0.4)) * 0.5 * smoothstep(0.0, 0.3, life); } else " : ""}if (vF.w > 0.5) {
             // A sheet of spray: a flat, hard-edged shape tapering to a sharp tip, torn ragged,
             // with a clean hole or two.
             float wdt = mix(1.0, 0.18, clamp(p.y * 0.5 + 0.5, 0.0, 1.0));
@@ -337,7 +337,7 @@ export class Spray {
       F[o] = cover;
       F[o + 1] = hash(i, 9);
       F[o + 2] = stretch;
-      F[o + 3] = kind === 0 ? 0 : 1;
+      F[o + 3] = kind === 0 ? 0 : kind === 2 && TIER.softWake ? 2 : 1;
       // Velocity relative to the hull (what the eye follows from the chase camera).
       VV[o3] = vx * drag - fx * spd + 0.001;
       VV[o3 + 1] = vu * drag - 9.8 * age;
