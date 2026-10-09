@@ -262,12 +262,15 @@ export function touchLoaderText(): void {
     // Thin italic over the pale deck: a soft dark shadow keeps it legible.
     s.style.textShadow = "0 1px 3px rgba(40, 26, 18, 0.6), 0 0 14px rgba(40, 26, 18, 0.5)";
   }
-  // In a landscape phone frame the pier lamp's head stands in the title and its subtitle: lift the
-  // block and set it left of the lamp.
+  // In a landscape phone frame the pier lamp stands mid-screen with the lighthouse to its left: the
+  // title goes in the open sky right of the lamp, a little smaller.
   const t = document.querySelector<HTMLElement>("#loader .title");
   if (t) {
     t.style.top = "3vh";
-    t.style.transform = "translateX(-9vw)";
+    t.style.left = "60%";
+    t.style.right = "env(safe-area-inset-right)";
+    const h = t.querySelector<HTMLElement>("h1");
+    if (h) h.style.fontSize = "clamp(36px, 7vw, 96px)";
   }
 }
 
