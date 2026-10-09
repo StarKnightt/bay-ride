@@ -79,6 +79,8 @@ export interface Tier {
   shadowSpread: number;
   /** Dune grass may draw or induce ink. Under MSAA the faint outline the sand draws round each blade stays hair-thin; at a phone's pixel size it broke into chains of rings, so phones keep the blades out of the ink like the meadow grass. */
   inkFoliage: boolean;
+  /** Power-line radius (m): a phone's pixel is several times a desktop's, and a 1.2 cm wire broke into dashes across the hill. */
+  wireR: number;
   /** Trees drawn in the water mirror: 1 every wood but the hill's (desktop), 0 only the island's (its reflection leads the opening view; the town and headland trees are a few pixels in a phone's small mirror). */
   reflTrees: number;
 }
@@ -107,6 +109,7 @@ export const DESKTOP: Tier = {
   horAspect: 0,
   shadowSpread: 1,
   inkFoliage: true,
+  wireR: 0.012,
   reflTrees: 1,
 };
 
@@ -134,6 +137,7 @@ export const PHONE: Tier = {
   horAspect: 1.6,
   shadowSpread: 1.75,
   inkFoliage: false,
+  wireR: 0.028,
   reflTrees: 0,
 };
 
