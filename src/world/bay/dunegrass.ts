@@ -102,7 +102,7 @@ export function buildDuneGrass(colliders: readonly Collider[], layout?: Layout):
   group.name = "dune grass";
   const kinds = [saltGrass(11), marram(23), thrift(37), tussock(41)];
   // No ink: outlined, every clump turns into a scribble.
-  const mat = uber(ID.grass, 0, THREE.DoubleSide);
+  const mat = uber(ID.grass, TIER.inkFoliage ? 0 : -1, THREE.DoubleSide);
   const free = (x: number, z: number) => {
     if (Math.abs(z - PIER.z) < PIER.half + 2.5 && x < PIER.x0 + 6) return false;
     if (rampH(x, z, 0.8) > -Infinity) return false;
