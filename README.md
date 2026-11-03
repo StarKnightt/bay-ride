@@ -209,3 +209,5 @@ screenshots, and the findings went into the next pass. The user steered it throu
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+☕ like it? [buy me a coffee](https://buymeacoffee.com/prasenx) or [sponsor on github](https://github.com/sponsors/StarKnightt)
